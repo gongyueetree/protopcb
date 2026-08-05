@@ -369,13 +369,13 @@ export default function App() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
           {/* Toolbar */}
           <div style={{ background: '#fff', borderBottom: '2px solid #E8F3EE', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button onClick={undo} style={tbtn}>↩ {t('撤销')}</button>
-            <button onClick={redo} style={tbtn}>↪ {t('重做')}</button>
-            <button onClick={clearAll} style={tbtn} onClickCapture={(e) => {
+            <button onClick={undo} style={ibtn} title={t('撤销')} aria-label={t('撤销')}>↩</button>
+            <button onClick={redo} style={ibtn} title={t('重做')} aria-label={t('重做')}>↪</button>
+            <button onClick={clearAll} style={ibtn} title={t('清除')} aria-label={t('清除')} onClickCapture={(e) => {
               const cnt = useDesignStore.getState().doc.components.length;
               if (cnt > 0 && !window.confirm(t('确定清空画布？将移除') + ` ${cnt} ` + t('个器件（可用「撤销」恢复）'))) e.stopPropagation();
-            }}>🧹 {t('清除')}</button>
-            <button onClick={autoArrange} title={t('按电气规则重新自动布局全部器件（可撤销）')} style={tbtn}>✨ {t('自动整理')}</button>
+            }}>🧹</button>
+            <button onClick={autoArrange} style={ibtn} title={t('自动整理') + ' — ' + t('按电气规则重新自动布局全部器件（可撤销）')} aria-label={t('自动整理')}>✨</button>
             <div style={{ width: 1, height: 18, background: '#E8F3EE', margin: '0 4px' }} />
             <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #E8F3EE' }}>
               {(['2d', '3d'] as const).map((v) => (
@@ -1234,5 +1234,7 @@ function NumInput({ value, onChange, label }: { value: number; onChange: (v: num
 
 const linkBtn: React.CSSProperties = { padding: '5px 12px', borderRadius: 6, border: '1px solid #c6e2d0', background: '#f0f9f4', color: '#1f5c3b', fontSize: 11, fontWeight: 700, textDecoration: 'none' };
 const hbtn: React.CSSProperties = { padding: '5px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer' };
+/** 图标工具按钮：无文字，靠 title/aria-label 提供说明 */
+const ibtn: React.CSSProperties = { width: 34, height: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: '1px solid #E8F3EE', background: '#fff', fontSize: 15, lineHeight: 1, color: '#2C3E50', cursor: 'pointer', padding: 0 };
 const tbtn: React.CSSProperties = { padding: '7px 14px', borderRadius: 6, border: '1px solid #E8F3EE', background: '#fff', fontSize: 13, fontWeight: 500, color: '#2C3E50', cursor: 'pointer' };
 const smbtn: React.CSSProperties = { padding: '3px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#475569' };
