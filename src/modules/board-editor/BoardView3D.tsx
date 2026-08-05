@@ -206,24 +206,16 @@ function rebuildBoard(group: THREE.Group, doc: CircuitCanvasDocument) {
   }
   group.add(boardMesh);
 
-  // 定位孔镀铜环（annular ring）：只画薄壁孔壁，不填实心
-  if (doc.board.shape !== 'circle') {
+  // 定位孔：矩形/圆角/L 形板已由 Shape.holes 真正挖穿，无需额外几何（此前的孔壁环高出板面，看起来像凸台）
+  if (doc.board.shape === 'circle') {
+    // 圆形板用 CylinderGeometry 无法 Shape 挖孔 → 用与板面齐平的深色薄圆片示意孔位
     for (const c of mountingHoleCenters(doc.board)) {
-      const r = HOLE_DIAMETER_MM / 2;
-      const ringGeo = new THREE.CylinderGeometry(r, r, boardThk + 0.02, 24, 1, true); // openEnded 空心壁
-      const ring = new THREE.Mesh(ringGeo, MAT.gold);
-      ring.material.side = THREE.DoubleSide;
-      ring.position.set(c.x - W / 2, boardThk / 2, c.y - H / 2);
-      group.add(ring);
-    }
-  } else {
-    // 圆形板用 CylinderGeometry，无法 Shape 挖孔 → 用深色薄环示意孔位
-    for (const c of mountingHoleCenters(doc.board)) {
-      const r = HOLE_DIAMETER_MM / 2;
-      const ringGeo = new THREE.CylinderGeometry(r, r, boardThk + 0.05, 24, 1, true);
-      const ring = new THREE.Mesh(ringGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a1a, side: THREE.DoubleSide, roughness: 0.9 }));
-      ring.position.set(c.x - W / 2, -boardThk / 2, c.y - H / 2);
-      group.add(ring);
+      const disc = new THREE.Mesh(
+        new THREE.CylinderGeometry(HOLE_DIAMETER_MM / 2, HOLE_DIAMETER_MM / 2, boardThk * 0.6, 24),
+        new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.95, metalness: 0 }),
+      );
+      disc.position.set(c.x - W / 2, 0, c.y - H / 2);
+      group.add(disc);
     }
   }
 
