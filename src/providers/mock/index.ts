@@ -10,7 +10,10 @@ import type {
   CurrentUser, AiSchemeRequest, AiSchemeResult,
 } from '../types';
 import type { ComponentCategory } from '../../design-core/document/types';
-import { MOCK_COMPONENTS, FOOTPRINT_LIBRARY, ALTERNATIVES, SUBCIRCUITS, geometryFor, supplierOffersFor } from './data';
+import { MOCK_COMPONENTS, LEGACY_PARTS, FOOTPRINT_LIBRARY, ALTERNATIVES, SUBCIRCUITS, geometryFor, supplierOffersFor } from './data';
+
+/** id 查找并集：常用件 + 旧演示目录（AI演示方案/详情兼容） */
+const ALL_PARTS = [...MOCK_COMPONENTS, ...LEGACY_PARTS];
 
 const delay = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 
@@ -35,31 +38,31 @@ export class MockComponentDataProvider implements ComponentDataProvider {
 
   async getComponentDetail(componentId: string): Promise<ComponentSearchResult | null> {
     await delay(60);
-    const c = MOCK_COMPONENTS.find((x) => x.componentId === componentId);
+    const c = ALL_PARTS.find((x) => x.componentId === componentId);
     return c ? { ...c, org: c.isOrg ? this.makeOrg(c.componentId) : undefined } : null;
   }
 
   async getFootprintOptions(componentId: string): Promise<FootprintOption[]> {
     await delay(60);
-    const c = MOCK_COMPONENTS.find((x) => x.componentId === componentId);
+    const c = ALL_PARTS.find((x) => x.componentId === componentId);
     if (!c) return [];
     return [{ footprintId: c.defaultFootprintName, name: c.defaultFootprintName, geometry: geometryFor(c.defaultFootprintName), confidence: 1, source: 'KiCad', category: c.category }];
   }
 
   async getAlternatives(componentId: string): Promise<ComponentAlternative[]> {
     await delay(60);
-    const c = MOCK_COMPONENTS.find((x) => x.componentId === componentId);
+    const c = ALL_PARTS.find((x) => x.componentId === componentId);
     return c ? ALTERNATIVES[c.mpn] ?? [] : [];
   }
 
   async getSupplierOffers(componentId: string) {
     await delay(80);
-    const c = MOCK_COMPONENTS.find((x) => x.componentId === componentId);
+    const c = ALL_PARTS.find((x) => x.componentId === componentId);
     return c ? supplierOffersFor(c.mpn, c.unitPrice?.amount ?? 1) : [];
   }
 
   async getOrganizationContext(componentId: string, organizationId: string): Promise<OrganizationMaterialInfo | null> {
-    const c = MOCK_COMPONENTS.find((x) => x.componentId === componentId);
+    const c = ALL_PARTS.find((x) => x.componentId === componentId);
     return c?.isOrg ? this.makeOrg(componentId, organizationId) : null;
   }
 

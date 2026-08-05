@@ -10,10 +10,10 @@ import { createBoard } from '../document/factory';
 import { searchResultToPlaced, nextReference, runDesignReview } from '../document/services';
 import { createDocument } from '../document/factory';
 import type { ComponentSearchResult } from '../../providers/types';
-import { MOCK_COMPONENTS } from '../../providers/mock/data';
+import { MOCK_COMPONENTS, LEGACY_PARTS } from '../../providers/mock/data';
 
 const asResult = (id: string): ComponentSearchResult => {
-  const c = MOCK_COMPONENTS.find((x) => x.componentId === id)!;
+  const c = [...MOCK_COMPONENTS, ...LEGACY_PARTS].find((x) => x.componentId === id)!;
   return { ...c, org: undefined };
 };
 
@@ -83,8 +83,11 @@ describe('design review', () => {
     expect(titles.some((t) => t.includes('电源'))).toBe(true);
   });
 
-  it('nextReference increments per category', () => {
+  it('nextReference 按 KiCad 习惯编号', () => {
     const placed = [searchResultToPlaced(asResult('cap100nf'), 'C1')];
-    expect(nextReference('passive', placed)).toBe('C2');
+    // 电容按关键词 → C 序列递增
+    expect(nextReference({ category: 'passive', mpn: 'CAP-1uF' }, placed)).toBe('C2');
+    // 电阻按关键词 → R 序列独立起步
+    expect(nextReference({ category: 'passive', mpn: 'RES-10KΩ' }, placed)).toBe('R1');
   });
 });

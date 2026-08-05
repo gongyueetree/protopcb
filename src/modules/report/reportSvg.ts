@@ -86,6 +86,35 @@ export function buildPcbLayoutSvg(doc: CircuitCanvasDocument): string {
 }
 
 /** 原理图 SVG —— 从当前 DOM 抓取（需已打开原理图面板） */
+/** 原理图 SVG —— 优先抓当前 DOM；面板未打开过时离屏渲染一帧（报告内容不依赖浏览顺序） */
+export async function buildSchematicSvg(): Promise<string | null> {
+  const fromDom = buildSchematicSvgFromDom();
+  if (fromDom) return fromDom;
+  // 离屏渲染：复用同一 SchematicPanel 渲染器
+  const [{ createRoot }, React, { SchematicPanel }] = await Promise.all([
+    import('react-dom/client'),
+    import('react'),
+    import('../schematic/SchematicPanel'),
+  ]);
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:-10000px;top:0;width:960px;height:520px;overflow:hidden;';
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  root.render(React.createElement(SchematicPanel));
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const svgEl = host.querySelector('svg');
+  const out = svgEl && svgEl.querySelector('#schg') ? (() => {
+    const clone = svgEl.cloneNode(true) as SVGSVGElement;
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clone.setAttribute('width', '900');
+    clone.setAttribute('height', '500');
+    return clone.outerHTML;
+  })() : null;
+  root.unmount();
+  host.remove();
+  return out;
+}
+
 export function buildSchematicSvgFromDom(): string | null {
   const svgs = Array.from(document.querySelectorAll('svg'));
   const sch = svgs.find((sv) => sv.querySelector('#schg'));

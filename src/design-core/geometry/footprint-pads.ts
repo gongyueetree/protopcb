@@ -30,6 +30,9 @@ export interface PadFootprint {
   /** 本体丝印外框 (mm) */
   bodyW: number;
   bodyH: number;
+  /** 本体中心相对封装原点的偏移 (mm)：卧式晶振等本体偏在引脚一侧的封装非零 */
+  bodyCx?: number;
+  bodyCy?: number;
   pads: Pad[];
   /** 引脚1标记位置 (mm)，可选 */
   pin1?: { x: number; y: number };

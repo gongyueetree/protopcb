@@ -28,7 +28,7 @@ const placedComponentSchema = z.object({
   componentId: z.string(),
   mpn: z.string(),
   reference: z.string(),
-  category: z.enum(['mcu', 'power', 'passive', 'connector', 'ic']),
+  category: z.enum(['mcu', 'power', 'passive', 'connector', 'ic', 'electromech', 'sensor', 'rf']),
   manufacturer: z.string(),
   footprint: z.object({
     footprintId: z.string(),
@@ -58,8 +58,11 @@ const placedComponentSchema = z.object({
       datasheetUrl: z.string().optional(),
       imageUrl: z.string().optional(),
       stepUrl: z.string().optional(),
+      anchorRef: z.string().optional(),
+      officialUrl: z.string().optional(),
       footprintFileUrl: z.string().optional(),
       symbolFileUrl: z.string().optional(),
+      symbolFromMpn: z.string().optional(),
       classification: z.string().optional(),
     })
     .optional(),
@@ -77,12 +80,15 @@ const boardSchema = z.object({
     z.object({
       id: z.string(),
       label: z.string(),
-      category: z.enum(['mcu', 'power', 'passive', 'connector', 'ic']).optional(),
+      category: z.enum(['mcu', 'power', 'passive', 'connector', 'ic', 'electromech', 'sensor', 'rf']).optional(),
       normRect: z.tuple([z.number(), z.number(), z.number(), z.number()]),
     })
   ),
   layerCount: z.number().int().optional(),
   mountingHolesEnabled: z.boolean().optional(),
+  cutWidthMm: z.number().optional(),
+  cutHeightMm: z.number().optional(),
+  cornerRadiusMm: z.number().optional(),
 });
 
 const connectionSchema = z.object({
@@ -90,7 +96,8 @@ const connectionSchema = z.object({
   fromId: z.string(),
   toId: z.string(),
   label: z.string(),
-  style: z.enum(['single', 'double', 'none', 'bus']),
+  style: z.enum(['single', 'double', 'back', 'none', 'bus']),
+  dir: z.enum(['forward', 'back', 'both', 'none']).optional(),
   color: z.string().optional(),
   labelDx: z.number().optional(),
   labelDy: z.number().optional(),
@@ -140,6 +147,20 @@ export const documentSchema = z.object({
     source: z.enum(['demo', 'standalone', 'integrated']),
   }),
   designIntent: z.object({ requirement: z.string(), rationale: z.string(), generatedAt: z.string() }).optional(),
+  /** KiCad 工程导入的原理图原样视图（只读渲染：实例坐标/连线/结点/标签） */
+  schematicSheet: z.object({
+    instances: z.array(z.object({
+      ref: z.string(), libId: z.string(),
+      x: z.number(), y: z.number(), rot: z.number(),
+      mirror: z.string().optional(), unit: z.number().optional(),
+    })),
+    wires: z.array(z.array(z.tuple([z.number(), z.number()]))),
+    junctions: z.array(z.tuple([z.number(), z.number()])),
+    labels: z.array(z.object({ text: z.string(), x: z.number(), y: z.number(), rot: z.number() })),
+    noConnects: z.array(z.tuple([z.number(), z.number()])),
+    /** libId → 符号定义原文（渲染用原始几何） */
+    libSymbols: z.record(z.string()),
+  }).optional(),
   board: boardSchema,
   components: z.array(placedComponentSchema),
   functionalBlocks: z.array(functionalBlockSchema),

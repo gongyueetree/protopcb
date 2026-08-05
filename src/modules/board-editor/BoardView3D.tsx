@@ -3,12 +3,16 @@
  * 真 3D 板视图 —— Three.js WebGL 渲染。
  * 真实 PCB 板 + 参数化 3D 封装，鼠标拖拽旋转、滚轮缩放。仅查看。
  */
+import { tr } from '../../shared/i18n';
 import { useRef, useEffect } from 'react';
 import * as THREE from 'three';
+import { buildStudioEnvironment } from './studio-env';
 import { useDesignStore } from '../../state/designStore';
 import { buildComponent3D, MAT } from './footprint3d';
-import { mountingHoleCenters, HOLE_DIAMETER_MM } from '../../design-core/collision';
+import { mountingHoleCenters, HOLE_DIAMETER_MM, lshapeCut } from '../../design-core/collision';
+import { lshapeRoundedSegments } from '../../design-core/geometry/board-outline';
 import { useLibFileStore } from '../../design-core/geometry/lib-file-registry';
+import { stepStats } from './step-loader';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
 
 export function BoardView3D() {
@@ -28,12 +32,13 @@ export function BoardView3D() {
     const w = mount.clientWidth, h = mount.clientHeight;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0c1520);
+    // 背景交给 CSS 纯白：scene.background 会被 ACES 色调映射压灰，透明渲染则不受影响
+    scene.background = null;
 
     const camera = new THREE.PerspectiveCamera(45, w / h, 1, 2000);
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     } catch {
       // WebGL 不可用：显示降级提示，避免白屏
       const msg = document.createElement('div');
@@ -44,12 +49,18 @@ export function BoardView3D() {
     }
     renderer.setSize(w, h);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.35;
     mount.appendChild(renderer.domElement);
 
     // lights
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(60, 120, 80); scene.add(key);
-    const fill = new THREE.DirectionalLight(0x88aaff, 0.4); fill.position.set(-80, 60, -40); scene.add(fill);
+    // studio 环境反射（金属高光层次）+ 三点光
+    scene.environment = buildStudioEnvironment(renderer);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    const key = new THREE.DirectionalLight(0xffffff, 1.5); key.position.set(60, 120, 80); scene.add(key);
+    const fill = new THREE.DirectionalLight(0xdbe7f5, 0.5); fill.position.set(-80, 60, -40); scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xffffff, 0.6); rim.position.set(-20, 40, -110); scene.add(rim);
 
     const boardGroup = new THREE.Group();
     scene.add(boardGroup);
@@ -119,24 +130,39 @@ export function BoardView3D() {
 
   return (
     <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-      <div ref={mountRef} style={{ width: '100%', height: '100%', cursor: 'grab' }} />
-      <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', padding: '5px 14px', borderRadius: 16, background: 'rgba(255,255,255,.08)', border: '1px solid rgba(134,239,172,.25)', color: '#86efac', fontSize: 11, fontWeight: 600, pointerEvents: 'none' }}>
-        🖱 拖拽旋转 · 滚轮缩放 · 真实 3D 封装
+      {(() => {
+        const st = stepStats();
+        const total = doc.components.filter((c) => c.display?.stepUrl).length;
+        if (!total) return null;
+        const allOk = st.ready >= total && !st.loading;
+        return (
+          <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 5, fontSize: 10.5, padding: '4px 10px', borderRadius: 6, background: st.failed ? '#fef2f2' : allOk ? '#f0fdf4' : '#fefce8', border: `1px solid ${st.failed ? '#fecaca' : allOk ? '#bbf7d0' : '#fde68a'}`, color: st.failed ? '#b91c1c' : allOk ? '#15803d' : '#a16207', maxWidth: 380 }}>
+            {st.failed
+              ? `真实3D: ${st.ready} 成功 · ${st.failed} 失败 — ${st.lastError}`
+              : st.loading
+                ? `真实3D模型转换中… (${st.ready}/${total}) 首次需下载 3D 引擎(约8MB)`
+                : `✓ 真实 STEP 模型已加载 (${st.ready}/${total})`}
+          </div>
+        );
+      })()}
+      <div ref={mountRef} style={{ width: '100%', height: '100%', cursor: 'grab', background: '#ffffff' }} />
+      <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', padding: '5px 14px', borderRadius: 16, background: 'rgba(255,255,255,.92)', border: '1px solid #14532d', color: '#14532d', fontSize: 11, fontWeight: 700, pointerEvents: 'none' }}>
+        🖱 {tr('拖拽旋转 · 滚轮缩放 · 真实 3D 封装')}
       </div>
       <div style={{ position: 'absolute', bottom: 12, right: 12, display: 'flex', gap: 6 }}>
         <button onClick={() => { const st = stateRef.current; st.rotX = -1.35; st.rotY = 0; st.dist = 200; st.updateCamera?.(); }}
-          style={vbtn}>⬆ 顶视Top</button>
+          style={vbtn}>⬆ {tr('顶视Top')}</button>
         <button onClick={() => { const st = stateRef.current; st.rotX = 1.35; st.rotY = 0; st.dist = 200; st.updateCamera?.(); }}
-          style={vbtn}>⬇ 看Bottom</button>
+          style={vbtn}>⬇ {tr('看Bottom')}</button>
         <button onClick={() => { const st = stateRef.current; st.rotX = -0.9; st.rotY = 0.3; st.dist = 220; st.updateCamera?.(); }}
-          style={vbtn}>⟳ 复位视角</button>
+          style={vbtn}>⟳ {tr('复位视角')}</button>
       </div>
     </div>
   );
 }
 
 /** 重建板 + 器件。坐标：板中心为原点，x 右、z 下（对应 2D 的 y）、y 上。 */
-const vbtn: React.CSSProperties = { padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(134,239,172,.3)', background: 'rgba(255,255,255,.08)', color: '#86efac', fontSize: 11, fontWeight: 700, cursor: 'pointer' };
+const vbtn: React.CSSProperties = { padding: '6px 12px', borderRadius: 8, border: '1px solid #14532d', background: 'rgba(255,255,255,.92)', color: '#14532d', fontSize: 11, fontWeight: 700, cursor: 'pointer' };
 
 function rebuildBoard(group: THREE.Group, doc: CircuitCanvasDocument) {
   // clear
@@ -154,18 +180,24 @@ function rebuildBoard(group: THREE.Group, doc: CircuitCanvasDocument) {
     // 用 Shape 构造圆角矩形 / L 形，再挤出厚度
     const shape = new THREE.Shape();
     if (doc.board.shape === 'lshape') {
-      const cutW = W * 0.45, cutH = H * 0.4;
-      shape.moveTo(-W / 2, -H / 2);
-      shape.lineTo(W / 2, -H / 2);
-      shape.lineTo(W / 2, H / 2 - cutH);
-      shape.lineTo(W / 2 - cutW, H / 2 - cutH);
-      shape.lineTo(W / 2 - cutW, H / 2);
-      shape.lineTo(-W / 2, H / 2);
-      shape.lineTo(-W / 2, -H / 2);
+      const { cutW, cutH } = lshapeCut(doc.board);
+      const r = doc.board.cornerRadiusMm ?? 0;
+      const { move, segs } = lshapeRoundedSegments(-W / 2, -H / 2, W, H, cutW, cutH, r);
+      shape.moveTo(move.x, move.y);
+      for (const sg of segs) {
+        if (sg.type === 'L') shape.lineTo(sg.p.x, sg.p.y);
+        else shape.quadraticCurveTo(sg.c.x, sg.c.y, sg.p.x, sg.p.y);
+      }
     } else {
       // 矩形 / 圆角矩形
       const r = doc.board.shape === 'rounded' ? Math.min(W, H) * 0.08 : 1.5;
       roundedRectShape(shape, W, H, r);
+    }
+    // 定位孔挖穿板身：作为 Shape 的 holes（真实通孔，不是实心塞子）
+    for (const c of mountingHoleCenters(doc.board)) {
+      const hole = new THREE.Path();
+      hole.absarc(c.x - W / 2, c.y - H / 2, HOLE_DIAMETER_MM / 2, 0, Math.PI * 2, true);
+      shape.holes.push(hole);
     }
     const geo = new THREE.ExtrudeGeometry(shape, { depth: boardThk, bevelEnabled: false });
     geo.rotateX(Math.PI / 2); // 让挤出方向朝 y
@@ -174,11 +206,25 @@ function rebuildBoard(group: THREE.Group, doc: CircuitCanvasDocument) {
   }
   group.add(boardMesh);
 
-  // 安装孔（由文档开关控制）
-  for (const c of mountingHoleCenters(doc.board)) {
-    const hole = new THREE.Mesh(new THREE.CylinderGeometry(HOLE_DIAMETER_MM / 2, HOLE_DIAMETER_MM / 2, boardThk + 0.2, 20), MAT.metalCan);
-    hole.position.set(c.x - W / 2, 0, c.y - H / 2);
-    group.add(hole);
+  // 定位孔镀铜环（annular ring）：只画薄壁孔壁，不填实心
+  if (doc.board.shape !== 'circle') {
+    for (const c of mountingHoleCenters(doc.board)) {
+      const r = HOLE_DIAMETER_MM / 2;
+      const ringGeo = new THREE.CylinderGeometry(r, r, boardThk + 0.02, 24, 1, true); // openEnded 空心壁
+      const ring = new THREE.Mesh(ringGeo, MAT.gold);
+      ring.material.side = THREE.DoubleSide;
+      ring.position.set(c.x - W / 2, boardThk / 2, c.y - H / 2);
+      group.add(ring);
+    }
+  } else {
+    // 圆形板用 CylinderGeometry，无法 Shape 挖孔 → 用深色薄环示意孔位
+    for (const c of mountingHoleCenters(doc.board)) {
+      const r = HOLE_DIAMETER_MM / 2;
+      const ringGeo = new THREE.CylinderGeometry(r, r, boardThk + 0.05, 24, 1, true);
+      const ring = new THREE.Mesh(ringGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a1a, side: THREE.DoubleSide, roughness: 0.9 }));
+      ring.position.set(c.x - W / 2, -boardThk / 2, c.y - H / 2);
+      group.add(ring);
+    }
   }
 
   // 器件：2D 坐标 (xMm,yMm) 是相对板左上角；转成以板中心为原点

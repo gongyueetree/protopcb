@@ -17,12 +17,20 @@ export function mountingHoleRects(board: BoardDefinition): Rect[] {
 }
 
 /** 定位孔中心点（用于渲染）。L 形板右下缺口区域的孔移到缺口上方板内。 */
+/** L 形切角尺寸（mm）：可配置，缺省 45%W / 40%H，并夹取到合法范围 */
+export function lshapeCut(board: BoardDefinition): { cutW: number; cutH: number } {
+  const W = board.widthMm, H = board.heightMm;
+  const cutW = Math.min(W * 0.9, Math.max(5, board.cutWidthMm ?? W * 0.45));
+  const cutH = Math.min(H * 0.9, Math.max(5, board.cutHeightMm ?? H * 0.4));
+  return { cutW, cutH };
+}
+
 export function mountingHoleCenters(board: BoardDefinition): { x: number; y: number }[] {
   if (!board.mountingHolesEnabled || board.shape === 'circle') return [];
   const m = HOLE_MARGIN_MM, W = board.widthMm, H = board.heightMm;
   if (board.shape === 'lshape') {
-    // 缺口: x > W-0.45W 且 y > H-0.4H 被切除 → 右下孔放到缺口上沿以内
-    const cutH = H * 0.4;
+    // 缺口被切除 → 右下孔放到缺口上沿以内
+    const { cutH } = lshapeCut(board);
     return [{ x: m, y: m }, { x: W - m, y: m }, { x: m, y: H - m }, { x: W - m, y: H - cutH - m }];
   }
   return [{ x: m, y: m }, { x: W - m, y: m }, { x: m, y: H - m }, { x: W - m, y: H - m }];

@@ -111,6 +111,91 @@ export default async function handler(req, res) {
       return res.status(200).send(JSON.stringify({ libs: data }));
     }
 
+    if (path === 'fpsearch' || path === 'symsearch') {
+      const q = String(req.query.q ?? '').trim().toLowerCase();
+      if (q.length < 2) return res.status(400).send(JSON.stringify({ error: 'query too short' }));
+      const isSym = path === 'symsearch';
+      const cacheKey = `${path}:${q}`;
+      let hits = getCached(cacheKey);
+      if (!hits) {
+        // 库清单
+        let libs;
+        if (isSym) {
+          const pj = await resolveSymProject();
+          const ref = pj.workingRef !== undefined ? pj.workingRef : pj.branch;
+          libs = getCached('symlibs');
+          if (!libs) {
+            const out = [];
+            for (let page = 1; page <= 10; page++) {
+              const r = await fetch(`${GL_API}/${pj.id}/repository/tree?per_page=100&page=${page}` + (ref ? `&ref=${encodeURIComponent(ref)}` : ''), { headers: { 'User-Agent': 'circuit-canvas' } });
+              if (!r.ok) break;
+              const items = await r.json();
+              if (!Array.isArray(items)) break;
+              out.push(...items);
+              if (items.length < 100) break;
+            }
+            libs = out.filter((t) => t.type === 'tree' && t.name.endsWith('.kicad_symdir')).map((t) => t.name.replace(/\.kicad_symdir$/, ''));
+            if (libs.length) cache.set('symlibs', { at: Date.now(), data: libs });
+          }
+        } else {
+          libs = getCached('libs');
+          if (!libs) {
+            const tree = await glTree('');
+            libs = tree.filter((t) => t.type === 'tree' && t.name.endsWith('.pretty')).map((t) => t.name.replace(/\.pretty$/, ''));
+            cache.set('libs', { at: Date.now(), data: libs });
+          }
+        }
+        // 库名相关性优先（如 q=0402 先查 Resistor/Capacitor；q=stm32 先查 MCU_ST）
+        const tokens = q.split(/[\s_-]+/).filter(Boolean);
+        const score = (ln) => {
+          const l = ln.toLowerCase();
+          let sc = 0;
+          for (const t of tokens) if (l.includes(t)) sc += 10;
+          if (/^(R|C|L)_/.test(q) && /resistor|capacitor|inductor/.test(l)) sc += 5;
+          return sc;
+        };
+        const ordered = [...libs].sort((a, b) => score(b) - score(a));
+        hits = [];
+        const LIB_BUDGET = 26; // 每次最多探这么多个库，控制冷启动耗时
+        for (const ln of ordered.slice(0, LIB_BUDGET)) {
+          if (hits.length >= 60) break;
+          let names = getCached(isSym ? `symlist:${ln}` : `list:${ln}`);
+          if (!names) {
+            try {
+              if (isSym) {
+                const pj = await resolveSymProject();
+                const ref = pj.workingRef !== undefined ? pj.workingRef : pj.branch;
+                const out = [];
+                for (let page = 1; page <= 20; page++) {
+                  const qs = `per_page=100&page=${page}&path=${encodeURIComponent(ln + '.kicad_symdir')}` + (ref ? `&ref=${encodeURIComponent(ref)}` : '');
+                  const r = await fetch(`${GL_API}/${pj.id}/repository/tree?${qs}`, { headers: { 'User-Agent': 'circuit-canvas' } });
+                  if (!r.ok) break;
+                  const items = await r.json();
+                  if (!Array.isArray(items)) break;
+                  out.push(...items);
+                  if (items.length < 100) break;
+                }
+                names = out.filter((t) => t.type === 'blob' && t.name.endsWith('.kicad_sym')).map((t) => t.name.replace(/\.kicad_sym$/, ''));
+              } else {
+                const tree = await glTree(`${ln}.pretty`);
+                names = tree.filter((t) => t.type === 'blob' && t.name.endsWith('.kicad_mod')).map((t) => t.name.replace(/\.kicad_mod$/, ''));
+              }
+              if (names.length) cache.set(isSym ? `symlist:${ln}` : `list:${ln}`, { at: Date.now(), data: names });
+            } catch { names = []; }
+          }
+          for (const n of names) {
+            if (hits.length >= 60) break;
+            const nl = n.toLowerCase();
+            if (tokens.every((t) => nl.includes(t))) hits.push({ lib: ln, name: n });
+          }
+        }
+        if (hits.length) cache.set(cacheKey, { at: Date.now(), data: hits });
+      }
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Cache-Control', hits.length ? 's-maxage=3600, stale-while-revalidate=86400' : 'no-store');
+      return res.status(200).send(JSON.stringify({ hits }));
+    }
+
     if (path === 'list') {
       if (!SAFE.test(String(lib))) return res.status(400).send(JSON.stringify({ error: 'bad lib' }));
       const key = `list:${lib}`;

@@ -20,9 +20,12 @@ export const CATEGORY_DISPLAY: Record<ComponentCategory, { name: string; icon: s
   passive: { name: '无源器件', icon: '◇', color: '#4b5563' },
   connector: { name: '连接器', icon: '⊞', color: '#6d28d9' },
   ic: { name: '集成电路', icon: '◻', color: '#0e7490' },
+  electromech: { name: '机电器件', icon: '🔘', color: '#9d174d' },
+  sensor: { name: '传感器', icon: '🌡', color: '#0f766e' },
+  rf: { name: '射频无线', icon: '📶', color: '#7c3aed' },
 };
 
-export const CATEGORY_LIST: ComponentCategory[] = ['mcu', 'power', 'passive', 'connector', 'ic'];
+export const CATEGORY_LIST: ComponentCategory[] = ['mcu', 'power', 'passive', 'connector', 'ic', 'electromech', 'sensor', 'rf'];
 
 export function fmtMoney(amount?: number): string {
   return amount == null ? '—' : `¥${amount.toFixed(2)}`;

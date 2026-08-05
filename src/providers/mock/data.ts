@@ -48,7 +48,35 @@ export function supplierOffersFor(mpn: string, basePrice = 1): { vendor: string;
   ];
 }
 
+/** 常用通用件 —— ezPLM 未收录的"型号众多但符号/封装无差别"器件：阻/容/感/LED/二极管/按键/排针
+ *  封装取典型值，上画布后可改；与 ezPLM 实时检索互补 */
 export const MOCK_COMPONENTS: MockComponent[] = [
+  // 电阻（0402 典型）
+  { componentId: 'g_r10k', mpn: 'RES-10KΩ', manufacturer: '通用', category: 'passive', defaultFootprintName: 'R_0402_1005Metric', family: 'Resistor', description: '10KΩ ±1% 贴片电阻（上拉/分压常用）', unitPrice: cny(0.008), pins: 2, isOrg: false },
+  { componentId: 'g_r1k', mpn: 'RES-1KΩ', manufacturer: '通用', category: 'passive', defaultFootprintName: 'R_0402_1005Metric', family: 'Resistor', description: '1KΩ ±1% 贴片电阻（限流常用）', unitPrice: cny(0.008), pins: 2, isOrg: false },
+  { componentId: 'g_r4k7', mpn: 'RES-4.7KΩ', manufacturer: '通用', category: 'passive', defaultFootprintName: 'R_0402_1005Metric', family: 'Resistor', description: '4.7KΩ ±1% 贴片电阻（I2C上拉常用）', unitPrice: cny(0.008), pins: 2, isOrg: false },
+  { componentId: 'g_r100', mpn: 'RES-100Ω', manufacturer: '通用', category: 'passive', defaultFootprintName: 'R_0603_1608Metric', family: 'Resistor', description: '100Ω ±1% 贴片电阻（串联匹配常用）', unitPrice: cny(0.01), pins: 2, isOrg: false },
+  { componentId: 'g_r0', mpn: 'RES-0Ω', manufacturer: '通用', category: 'passive', defaultFootprintName: 'R_0402_1005Metric', family: 'Resistor', description: '0Ω 跳线电阻', unitPrice: cny(0.005), pins: 2, isOrg: false },
+  // 电容
+  { componentId: 'g_c100n', mpn: 'CAP-100nF', manufacturer: '通用', category: 'passive', defaultFootprintName: 'C_0402_1005Metric', family: 'MLCC', description: '100nF 50V X7R 去耦电容', unitPrice: cny(0.02), pins: 2, isOrg: false },
+  { componentId: 'g_c1u', mpn: 'CAP-1µF', manufacturer: '通用', category: 'passive', defaultFootprintName: 'C_0603_1608Metric', family: 'MLCC', description: '1µF 25V X5R 陶瓷电容', unitPrice: cny(0.03), pins: 2, isOrg: false },
+  { componentId: 'g_c10u', mpn: 'CAP-10µF', manufacturer: '通用', category: 'passive', defaultFootprintName: 'C_0805_2012Metric', family: 'MLCC', description: '10µF 16V X5R 储能/滤波电容', unitPrice: cny(0.06), pins: 2, isOrg: false },
+  { componentId: 'g_c22u', mpn: 'CAP-22µF', manufacturer: '通用', category: 'passive', defaultFootprintName: 'C_1206_3216Metric', family: 'MLCC', description: '22µF 16V X5R 电源滤波电容', unitPrice: cny(0.12), pins: 2, isOrg: false },
+  // 电感
+  { componentId: 'g_l10u', mpn: 'IND-10µH', manufacturer: '通用', category: 'passive', defaultFootprintName: '4018', family: 'Inductor', description: '10µH 功率电感（DC-DC 常用）', unitPrice: cny(0.4), pins: 2, isOrg: false },
+  { componentId: 'g_fb', mpn: 'FB-600Ω', manufacturer: '通用', category: 'passive', defaultFootprintName: 'L_0603_1608Metric', family: 'Inductor', description: '磁珠 600Ω@100MHz（电源滤波）', unitPrice: cny(0.03), pins: 2, isOrg: false },
+  // LED / 二极管
+  { componentId: 'g_ledr', mpn: 'LED-RED', manufacturer: '通用', category: 'passive', defaultFootprintName: 'LED_0603_1608Metric', family: 'LED', description: '红色贴片 LED（电源/状态指示）', unitPrice: cny(0.05), pins: 2, isOrg: false },
+  { componentId: 'g_ledg', mpn: 'LED-GREEN', manufacturer: '通用', category: 'passive', defaultFootprintName: 'LED_0603_1608Metric', family: 'LED', description: '绿色贴片 LED（状态指示）', unitPrice: cny(0.05), pins: 2, isOrg: false },
+  { componentId: 'g_d4148', mpn: 'DIODE-1N4148W', manufacturer: '通用', category: 'passive', defaultFootprintName: 'SOD-123', family: 'Diode', description: '开关二极管 100V 300mA', unitPrice: cny(0.04), pins: 2, isOrg: false },
+  // 机电 / 连接器
+  { componentId: 'g_sw', mpn: 'SW-PUSH-6x6', manufacturer: '通用', category: 'electromech', defaultFootprintName: 'SW_Push_6.0x6.0mm_H7.3mm', family: 'Switch', description: '6×6mm 轻触按键', unitPrice: cny(0.15), pins: 4, isOrg: false },
+  { componentId: 'g_hdr4', mpn: 'HDR-1x04', manufacturer: '通用', category: 'connector', defaultFootprintName: 'PinHeader_1x04_P2.54mm', family: 'Pin Header', description: '2.54mm 单排 4P 排针', unitPrice: cny(0.1), pins: 4, isOrg: false },
+  { componentId: 'g_hdr2x5', mpn: 'HDR-2x05', manufacturer: '通用', category: 'connector', defaultFootprintName: 'THT-2.54mm', family: 'Pin Header', description: '2.54mm 双排 2×5P 排针（SWD 调试常用）', unitPrice: cny(0.3), pins: 10, isOrg: false },
+];
+
+/** 旧演示 IC 目录 —— 不再在搜索列表展示，仅供 detail/AI演示方案 的 componentId 查找 */
+export const LEGACY_PARTS: MockComponent[] = [
   // MCU
   { componentId: 'stm32f103', mpn: 'STM32F103C8T6', manufacturer: 'ST', category: 'mcu', defaultFootprintName: 'LQFP-48', family: 'STM32F1', description: 'ARM Cortex-M3 72MHz 64KB Flash', unitPrice: cny(8.5), pins: 48,
     attributes: { core: 'Cortex-M3', freq: '72MHz', flash: '64KB', ram: '20KB' },
@@ -149,4 +177,7 @@ export const SUBCIRCUITS: Record<ComponentCategory, PeripheralCircuitRecommendat
     { name: 'SPI上拉', parts: 'CS引脚10KΩ上拉 (Flash类)', why: '防止总线悬空', quickAddComponentId: 'res10k' },
   ],
   passive: [],
+  electromech: [],
+  sensor: [],
+  rf: [],
 };

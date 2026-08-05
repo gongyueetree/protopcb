@@ -26,7 +26,7 @@ export function buildKicadMod(c: PlacedComponent): string | null {
   L.push(`  (fp_text reference "REF**" (at 0 ${-(fp.bodyH / 2 + 1.5)}) (layer "F.SilkS") (effects (font (size 1 1) (thickness 0.15))))`);
   L.push(`  (fp_text value "${c.mpn}" (at 0 ${fp.bodyH / 2 + 1.5}) (layer "F.Fab") (effects (font (size 1 1) (thickness 0.15))))`);
   // 本体丝印外框
-  const hw = fp.bodyW / 2, hh = fp.bodyH / 2;
+  const hw = fp.bodyW / 2, hh = fp.bodyH / 2, bcx = fp.bodyCx ?? 0, bcy = fp.bodyCy ?? 0;
   L.push(`  (fp_rect (start ${-hw} ${-hh}) (end ${hw} ${hh}) (stroke (width 0.12) (type solid)) (layer "F.SilkS"))`);
   // Courtyard
   const cw = c.footprint.geometry.courtyardWidthMm / 2, ch = c.footprint.geometry.courtyardHeightMm / 2;

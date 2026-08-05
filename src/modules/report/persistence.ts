@@ -43,7 +43,8 @@ export function loadAutosave(): CircuitCanvasDocument | null {
  * 结构：需求 / 构成 / 框图(SVG内嵌) / 器件选择 / PCB布局图(SVG内嵌) / 原理图(SVG内嵌) / 供电方案 / 软件方案 / 设计审查。
  * SVG 以内嵌方式写入 Markdown（多数渲染器支持 <svg>；亦可另存 .svg 文件引用）。
  */
-import { buildBlockDiagramSvg, buildPcbLayoutSvg, buildSchematicSvgFromDom } from './reportSvg';
+import { buildBlockDiagramSvg, buildPcbLayoutSvg, buildSchematicSvg } from './reportSvg';
+import { digikeyOfferCached } from '../../providers/digikey';
 
 /** SVG → Markdown 图片（base64 data-URI，Typora/VSCode/GitHub 均可渲染） */
 function svgToMdImage(svg: string, alt: string): string {
@@ -52,8 +53,11 @@ function svgToMdImage(svg: string, alt: string): string {
   return `![${alt}](data:image/svg+xml;base64,${b64})`;
 }
 
-export function exportMarkdownReport(doc: CircuitCanvasDocument) {
-  const total = doc.bom.reduce((s, l) => s + (l.unitPrice?.amount ?? 0) * l.quantity, 0);
+export async function exportMarkdownReport(doc: CircuitCanvasDocument) {
+  // 价格口径与 BOM 面板一致：DigiKey 实时价（本会话已查询到的）优先，否则演示估价
+  const priceOf = (l: { mpn: string; unitPrice?: { amount: number } }) => digikeyOfferCached(l.mpn)?.unitPrice ?? l.unitPrice?.amount ?? 0;
+  const priceSrc = (l: { mpn: string }) => (digikeyOfferCached(l.mpn) ? 'DigiKey实时' : '演示估价');
+  const total = doc.bom.reduce((s, l) => s + priceOf(l) * l.quantity, 0);
   const cats = new Set(doc.components.map((c) => c.category));
   const mcus = doc.components.filter((c) => c.category === 'mcu');
   const powers = doc.components.filter((c) => c.category === 'power');
@@ -63,7 +67,7 @@ export function exportMarkdownReport(doc: CircuitCanvasDocument) {
   const L: string[] = [];
   L.push(`# ${doc.name} — 方案设计报告`);
   L.push('');
-  L.push(`> 生成时间：${new Date().toLocaleString('zh-CN')} · Circuit Canvas v3 · ezPLM.cn`);
+  L.push(`> 生成时间：${new Date().toLocaleString('zh-CN')} · 硬件原型工坊 Tindie Proto · ezPLM.cn`);
   L.push('');
 
   // 一、方案需求
@@ -100,7 +104,7 @@ export function exportMarkdownReport(doc: CircuitCanvasDocument) {
   L.push('| # | 位号 | 型号 | 厂商 | 封装 | 层 | 单价 | 数量 | 说明 |');
   L.push('|---|---|---|---|---|---|---|---|---|');
   doc.components.forEach((c, i) => {
-    L.push(`| ${i + 1} | ${c.reference} | ${c.mpn} | ${c.manufacturer} | ${c.footprint.name} | ${c.placement.side} | ¥${(c.unitPrice?.amount ?? 0).toFixed(2)} | ${c.quantity} | ${c.display?.description ?? ''} |`);
+    L.push(`| ${i + 1} | ${c.reference} | ${c.mpn} | ${c.manufacturer} | ${c.footprint.name} | ${c.placement.side} | ¥${priceOf(c).toFixed(2)}(${priceSrc(c)}) | ${c.quantity} | ${c.display?.description ?? ''} |`);
   });
   L.push('');
   L.push(`**BOM 估算总价：¥${total.toFixed(2)}**`);
@@ -117,8 +121,8 @@ export function exportMarkdownReport(doc: CircuitCanvasDocument) {
   // 六、原理图
   L.push('## 六、原理图');
   L.push('');
-  const schSvg = buildSchematicSvgFromDom();
-  L.push(schSvg ? svgToMdImage(schSvg, '原理图') : '（原理图需在应用中打开「原理图」面板后再生成报告，或用面板中「导出SVG」单独获取。）');
+  const schSvg = await buildSchematicSvg();
+  L.push(schSvg ? svgToMdImage(schSvg, '原理图') : '（原理图生成失败：画布可能为空。）');
   L.push('');
 
   // 七、供电方案

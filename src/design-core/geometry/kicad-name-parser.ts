@@ -133,7 +133,7 @@ export function parseKicadFootprintName(name: string): PadFootprint | null {
   const { bodyW, bodyH, pitch, pins } = extract(name);
 
   // 片式阻容感/二极管：R_0402_1005Metric / C_0603 / L_0805 / D_1206
-  const chip = N.match(/^[RCLD]_(\d{4})(?:_|$)/);
+  const chip = N.match(/^(?:[RCLD]|LED|FB)_(\d{4})(?:_|$)/);
   if (chip) return chipPads(chip[1]);
   // 纯代号（内置库兜底之外的 0805 等）
   if (/^\d{4}$/.test(N)) return chipPads(N);

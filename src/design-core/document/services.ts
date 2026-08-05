@@ -12,12 +12,38 @@ import { geometryFor } from '../../providers/mock/data';
 import { padFootprintFor } from '../geometry/footprint-pads';
 import { findOverlaps } from '../collision';
 
-const REF_PREFIX: Record<ComponentCategory, string> = { mcu: 'U', power: 'U', passive: 'C', connector: 'J', ic: 'U' };
+/** 类别兜底前缀（KiCad 习惯） */
+const REF_PREFIX: Record<ComponentCategory, string> = { mcu: 'U', power: 'U', passive: 'R', connector: 'J', ic: 'U', electromech: 'SW', sensor: 'U', rf: 'U' };
 
-/** 为某类别生成下一个位号。 */
-export function nextReference(category: ComponentCategory, existing: PlacedComponent[]): string {
-  const prefix = REF_PREFIX[category] ?? 'X';
-  const used = existing.filter((c) => c.reference.startsWith(prefix)).map((c) => parseInt(c.reference.slice(prefix.length), 10) || 0);
+/** 关键词级位号前缀（KiCad 默认习惯）：型号/封装/描述综合判定，类别只兜底 */
+export function refPrefixFor(r: { category: ComponentCategory; mpn?: string; defaultFootprintName?: string; description?: string }): string {
+  const hay = `${r.mpn ?? ''} ${r.defaultFootprintName ?? ''} ${r.description ?? ''}`;
+  const rules: [RegExp, string][] = [
+    [/(^|\s)(R_|RES)|电阻|(?:\d+(?:\.\d+)?[KkMm]?)(?:Ω|ohm)/i, 'R'],
+    [/(^|\s)FB_|铁氧体|FERRITE/i, 'FB'],
+    [/(^|\s)(L_|IND)|电感|INDUCTOR/i, 'L'],
+    [/(^|\s)(C_|CP_|CAP)|电容|MLCC|[0-9](uF|nF|pF)/i, 'C'],
+    [/LED|发光/i, 'D'],
+    [/(^|\s)(D_|SOD|1N\d)|DIODE|二极管|肖特基|SCHOTTKY|TVS|整流/i, 'D'],
+    [/(^|\s)Q_|MOSFET|NPN|PNP|三极管|晶体管|TRANSISTOR|(^|\s)(BSS|IRF|AO\d)/i, 'Q'],
+    [/CRYSTAL|XTAL|晶振|OSC(?!ILLOSCOPE)|谐振/i, 'Y'],
+    [/(^|\s)SW_|SWITCH|BUTTON|按键|开关|轻触/i, 'SW'],
+    [/FUSE|保险丝/i, 'F'],
+    [/BUZZER|蜂鸣/i, 'BZ'],
+    [/RELAY|继电器/i, 'K'],
+    [/电池|BATTERY|BT_/i, 'BT'],
+    [/CONN|PinHeader|PinSocket|USB|插座|端子|排针|排母|连接器|TERMINAL|JST|XH-|PH-/i, 'J'],
+  ];
+  for (const [re, p2] of rules) if (re.test(hay)) return p2;
+  return REF_PREFIX[r.category] ?? 'U';
+}
+
+/** 为器件生成下一个位号（前缀按 KiCad 习惯：R/C/L/D/Q/U/J/Y/SW…）。 */
+export function nextReference(r: { category: ComponentCategory; mpn?: string; defaultFootprintName?: string; description?: string } | ComponentCategory, existing: PlacedComponent[]): string {
+  const prefix = typeof r === 'string' ? (REF_PREFIX[r] ?? 'U') : refPrefixFor(r);
+  // 精确前缀匹配（避免 SW 与 S、C 与 CP 相互干扰）
+  const rx = new RegExp(`^${prefix}(\\d+)$`);
+  const used = existing.map((c) => c.reference.match(rx)?.[1]).filter((v): v is string => !!v).map((v) => parseInt(v, 10));
   const n = (used.length ? Math.max(...used) : 0) + 1;
   return `${prefix}${n}`;
 }
@@ -44,21 +70,33 @@ export function searchResultToPlaced(r: ComponentSearchResult, reference: string
     quantity: 1,
     unitPrice: r.unitPrice,
     source: r.org || r.componentId.startsWith('ez_') ? 'EZPLM' : 'MOCK',
-    display: { description: r.description, family: r.family, attributes: r.attributes, pins: r.pins, datasheetUrl: r.datasheetUrl, imageUrl: r.imageUrl, stepUrl: r.stepUrl, footprintFileUrl: r.footprintFileUrl, symbolFileUrl: r.symbolFileUrl, classification: r.classification },
+    display: { description: r.description, family: r.family, attributes: r.attributes, pins: r.pins, datasheetUrl: r.datasheetUrl, imageUrl: r.imageUrl, stepUrl: r.stepUrl, officialUrl: r.productUrl, footprintFileUrl: r.footprintFileUrl, symbolFileUrl: r.symbolFileUrl, classification: r.classification },
   };
 }
 
 /** 从文档生成 BOM。 */
 export function buildBom(doc: CircuitCanvasDocument): BomLine[] {
-  return doc.components.map((c) => ({
-    reference: c.reference,
-    mpn: c.mpn,
-    manufacturer: c.manufacturer,
-    footprint: c.footprint.name,
-    quantity: c.quantity,
-    unitPrice: c.unitPrice,
-    description: c.display?.description,
-  }));
+  // 按 型号+封装 聚合：同型号多实例 → 一行，数量累计，位号串联（R1,R2,R3）
+  const lines = new Map<string, BomLine>();
+  for (const c of doc.components) {
+    const key = `${c.mpn}__${c.footprint.name}`;
+    const ex = lines.get(key);
+    if (ex) {
+      ex.quantity += c.quantity;
+      ex.reference = `${ex.reference},${c.reference}`;
+    } else {
+      lines.set(key, {
+        reference: c.reference,
+        mpn: c.mpn,
+        manufacturer: c.manufacturer,
+        footprint: c.footprint.name,
+        quantity: c.quantity,
+        unitPrice: c.unitPrice,
+        description: c.display?.description,
+      });
+    }
+  }
+  return [...lines.values()];
 }
 
 export function bomTotal(bom: BomLine[]): number {

@@ -27,6 +27,15 @@ export function solvePlacement(comp: PlacedComponent, ctx: PlaceContext): Point 
 
   let anchor: Point;
 
+  // 辅件锚定：归属核心已放置 → 以其为圆心螺旋找邻近空位（去耦贴电源脚的近似）
+  const anchorRef = comp.display?.anchorRef;
+  const anchorComp = anchorRef ? ctx.existing.find((e) => e.reference === anchorRef) : undefined;
+  if (anchorComp) {
+    anchor = { x: anchorComp.placement.xMm, y: anchorComp.placement.yMm };
+    const free0 = spiralFree(anchor, w, h, occupied);
+    return clampCenter(free0, w, h, board);
+  }
+
   if (rule?.type === 'EDGE_ALIGN') {
     anchor = edgeAnchor(rule, board, w, h);
   } else if (rule?.type === 'INSIDE_ZONE') {
