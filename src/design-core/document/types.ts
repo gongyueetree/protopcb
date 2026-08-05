@@ -8,7 +8,7 @@ import type { FootprintGeometry, BoardSide, Polygon, Point } from '../geometry/t
 export const SCHEMA_VERSION = '3.0.0';
 
 export type RunMode = 'demo' | 'standalone' | 'integrated';
-export type ComponentCategory = 'mcu' | 'power' | 'passive' | 'connector' | 'ic' | 'electromech' | 'sensor' | 'rf';
+export type ComponentCategory = 'mcu' | 'power' | 'passive' | 'connector' | 'ic';
 export type ComponentSource = 'EZPLM' | 'LOCAL' | 'CUSTOM' | 'MOCK';
 
 export interface Money {
@@ -50,10 +50,6 @@ export interface BoardDefinition {
   layerCount?: number;
   /** 是否启用四角定位孔 */
   mountingHolesEnabled?: boolean;
-  /** L 形切角尺寸（mm，缺省 45%W / 40%H）与凸角圆角半径（mm，缺省 0 直角） */
-  cutWidthMm?: number;
-  cutHeightMm?: number;
-  cornerRadiusMm?: number;
 }
 
 /* ---------- 已放置器件 ---------- */
@@ -100,13 +96,8 @@ export interface PlacedComponent {
     datasheetUrl?: string;
     imageUrl?: string;
     stepUrl?: string;
-    /** 辅件归属的核心器件位号（自动布局锚定用） */
-    anchorRef?: string;
-    officialUrl?: string;
     footprintFileUrl?: string;
     symbolFileUrl?: string;
-    /** 仅关联符号时：符号来自库中哪个型号（符号覆盖表按此 key 查） */
-    symbolFromMpn?: string;
     classification?: string;
   };
 }
@@ -125,7 +116,7 @@ export interface FunctionalBlock {
   componentIds?: string[]; // 关联的器件 instanceId
 }
 
-export type ConnectionStyle = 'single' | 'double' | 'back' | 'none' | 'bus';
+export type ConnectionStyle = 'single' | 'double' | 'none' | 'bus';
 
 export interface LogicalConnection {
   id: string;
@@ -133,8 +124,6 @@ export interface LogicalConnection {
   toId: string;
   label: string;
   style: ConnectionStyle;
-  /** 箭头方向（与线型解耦，总线也可设方向）；缺省从 style 推断保持兼容 */
-  dir?: 'forward' | 'back' | 'both' | 'none';
   color?: string;
   /** 标签显示偏移与旋转（可拖动/旋转） */
   labelDx?: number;
@@ -166,15 +155,6 @@ export interface ReviewFinding {
 
 /* ---------- 顶层文档 ---------- */
 export interface CircuitCanvasDocument {
-  /** KiCad 工程导入的原理图原样视图（只读） */
-  schematicSheet?: {
-    instances: { ref: string; libId: string; x: number; y: number; rot: number; mirror?: string; unit?: number }[];
-    wires: [number, number][][];
-    junctions: [number, number][];
-    labels: { text: string; x: number; y: number; rot: number }[];
-    noConnects: [number, number][];
-    libSymbols: Record<string, string>;
-  };
   schemaVersion: string;
   id: string;
   name: string;

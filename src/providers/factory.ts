@@ -21,7 +21,7 @@ import {
   EzplmIdentityProvider, EzplmProjectProvider,
 } from './ezplm';
 
-import { geminiAvailable } from './gemini';
+import { getGeminiKey } from './gemini';
 import type { AiModelProvider, AiSchemeRequest, AccessContext } from './types';
 
 /** 动态 AI Provider：每次调用时检查 Gemini Key（localStorage/env），有则走 Gemini，无则回退 Mock */
@@ -29,18 +29,12 @@ function makeAi(): AiModelProvider {
   const mock = new MockAiModelProvider();
   return {
     async generateScheme(req: AiSchemeRequest, ctx: AccessContext) {
-      let fallbackReason = '未配置 GEMINI_API_KEY';
-      if (await geminiAvailable()) {
-        try {
-          const out = await new GeminiAiProvider().generateScheme(req, ctx);
-          return { ...out, source: 'gemini' as const };
-        } catch (e) {
-          fallbackReason = String((e as Error).message ?? e).slice(0, 140);
-          console.warn('[AI] Gemini 调用失败，回退 Mock:', fallbackReason);
-        }
+      const key = getGeminiKey();
+      if (key) {
+        try { return await new GeminiAiProvider(key).generateScheme(req, ctx); }
+        catch (e) { console.warn('[AI] Gemini 调用失败，回退 Mock:', e); }
       }
-      const mockOut = await (mock.generateScheme as (r: AiSchemeRequest, c?: AccessContext) => ReturnType<AiModelProvider['generateScheme']>)(req, ctx);
-      return { ...mockOut, source: 'mock' as const, fallbackReason };
+      return (mock.generateScheme as (r: AiSchemeRequest, c?: AccessContext) => ReturnType<AiModelProvider["generateScheme"]>)(req, ctx);
     },
   };
 }

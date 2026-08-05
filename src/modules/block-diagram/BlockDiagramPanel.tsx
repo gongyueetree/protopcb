@@ -3,7 +3,6 @@
  * 系统框图编辑器 —— 拖拽/调整大小/改形状/连线/缩放平移/全屏。
  * 数据存于 store 的 functionalBlocks + connections。
  */
-import { tr } from '../../shared/i18n';
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useDesignStore } from '../../state/designStore';
 import { BD_SHAPES, BdShape } from './shapes';
@@ -34,18 +33,7 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
   const labelDragRef = useRef({ active: false, id: '', sx: 0, sy: 0, dx: 0, dy: 0 });
 
   // first generate
-  const sigRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (sigRef.current === null) {
-      sigRef.current = coreSig;
-      // 首帧：文档已有框图（如导入的 JSON）时不注入自动块，导出与文件一致
-      if (blocks.length > 0) return;
-    }
-    if (sigRef.current === coreSig && blocks.length > 0) return;
-    sigRef.current = coreSig;
-    if (hasComps || blocks.length > 0) regen();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coreSig]);
+  useEffect(() => { if (hasComps || blocks.length > 0) regen(); }, [coreSig]);
 
   // wheel zoom
   useEffect(() => {
@@ -129,7 +117,7 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
 
   const addNode = () => {
     const c = ['#1a6b3c', '#b45309', '#0e7490', '#6d28d9'][blocks.length % 4];
-    setBlocks([...blocks, { id: `blk_${Date.now()}`, label: tr('新模块'), sublabel: '', shape: 'rounded', x: 60 + Math.random() * 150, y: 40 + Math.random() * 80, w: 140, h: 64, color: c }]);
+    setBlocks([...blocks, { id: `blk_${Date.now()}`, label: '新模块', sublabel: '', shape: 'rounded', x: 60 + Math.random() * 150, y: 40 + Math.random() * 80, w: 140, h: 64, color: c }]);
   };
 
   const del = () => {
@@ -174,8 +162,8 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 12, boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 14, fontWeight: 700 }}>📊 系统框图</span>
-        <button onClick={addNode} style={tb}>+ {tr('模块')}</button>
-        <button onClick={() => setConnecting(connecting ? null : '__pick__')} style={{ ...tb, ...(connecting ? { background: '#f0fdf4', color: '#16a34a', borderColor: '#22c55e' } : {}) }}>{connecting ? '✕ ' + tr('取消连线') : '+ ' + tr('连线')}</button>
+        <button onClick={addNode} style={tb}>+ 模块</button>
+        <button onClick={() => setConnecting(connecting ? null : '__pick__')} style={{ ...tb, ...(connecting ? { background: '#f0fdf4', color: '#16a34a', borderColor: '#22c55e' } : {}) }}>{connecting ? '✕ 取消连线' : '+ 连线'}</button>
         <button onClick={del} disabled={!sel} style={{ ...tb, opacity: sel ? 1 : 0.5 }}>🗑 删除</button>
         <button onClick={regen} style={tb}>🔄 重新生成</button>
         <button onClick={fitView} style={tb}>⊡ 适应</button>
@@ -183,45 +171,28 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
           const svg = svgRef.current; if (!svg) return;
           const clone = svg.cloneNode(true) as SVGSVGElement;
           clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-          // 稳定固有尺寸：按图元包围盒写 viewBox（Word/矢量软件/转换工具可正确缩放）
-          const maxX = Math.max(...blocks.map((b) => b.x + b.w), 200) + 40;
-          const maxY = Math.max(...blocks.map((b) => b.y + b.h), 120) + 40;
-          clone.setAttribute('viewBox', `0 0 ${maxX} ${maxY}`);
-          clone.setAttribute('width', String(maxX));
-          clone.setAttribute('height', String(maxY));
           const blob = new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + clone.outerHTML], { type: 'image/svg+xml' });
           const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'block-diagram.svg'; a.click(); URL.revokeObjectURL(a.href);
         }} style={tb}>⬇ 导出SVG</button>
         {sel?.type === 'node' && (
           <>
-            <span style={{ fontSize: 11, color: '#94a3b8' }}>{tr('形状:')}</span>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>形状:</span>
             {BD_SHAPES.map((s) => (
               <button key={s.id} title={s.name} onClick={() => changeShape(s.id)} style={{ width: 24, height: 22, borderRadius: 4, border: '1px solid #E8F3EE', background: '#fff', cursor: 'pointer', fontSize: 12 }}>{s.icon}</button>
             ))}
           </>
         )}
-        {connecting && <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 700 }}>{connecting === '__pick__' ? '① ' + tr('点击起点模块') : '② ' + tr('点击目标模块完成连线')}</span>}
+        {connecting && <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 700 }}>{connecting === '__pick__' ? '① 点击起点模块' : '② 点击目标模块完成连线'}</span>}
         {sel?.type === 'arrow' && (() => {
           const a = conns.find((c) => c.id === sel.id);
           if (!a) return null;
-          // 方向与线型解耦：总线也可设单向/反向/双向
-          const effDir = a.dir ?? (a.style === 'single' ? 'forward' : a.style === 'double' ? 'both' : a.style === 'back' ? 'back' : 'none');
-          const isBus = a.style === 'bus';
-          const lineTypes: [boolean, string][] = [[false, '—普通'], [true, '≡总线']];
-          const dirs: [string, string][] = [['forward', '→单向'], ['back', '←反向'], ['both', '↔双向'], ['none', '·无']];
-          const applyLine = (bus: boolean) => setConns(conns.map((c) => c.id === sel.id ? { ...c, style: bus ? 'bus' as const : (effDir === 'forward' ? 'single' : effDir === 'both' ? 'double' : effDir === 'back' ? 'back' : 'none') as typeof c.style, dir: effDir as NonNullable<typeof c.dir> } : c));
-          const applyDir = (d: string) => setConns(conns.map((c) => c.id === sel.id ? { ...c, dir: d as NonNullable<typeof c.dir>, style: isBus ? 'bus' as const : (d === 'forward' ? 'single' : d === 'both' ? 'double' : d === 'back' ? 'back' : 'none') as typeof c.style } : c));
+          const styles: [string, string][] = [['single', '→单向'], ['double', '↔双向'], ['bus', '≡总线'], ['none', '—无箭头']];
           return (
             <>
               <div style={{ width: 1, height: 14, background: '#E8F3EE' }} />
-              {lineTypes.map(([bus, label]) => (
-                <button key={label} onClick={() => applyLine(bus)}
-                  style={{ ...tb, ...(isBus === bus ? { borderColor: '#22c55e', color: '#16a34a', background: '#f0fdf4' } : {}) }}>{label}</button>
-              ))}
-              <div style={{ width: 1, height: 14, background: '#E8F3EE' }} />
-              {dirs.map(([d, label]) => (
-                <button key={d} onClick={() => applyDir(d)}
-                  style={{ ...tb, ...(effDir === d ? { borderColor: '#22c55e', color: '#16a34a', background: '#f0fdf4' } : {}) }}>{label}</button>
+              {styles.map(([st, label]) => (
+                <button key={st} onClick={() => setConns(conns.map((c) => c.id === sel.id ? { ...c, style: st as typeof c.style } : c))}
+                  style={{ ...tb, ...(a.style === st ? { borderColor: '#22c55e', color: '#16a34a', background: '#f0fdf4' } : {}) }}>{label}</button>
               ))}
               <button onClick={() => setConns(conns.map((c) => c.id === sel.id ? { ...c, fromId: c.toId, toId: c.fromId } : c))} style={tb}>⇄ 反向</button>
               <button onClick={() => setConns(conns.map((c) => c.id === sel.id ? { ...c, labelRot: ((c.labelRot ?? 0) + 90) % 360 } : c))} style={tb}>⟳ 转标签</button>
@@ -249,8 +220,8 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
                 <g key={a.id}>
                   <line x1={f.x} y1={f.y} x2={t.x} y2={t.y} stroke="transparent" strokeWidth={12} style={{ cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); setSel({ type: 'arrow', id: a.id }); }} />
                   <line x1={f.x} y1={f.y} x2={t.x} y2={t.y} stroke={isSel ? '#2563eb' : a.style === 'bus' ? '#475569' : '#64748b'} strokeWidth={sw}
-                    markerEnd={(() => { const d = a.dir ?? (a.style === 'single' ? 'forward' : a.style === 'double' ? 'both' : a.style === 'back' ? 'back' : 'none'); return d === 'forward' || d === 'both' ? 'url(#bdarrow)' : undefined; })()}
-                    markerStart={(() => { const d = a.dir ?? (a.style === 'single' ? 'forward' : a.style === 'double' ? 'both' : a.style === 'back' ? 'back' : 'none'); return d === 'back' || d === 'both' ? 'url(#bdarrow)' : undefined; })()}
+                    markerEnd={a.style === 'none' || a.style === 'bus' ? undefined : 'url(#bdarrow)'}
+                    markerStart={a.style === 'double' ? 'url(#bdarrow)' : undefined}
                     style={{ pointerEvents: 'none' }} />
                   {a.label && (
                     <text x={mx} y={my} transform={a.labelRot ? `rotate(${a.labelRot} ${mx} ${my})` : undefined}
@@ -275,7 +246,7 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
           <span onClick={fitView} style={{ minWidth: 34, textAlign: 'center', fontWeight: 600, cursor: 'pointer' }}>{Math.round(zoom * 100)}%</span>
           <button onClick={() => setZoom((z) => Math.min(4, z * 1.25))} style={zb}>+</button>
         </div>
-        {blocks.length === 0 && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13 }}>{tr('添加器件后自动生成框图，或点「+ 模块」手动创建')}</div>}
+        {blocks.length === 0 && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13 }}>添加器件后自动生成框图，或点「+ 模块」手动创建</div>}
       </div>
     </div>
   );

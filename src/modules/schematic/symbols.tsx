@@ -6,7 +6,7 @@
  */
 import type { PlacedComponent } from '../../design-core/document/types';
 import { padFootprintFor as padFootprintForSym } from '../../design-core/geometry/footprint-pads';
-import { symbolOverrideFor, symbolUnitsOverrideFor, type ParsedSymbol , ensureKicadSymbol} from '../../design-core/geometry/lib-file-registry';
+import { symbolOverrideFor, type ParsedSymbol } from '../../design-core/geometry/lib-file-registry';
 
 const STROKE = '#334155';
 const PIN = '#7c2d12';
@@ -25,30 +25,6 @@ export interface SymbolDef {
 }
 
 /** 电阻：KiCad 锯齿符号 */
-/** 二极管：三角+竖线；LED 追加两支出射箭头 */
-function diode(isLed = false): SymbolDef {
-  const w = 60, h = 20;
-  return {
-    w, h, ports: [{ x: 0, y: 10 }, { x: 60, y: 10 }], stubLen: 0,
-    render: (ref, label) => (
-      <g>
-        <line x1={0} y1={10} x2={24} y2={10} stroke={STROKE} strokeWidth={1.5} />
-        <path d="M24,2 L36,10 L24,18 Z" fill="none" stroke={STROKE} strokeWidth={1.8} strokeLinejoin="round" />
-        <line x1={36} y1={2} x2={36} y2={18} stroke={STROKE} strokeWidth={2.2} />
-        <line x1={36} y1={10} x2={60} y2={10} stroke={STROKE} strokeWidth={1.5} />
-        {isLed && (
-          <g stroke={STROKE} strokeWidth={1.2}>
-            <path d="M30,-1 L36,-7 M36,-7 L32.5,-6 M36,-7 L35,-3.5" fill="none" />
-            <path d="M36,1 L42,-5 M42,-5 L38.5,-4 M42,-5 L41,-1.5" fill="none" />
-          </g>
-        )}
-        <text x={w / 2} y={isLed ? -12 : -4} textAnchor="middle" fontSize={9} fontWeight={700} fill="#0e7490" fontFamily="monospace">{ref}</text>
-        <text x={w / 2} y={h + 10} textAnchor="middle" fontSize={8} fill="#334155" fontFamily="monospace">{label}</text>
-      </g>
-    ),
-  };
-}
-
 function resistor(): SymbolDef {
   const w = 60, h = 20;
   const zig = 'M0,10 L8,10 L12,3 L20,17 L28,3 L36,17 L44,3 L48,10 L60,10';
@@ -205,9 +181,7 @@ function parsedSymbol(ps: ParsedSymbol): SymbolDef {
     ports: ps.pins.map((p) => ({ x: p.tipX, y: p.tipY, name: p.name })),
     render: (ref, label) => (
       <g>
-        {ps.rects.map((r, i) => <rect key={'r' + i} x={r.x} y={r.y} width={r.w} height={r.h} rx={1} fill={FILL} stroke={STROKE} strokeWidth={1.6} />)}
-        {ps.polys.map((d, i) => <path key={'p' + i} d={d} fill={FILL} stroke={STROKE} strokeWidth={1.6} strokeLinejoin="round" />)}
-        {ps.circles.map((ci, i) => <circle key={'c' + i} cx={ci.x} cy={ci.y} r={ci.r} fill="none" stroke={STROKE} strokeWidth={1.4} />)}
+        {ps.rects.map((r, i) => <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} rx={1} fill={FILL} stroke={STROKE} strokeWidth={1.6} />)}
         {ps.pins.map((p, i) => (
           <g key={i}>
             <line x1={p.tipX} y1={p.tipY} x2={p.endX} y2={p.endY} stroke={PIN} strokeWidth={1.3} />
@@ -226,13 +200,7 @@ function parsedSymbol(ps: ParsedSymbol): SymbolDef {
 export function symbolFor(c: PlacedComponent): SymbolDef {
   if (c.customSymbolSvg) return customSvgSymbol(c.customSymbolSvg);
   // ezPLM 真实符号文件解析结果优先（真实引脚名）
-  const symKey = c.display?.symbolFromMpn ?? c.mpn; // 仅关联符号时借用库中型号的符号
-  ensureKicadSymbol(symKey); // KICADSYM: 前缀且内存缺失时自动重拉（刷新/导入后自愈）
-  // 封装占位器件：没有真实管脚定义，画电阻/IC 都是误导 —— 显式空态，引导去关联
-  if (c.display?.family === 'Footprint' && !c.customSymbolSvg && !symbolOverrideFor(symKey)) {
-    return unlinkedSymbol();
-  }
-  const parsed = symbolOverrideFor(symKey);
+  const parsed = symbolOverrideFor(c.mpn);
   if (parsed) return parsedSymbol(parsed);
   // ezPLM 实时物料：族/引脚名未知，按真实引脚数生成编号符号（不套内置模板）
   if (c.componentId.startsWith('ez_') && c.category !== 'passive') {
@@ -250,8 +218,6 @@ export function symbolFor(c: PlacedComponent): SymbolDef {
   if (c.category === 'passive') {
     if (fam === 'MLCC' || fam.includes('Cap')) return capacitor();
     if (fam.includes('Induct')) return inductor();
-    if (fam === 'LED') return diode(true);
-    if (fam === 'Diode') return diode();
     return resistor();
   }
   if (c.category === 'power') {
@@ -285,29 +251,4 @@ export function symbolFor(c: PlacedComponent): SymbolDef {
   const right = Array.from({ length: per }, (_, i) => (i < rightN ? String(pinCount - i) : ''));
   if (pinCount > 24) { left[per - 1] = '…'; right[per - 1] = right[per - 1] ? '…' : ''; }
   return ic(per, { left, right });
-}
-
-/** 多单元符号拆分：LM358 等返回 [运放A, 运放B, 电源] 各自独立的 SymbolDef；普通器件返回单元素数组 */
-export function symbolUnitsFor(c: PlacedComponent): SymbolDef[] {
-  if (!c.customSymbolSvg) {
-    const units = symbolUnitsOverrideFor(c.display?.symbolFromMpn ?? c.mpn);
-    if (units && units.length > 1) return units.map(parsedSymbol);
-  }
-  return [symbolFor(c)];
-}
-
-/** 未关联符号的占位：虚线框 + 提示（在详情面板关联 ezPLM / KiCad 符号 / 创建后替换） */
-function unlinkedSymbol(): SymbolDef {
-  const w = 120, h = 50;
-  return {
-    w, h, ports: [], stubLen: 0,
-    render: (ref) => (
-      <g>
-        <rect x={0} y={0} width={w} height={h} rx={6} fill="#f8fafc" stroke="#cbd5e1" strokeWidth={1.2} strokeDasharray="5 4" />
-        <text x={w / 2} y={h / 2 - 4} textAnchor="middle" fontSize={9} fill="#94a3b8">{'\u672a\u5173\u8054\u7b26\u53f7'}</text>
-        <text x={w / 2} y={h / 2 + 8} textAnchor="middle" fontSize={7.5} fill="#cbd5e1">{'\u5728\u53f3\u4fa7\u5173\u8054\u5668\u4ef6 / \u7b26\u53f7'}</text>
-        <text x={w / 2} y={-4} textAnchor="middle" fontSize={9} fontWeight={700} fill="#0e7490" fontFamily="monospace">{ref}</text>
-      </g>
-    ),
-  };
 }

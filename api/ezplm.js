@@ -39,7 +39,7 @@ export function buildSignature({ apiKey, method, path, params, timestamp, nonce 
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   const { path, ...params } = req.query ?? {};
-  const apiKey = (process.env.EZPLM_API_KEY ?? '').trim() || undefined;
+  const apiKey = process.env.EZPLM_API_KEY;
 
   // 状态探测：不打上游，不耗配额
   if (path === 'status') {
@@ -50,7 +50,7 @@ export default async function handler(req, res) {
     const fileUrl = String(req.query.url ?? '');
     let host = '';
     try { host = new URL(fileUrl).hostname; } catch { return res.status(400).send(JSON.stringify({ error: 'invalid url' })); }
-    const okHost = /(^|[.])ezplm[.](cn|com)$/.test(host) || /[.]aliyuncs[.]com$/.test(host) || /[.]myqcloud[.]com$/.test(host) || /[.]amazonaws[.]com$/.test(host);
+    const okHost = /(^|[.])ezplm[.]cn$/.test(host) || /[.]aliyuncs[.]com$/.test(host) || /[.]myqcloud[.]com$/.test(host) || /[.]amazonaws[.]com$/.test(host);
     if (!okHost) return res.status(403).send(JSON.stringify({ error: 'host not allowed', host }));
     try {
       const f = await fetch(fileUrl, { headers: apiKey ? { 'X-API-Key': apiKey } : {} });
@@ -58,10 +58,6 @@ export default async function handler(req, res) {
       res.status(f.status);
       res.setHeader('Content-Type', f.headers.get('content-type') ?? 'application/octet-stream');
       res.setHeader('Cache-Control', 'public, max-age=86400');
-      // dl 参数：作为附件下载（浏览器直接保存，不再跳转 CDN 签名链接）
-      if (req.query.dl) {
-        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(String(req.query.dl))}"`);
-      }
       return res.send(buf);
     } catch (err) {
       return res.status(502).send(JSON.stringify({ error: 'file fetch failed', detail: String(err) }));

@@ -6,7 +6,6 @@
  */
 import * as THREE from 'three';
 import { padFootprintFor } from '../../design-core/geometry/footprint-pads';
-import { stepModelFor, ensureStepModel } from './step-loader';
 import type { PlacedComponent } from '../../design-core/document/types';
 
 const MAT = {
@@ -144,27 +143,14 @@ function makeFromPads(fp: import('../../design-core/geometry/footprint-pads').Pa
   const g = new THREE.Group();
   const N = fpName.toUpperCase();
   const isBall = fp.pads.every((p) => p.round) && /(WLCSP|BGA|CSP)/.test(N);
-  // 高度启发式：真实高度不在 .kicad_mod 里（只有 3D 模型路径引用），按封装类型+尺寸估计；
-  // 真实 STEP 加载成功后会整体替换本参数化模型
-  const minDim = Math.min(fp.bodyW, fp.bodyH);
-  const hasTht = fp.pads.some((pd) => pd.round && pd.w >= 1.2);
-  const bodyT = isBall ? 0.6
-    : /(QFN|DFN|SON)/.test(N) ? 0.9
-    : /(SOIC|SOP|SSOP|TSSOP|SOT|QFP)/.test(N) ? 1.6
-    : /(MODULE|FEATHER|ESP|BOARD|SHIELD)/.test(N) ? 3.2
-    : /(CRYSTAL|OSC|XTAL)/.test(N) ? Math.min(minDim * 0.8, 13.5)
-    : /(POT|SWITCH|BUTTON|RELAY|CONN|SOCKET|HEADER|USB)/.test(N) ? Math.min(Math.max(minDim * 0.6, 3), 12)
-    : Math.min(Math.max(minDim * (hasTht ? 0.5 : 0.3), 1.2), 10);
+  const bodyT = isBall ? 0.6 : /(QFN|DFN|SON)/.test(N) ? 0.9 : 1.2;
   const body = new THREE.Mesh(new THREE.BoxGeometry(fp.bodyW, bodyT, fp.bodyH), MAT.blackBody);
-  body.position.x = fp.bodyCx ?? 0;
-  body.position.z = fp.bodyCy ?? 0;
   body.position.y = bodyT / 2 + (isBall ? 0.3 : 0.06);
   g.add(body);
   // 引脚1凹点
   if (fp.pin1) {
     const dot = new THREE.Mesh(new THREE.CylinderGeometry(Math.min(fp.bodyW, fp.bodyH) * 0.07, Math.min(fp.bodyW, fp.bodyH) * 0.07, 0.05, 10), MAT.darkBody);
-    const bx = fp.bodyCx ?? 0, by = fp.bodyCy ?? 0;
-    dot.position.set(Math.max(bx - fp.bodyW / 2 + 0.4, Math.min(bx + fp.bodyW / 2 - 0.4, fp.pin1.x)), bodyT + (isBall ? 0.3 : 0.06) + 0.03, Math.max(by - fp.bodyH / 2 + 0.4, Math.min(by + fp.bodyH / 2 - 0.4, fp.pin1.y)));
+    dot.position.set(Math.max(-fp.bodyW / 2 + 0.4, Math.min(fp.bodyW / 2 - 0.4, fp.pin1.x)), bodyT + (isBall ? 0.3 : 0.06) + 0.03, Math.max(-fp.bodyH / 2 + 0.4, Math.min(fp.bodyH / 2 - 0.4, fp.pin1.y)));
     g.add(dot);
   }
   for (const p of fp.pads) {
@@ -175,9 +161,8 @@ function makeFromPads(fp: import('../../design-core/geometry/footprint-pads').Pa
       g.add(ball);
     } else if (p.round) {
       // 通孔引脚
-      const pinH = Math.max(4, bodyT + 1.5);
-      const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, pinH, 10), MAT.gold);
-      pin.position.set(p.x, pinH / 2, p.y);
+      const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 5, 10), MAT.gold);
+      pin.position.set(p.x, 2.5, p.y);
       g.add(pin);
     } else {
       // SMD 引脚片：按焊盘尺寸/位置
@@ -205,13 +190,6 @@ function makeModule(w: number, h: number): THREE.Group {
  * 根据器件生成 3D 模型 Group（局部坐标，y 向上，停在 z=0 平面上方）。
  */
 export function buildComponent3D(comp: PlacedComponent): THREE.Group {
-  // ezPLM 真实 STEP 模型优先（已转换缓存则直接使用；否则触发异步加载，先用参数化模型）
-  const stepUrl = comp.display?.stepUrl;
-  if (stepUrl) {
-    const real = stepModelFor(stepUrl);
-    if (real) return real;
-    ensureStepModel(stepUrl);
-  }
   const fp = comp.footprint.name;
   let group: THREE.Group;
 
@@ -220,6 +198,12 @@ export function buildComponent3D(comp: PlacedComponent): THREE.Group {
     case '0603': group = makeChipComponent(1.6, 0.8, 0.8, comp.display?.family === 'MLCC' ? MAT.capBeige : MAT.darkBody); break;
     case '0805': group = makeChipComponent(2.0, 1.25, 1.0, MAT.capBeige); break;
     case '4018': group = makeCan(4.0, 1.8); break;
+    case 'SOT-223': group = makeSot223(); break;
+    case 'TSOT-23-8': group = makeChip(2.9, 1.6, 1.0, { perSideY: 4 }); break;
+    case 'SOIC-8': group = makeChip(4.9, 3.9, 1.5, { perSideY: 4 }); break;
+    case 'SOP-16': group = makeChip(10.0, 4.0, 1.5, { perSideY: 8 }); break;
+    case 'LQFP-48': group = makeChip(7.0, 7.0, 1.4, { perSideX: 12, perSideY: 12 }); break;
+    case 'LQFP-100': group = makeChip(14.0, 14.0, 1.4, { perSideX: 25, perSideY: 25 }); break;
     case 'Module-44': group = makeModule(18.0, 25.5); break;
     case 'USB-C-16P': group = makeUsbC(); break;
     case 'THT-2.54mm': group = makeHeader(2, 5); break;

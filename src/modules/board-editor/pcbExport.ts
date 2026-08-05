@@ -1,8 +1,6 @@
 /**
  * modules/board-editor/pcbExport.ts
- * PCB 布局导出 —— 生成真实 KiCad 板文件（.kicad_pcb）。
- * 格式版本 20250114（KiCad 9 稳定格式）：KiCad 10 原生读取无迁移提示；
- * 声明高于实际内容的格式日期会被 KiCad 拒收，故不虚标 v10 专有常量。
+ * PCB 布局导出 —— 生成真实 KiCad 板文件（.kicad_pcb，KiCad 7 格式）。
  *
  * 坐标约定：KiCad 板文件 Y 轴向下，与本工具的 mm 坐标一致，位置直接映射；
  * 旋转：KiCad 正角为逆时针（屏幕视角），本工具 SVG 正角为顺时针 → kicadRot = (360 - rot) % 360。
@@ -12,7 +10,6 @@
  * 嘉立创EDA专业版：文件 → 导入 → KiCad，可直接导入本文件。
  * Altium：.PcbDoc 为专有二进制格式，前端无法生成；较新版 AD 的 Import Wizard 支持导入 KiCad 工程。
  */
-import { lshapeCut } from '../../design-core/collision';
 import type { CircuitCanvasDocument, PlacedComponent } from '../../design-core/document/types';
 import { padFootprintFor } from '../../design-core/geometry/footprint-pads';
 import { mountingHoleCenters, HOLE_DIAMETER_MM } from '../../design-core/collision';
@@ -32,8 +29,7 @@ function edgeCuts(doc: CircuitCanvasDocument): string[] {
     return L;
   }
   if (doc.board.shape === 'lshape') {
-    // 切角尺寸随设置；圆角在制造导出中省略（KiCad 内可后期倒角）
-    const { cutW: cw, cutH: ch } = lshapeCut(doc.board);
+    const cw = W * 0.45, ch = H * 0.4;
     line(0, 0, W, 0);
     line(W, 0, W, H - ch);
     line(W, H - ch, W - cw, H - ch);
@@ -74,15 +70,12 @@ function footprintBlock(c: PlacedComponent): string {
   const refLayer = isBottom ? 'B.SilkS' : 'F.SilkS';
   const fabLayer = isBottom ? 'B.Fab' : 'F.Fab';
   const bodyH = fp?.bodyH ?? c.footprint.geometry.bodyHeightMm;
-  // 位号/值放在 本体+焊盘 总范围之外（避免丝印压焊盘 DRC）
-  const extTop = fp ? Math.max(...fp.pads.map((p2) => Math.abs(p2.y) + p2.h / 2), Math.abs(fp.bodyCy ?? 0) + fp.bodyH / 2) : bodyH / 2;
-  const silkY = extTop + 1.5;
-  L.push(`    (fp_text reference "${c.reference}" (at 0 ${F(-silkY)} ${kicadRot}) (layer "${refLayer}")${c.refDesDisplay?.hidden ? ' hide' : ''} (effects (font (size 0.8 0.8) (thickness 0.12))${isBottom ? ' (justify mirror)' : ''}))`);
-  L.push(`    (fp_text value "${c.mpn.replace(/"/g, '')}" (at 0 ${F(silkY)} ${kicadRot}) (layer "${fabLayer}") (effects (font (size 0.8 0.8) (thickness 0.12))${isBottom ? ' (justify mirror)' : ''}))`);
+  L.push(`    (fp_text reference "${c.reference}" (at 0 ${F(-(bodyH / 2 + 1.2))} ${kicadRot}) (layer "${refLayer}")${c.refDesDisplay?.hidden ? ' hide' : ''} (effects (font (size 0.8 0.8) (thickness 0.12))${isBottom ? ' (justify mirror)' : ''}))`);
+  L.push(`    (fp_text value "${c.mpn.replace(/"/g, '')}" (at 0 ${F(bodyH / 2 + 1.2)} ${kicadRot}) (layer "${fabLayer}") (effects (font (size 0.8 0.8) (thickness 0.12))${isBottom ? ' (justify mirror)' : ''}))`);
   if (fp) {
     // 丝印本体框
-    const hw = fp.bodyW / 2, hh = fp.bodyH / 2, bcx = fp.bodyCx ?? 0, bcy = fp.bodyCy ?? 0;
-    L.push(`    (fp_rect (start ${F(bcx - hw)} ${F(bcy - hh)}) (end ${F(bcx + hw)} ${F(bcy + hh)}) (stroke (width 0.12) (type solid)) (layer "${refLayer}"))`);
+    const hw = fp.bodyW / 2, hh = fp.bodyH / 2;
+    L.push(`    (fp_rect (start ${F(-hw)} ${F(-hh)}) (end ${F(hw)} ${F(hh)}) (stroke (width 0.12) (type solid)) (layer "${refLayer}"))`);
     for (const p of fp.pads) {
       if (p.round) {
         const drill = Math.max(0.8, p.w - 0.6);
@@ -118,7 +111,7 @@ function holeBlock(x: number, y: number, idx: number): string {
 /** 生成完整 .kicad_pcb 文本 */
 export function buildKicadPcb(doc: CircuitCanvasDocument): string {
   const L: string[] = [];
-  L.push(`(kicad_pcb (version 20250114) (generator "circuit_canvas") (generator_version "1.0")`);
+  L.push(`(kicad_pcb (version 20221018) (generator circuit_canvas)`);
   L.push(``);
   L.push(`  (general (thickness 1.6))`);
   L.push(`  (paper "A4")`);

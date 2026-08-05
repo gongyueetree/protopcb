@@ -42,10 +42,10 @@ export function parseSExpr(text: string): SExpr[] {
 const isList = (e: SExpr): e is SExpr[] => Array.isArray(e);
 const head = (e: SExpr): string => (isList(e) ? String(e[0]) : String(e));
 /** 在列表中找第一个以 tag 开头的子列表 */
-export function find(list: SExpr[], tag: string): SExpr[] | undefined {
+function find(list: SExpr[], tag: string): SExpr[] | undefined {
   return list.find((e): e is SExpr[] => isList(e) && head(e) === tag);
 }
-export function findAll(list: SExpr[], tag: string): SExpr[][] {
+function findAll(list: SExpr[], tag: string): SExpr[][] {
   return list.filter((e): e is SExpr[] => isList(e) && head(e) === tag);
 }
 const numAt = (l: SExpr[] | undefined, i: number): number => (l ? parseFloat(String(l[i])) || 0 : 0);
@@ -58,15 +58,6 @@ export function parseKicadMod(text: string): PadFootprint | null {
     const roots = parseSExpr(text);
     const fp = roots.find((r): r is SExpr[] => isList(r) && (head(r) === 'footprint' || head(r) === 'module'));
     if (!fp) return null;
-    return parseFootprintNode(fp);
-  } catch {
-    return null;
-  }
-}
-
-/** 解析单个 footprint/module 节点（.kicad_mod 根节点，或 .kicad_pcb 内嵌节点——PCB 文件自包含完整焊盘定义） */
-export function parseFootprintNode(fp: SExpr[]): PadFootprint | null {
-  try {
 
     const pads: Pad[] = [];
     let autoNum = 0;
@@ -90,45 +81,30 @@ export function parseFootprintNode(fp: SExpr[]): PadFootprint | null {
     // 本体外框：优先 F.Fab 的 fp_rect / fp_line 范围，其次 F.SilkS，最后按焊盘范围收缩
     const outline = (layer: string) => {
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, hit = false;
-      const grow = (x: number, y: number) => { hit = true; minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); };
-      for (const tag of ['fp_rect', 'fp_line', 'fp_arc'] as const) {
+      for (const tag of ['fp_rect', 'fp_line'] as const) {
         for (const g of findAll(fp, tag)) {
           const ly = find(g, 'layer');
           if (!ly || String(ly[1]) !== layer) continue;
-          for (const pt of ['start', 'mid', 'end'] as const) {
-            const q = find(g, pt);
-            if (q) grow(numAt(q, 1), numAt(q, 2));
-          }
+          const s1 = find(g, 'start'), e1 = find(g, 'end');
+          if (!s1 || !e1) continue;
+          hit = true;
+          minX = Math.min(minX, numAt(s1, 1), numAt(e1, 1));
+          maxX = Math.max(maxX, numAt(s1, 1), numAt(e1, 1));
+          minY = Math.min(minY, numAt(s1, 2), numAt(e1, 2));
+          maxY = Math.max(maxY, numAt(s1, 2), numAt(e1, 2));
         }
       }
-      for (const g of findAll(fp, 'fp_circle')) {
-        const ly = find(g, 'layer');
-        if (!ly || String(ly[1]) !== layer) continue;
-        const c1 = find(g, 'center'), e1 = find(g, 'end');
-        if (!c1 || !e1) continue;
-        const r = Math.hypot(numAt(e1, 1) - numAt(c1, 1), numAt(e1, 2) - numAt(c1, 2));
-        grow(numAt(c1, 1) - r, numAt(c1, 2) - r); grow(numAt(c1, 1) + r, numAt(c1, 2) + r);
-      }
-      for (const g of findAll(fp, 'fp_poly')) {
-        const ly = find(g, 'layer');
-        if (!ly || String(ly[1]) !== layer) continue;
-        const pts = find(g, 'pts');
-        if (pts) for (const xy of findAll(pts, 'xy')) grow(numAt(xy, 1), numAt(xy, 2));
-      }
-      return hit ? { w: maxX - minX, h: maxY - minY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 } : null;
+      return hit ? { w: maxX - minX, h: maxY - minY } : null;
     };
     const body = outline('F.Fab') ?? outline('F.SilkS');
-    // 焊盘真实包围盒（含偏心封装）
-    const pMinX = Math.min(...pads.map((p) => p.x - p.w / 2)), pMaxX = Math.max(...pads.map((p) => p.x + p.w / 2));
-    const pMinY = Math.min(...pads.map((p) => p.y - p.h / 2)), pMaxY = Math.max(...pads.map((p) => p.y + p.h / 2));
-    const bodyW = body?.w || Math.max(0.5, (pMaxX - pMinX) * 0.72);
-    const bodyH = body?.h || Math.max(0.5, (pMaxY - pMinY) * 0.72);
-    const bodyCx = body ? body.cx : (pMinX + pMaxX) / 2;
-    const bodyCy = body ? body.cy : (pMinY + pMaxY) / 2;
+    const padExtW = Math.max(...pads.map((p) => Math.abs(p.x) + p.w / 2)) * 2;
+    const padExtH = Math.max(...pads.map((p) => Math.abs(p.y) + p.h / 2)) * 2;
+    const bodyW = body?.w || Math.max(0.5, padExtW * 0.72);
+    const bodyH = body?.h || Math.max(0.5, padExtH * 0.72);
 
     // 引脚1标记：1 号焊盘位置
     const p1 = pads.find((p) => p.num === 1);
-    return { bodyW: +bodyW.toFixed(3), bodyH: +bodyH.toFixed(3), bodyCx: +bodyCx.toFixed(3), bodyCy: +bodyCy.toFixed(3), pads, pin1: p1 ? { x: p1.x, y: p1.y } : undefined };
+    return { bodyW: +bodyW.toFixed(3), bodyH: +bodyH.toFixed(3), pads, pin1: p1 ? { x: p1.x, y: p1.y } : undefined };
   } catch {
     return null;
   }
