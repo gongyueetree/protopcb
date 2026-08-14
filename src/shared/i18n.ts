@@ -30,6 +30,10 @@ export const useLangStore = create<LangState>((set) => ({
 
 /* ───────────── 固定文案词典（key = 中文原文） ───────────── */
 const DICT: Record<string, string> = {
+  '项目名称': 'Project name', '点击修改项目名称': 'Click to rename project',
+  '请为该工程命名（将作为导出文件名）': 'Name this project (used as the export filename)',
+  '我的硬件方案': 'My Hardware Design', '演示·估价': 'demo estimate',
+  '跨库搜索封装名，如 SOIC-8 / 0402 / USB_C': 'Search all libs, e.g. SOIC-8 / 0402 / USB_C',
   '跨库搜索符号，如 STM32F103 / LED': 'Search all symbol libs, e.g. STM32F103 / LED',
   '跨库搜索封装，如 0402 / SOIC-8 / USB_C': 'Search all footprint libs, e.g. 0402 / SOIC-8 / USB_C',
   '搜索结果': 'Results', '未搜到，可换关键词或按库浏览': 'No match — try other keywords or browse by library',

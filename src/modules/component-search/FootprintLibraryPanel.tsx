@@ -13,6 +13,20 @@ import type { ComponentSearchResult } from '../../providers/types';
 
 
 export function FootprintLibraryPanel() {
+  const [xkw, setXkw] = useState('');
+  const [xhits, setXhits] = useState<{ lib: string; name: string }[]>([]);
+  const [xbusy, setXbusy] = useState(false);
+  const [xsearched, setXsearched] = useState(false);
+  const runXSearch = async () => {
+    const q = xkw.trim();
+    if (q.length < 2) return;
+    setXbusy(true); setXsearched(true);
+    try {
+      const j = await fetch(`/api/kicadlib?path=fpsearch&q=${encodeURIComponent(q)}`).then((r) => r.json());
+      setXhits(Array.isArray(j.hits) ? j.hits : []);
+    } catch { setXhits([]); }
+    setXbusy(false);
+  };
   const addComponent = useDesignStore((s) => s.addComponent);
 
   // ── KiCad 官方库（gitlab.com/kicad/libraries，按需拉取，不打包） ──
@@ -45,29 +59,30 @@ export function FootprintLibraryPanel() {
     } catch { setKlErr(tr('网络错误，无法访问 KiCad 官方库')); }
     setKlBusy('');
   };
-  const klAdd = async (name: string) => {
+  const klAdd = async (name: string, libOverride?: string) => {
+    const useLib = libOverride ?? klLib;
     setKlBusy('add'); setKlErr('');
     try {
-      const text = await fetch(`/api/kicadlib?path=mod&lib=${encodeURIComponent(klLib)}&name=${encodeURIComponent(name)}`).then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.text(); });
+      const text = await fetch(`/api/kicadlib?path=mod&lib=${encodeURIComponent(useLib)}&name=${encodeURIComponent(name)}`).then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.text(); });
       const fp = parseKicadMod(text);
       if (!fp || !fp.pads.length) throw new Error(tr('封装解析失败'));
       registerFootprintOverride(name, fp); // 精确焊盘注册 → 2D/3D/导出全链路生效
       // (model "…/X.3dshapes/Y.wrl") 是权威 3D 引用：解析目录与文件名，.wrl 换 .step（官方每个模型两种格式都有）
       const modelRef = text.match(/\(model\s+"([^"]+)"/)?.[1];
-      let lib3d = klLib, name3d = name;
+      let lib3d = useLib, name3d = name;
       if (modelRef) {
         const mm = modelRef.match(/([^/\\]+)\.3dshapes[/\\]([^/\\]+)\.(step|stp|wrl)$/i);
         if (mm) { lib3d = mm[1]; name3d = mm[2]; }
       }
-      const cat2 = /Connector|Socket|Terminal/i.test(klLib) ? 'connector'
-        : /Resistor|Capacitor|Inductor|LED|Diode|Crystal|Fuse/i.test(klLib) ? 'passive'
-        : /Relay|Button|Switch|Buzzer|Motor/i.test(klLib) ? 'electromech'
-        : /RF|Antenna/i.test(klLib) ? 'rf' : 'ic';
+      const cat2 = /Connector|Socket|Terminal/i.test(useLib) ? 'connector'
+        : /Resistor|Capacitor|Inductor|LED|Diode|Crystal|Fuse/i.test(useLib) ? 'passive'
+        : /Relay|Button|Switch|Buzzer|Motor/i.test(useLib) ? 'electromech'
+        : /RF|Antenna/i.test(useLib) ? 'rf' : 'ic';
       addComponent({
         componentId: `kicadlib_${name}_${Date.now()}`,
         mpn: name, manufacturer: 'KiCad库', category: cat2,
         defaultFootprintName: name, family: 'Footprint',
-        description: `KiCad 官方封装 · ${klLib}`,
+        description: `KiCad 官方封装 · ${useLib}`,
         pins: fp.pads.length,
         stepUrl: `/api/kicadlib?path=step&lib=${encodeURIComponent(lib3d)}&name=${encodeURIComponent(name3d)}`,
       } as ComponentSearchResult);
@@ -86,7 +101,27 @@ export function FootprintLibraryPanel() {
         </div>
         {klOpen && (
           <div style={{ padding: 10 }}>
-            <div style={{ fontSize: 9.5, color: '#94a3b8', marginBottom: 6 }}>{tr('来源 gitlab.com/kicad/libraries · 按需拉取封装与 3D，不占本地空间')}</div>
+            <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+              <input value={xkw} onChange={(e) => setXkw(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') runXSearch(); }}
+                placeholder={tr('跨库搜索封装名，如 SOIC-8 / 0402 / USB_C')}
+                style={{ flex: 1, padding: '5px 8px', borderRadius: 5, border: '1px solid #cbd5e1', fontSize: 11, boxSizing: 'border-box', outline: 'none' }} />
+              <button onClick={runXSearch} disabled={xbusy || xkw.trim().length < 2}
+                style={{ padding: '5px 10px', borderRadius: 5, border: 'none', background: COLORS.green, color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: xbusy ? 'wait' : 'pointer', opacity: xkw.trim().length < 2 ? 0.5 : 1 }}>{xbusy ? '⟳' : '🔍'}</button>
+            </div>
+            {xhits.length > 0 && (
+              <div style={{ maxHeight: 180, overflow: 'auto', marginBottom: 6, border: '1px solid #e2e8f0', borderRadius: 6, padding: 4 }}>
+                <div style={{ fontSize: 9.5, color: '#475569', fontWeight: 700, marginBottom: 3 }}>{tr('搜索结果')}（{xhits.length}）</div>
+                {xhits.map((h) => (
+                  <div key={h.lib + '/' + h.name} onClick={() => { setKlLib(h.lib); klAdd(h.name, h.lib); }}
+                    style={{ padding: '4px 8px', marginBottom: 3, borderRadius: 5, background: '#f8fafc', fontSize: 10.5, fontFamily: 'monospace', cursor: 'pointer' }} title={h.lib + ' / ' + h.name}>
+                    <span style={{ color: COLORS.green }}>{h.lib}</span> / {h.name}
+                  </div>
+                ))}
+              </div>
+            )}
+            {!xbusy && xkw.trim().length >= 2 && !xhits.length && xsearched && (
+              <div style={{ fontSize: 10, color: '#b45309', marginBottom: 6 }}>{tr('未搜到，可换关键词或按库浏览')}</div>
+            )}
             {klBusy === 'libs' && <div style={{ fontSize: 11, color: '#94a3b8' }}>{tr('加载库列表…')}</div>}
             {klLibs.length > 0 && (
               <select value={klLib} onChange={(e) => klLoadItems(e.target.value)}

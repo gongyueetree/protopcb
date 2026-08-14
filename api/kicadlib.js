@@ -147,16 +147,36 @@ export default async function handler(req, res) {
         }
         // 库名相关性优先（如 q=0402 先查 Resistor/Capacitor；q=stm32 先查 MCU_ST）
         const tokens = q.split(/[\s_-]+/).filter(Boolean);
+        // 封装族 → 库名语义映射（"SOIC-8" 要能找到 Package_SO 这类名字对不上的库）
+        const FAMILY = [
+          [/^soic|^so-?\d|^sop|^ssop|^tssop|^msop|^sos/i, /package_so/i],
+          [/^qfp|^lqfp|^tqfp/i, /package_qfp/i],
+          [/^qfn|^dfn|^son/i, /package_dfn_qfn/i],
+          [/^sot|^to-?\d/i, /package_to_sot/i],
+          [/^bga|^csp/i, /package_bga/i],
+          [/^dip|^pdip/i, /package_dip/i],
+          [/^r_|^res/i, /resistor/i],
+          [/^c_|^cp_|^cap/i, /capacitor/i],
+          [/^l_|^ind|^fb_/i, /inductor/i],
+          [/^led/i, /^led/i],
+          [/^d_|^diode|^sod/i, /diode/i],
+          [/^usb/i, /connector_usb/i],
+          [/^pinheader|^header/i, /connector_pinheader/i],
+          [/^pinsocket/i, /connector_pinsocket/i],
+          [/^sw_|^switch|^button/i, /button_switch/i],
+          [/^crystal|^xtal/i, /crystal/i],
+        ];
+        const famRe = FAMILY.find(([qre]) => qre.test(q))?.[1];
         const score = (ln) => {
           const l = ln.toLowerCase();
           let sc = 0;
           for (const t of tokens) if (l.includes(t)) sc += 10;
-          if (/^(R|C|L)_/.test(q) && /resistor|capacitor|inductor/.test(l)) sc += 5;
+          if (famRe && famRe.test(l)) sc += 40;   // 族映射命中优先级最高
           return sc;
         };
         const ordered = [...libs].sort((a, b) => score(b) - score(a));
         hits = [];
-        const LIB_BUDGET = 26; // 每次最多探这么多个库，控制冷启动耗时
+        const LIB_BUDGET = 40; // 每次最多探这么多个库，控制冷启动耗时
         for (const ln of ordered.slice(0, LIB_BUDGET)) {
           if (hits.length >= 60) break;
           let names = getCached(isSym ? `symlist:${ln}` : `list:${ln}`);
@@ -183,10 +203,12 @@ export default async function handler(req, res) {
               if (names.length) cache.set(isSym ? `symlist:${ln}` : `list:${ln}`, { at: Date.now(), data: names });
             } catch { names = []; }
           }
+          const qFlat = q.replace(/[\s_-]+/g, '');
           for (const n of names) {
             if (hits.length >= 60) break;
             const nl = n.toLowerCase();
-            if (tokens.every((t) => nl.includes(t))) hits.push({ lib: ln, name: n });
+            const nFlat = nl.replace(/[\s_-]+/g, '');
+            if (tokens.every((t) => nl.includes(t)) || nFlat.includes(qFlat)) hits.push({ lib: ln, name: n });
           }
         }
         if (hits.length) cache.set(cacheKey, { at: Date.now(), data: hits });

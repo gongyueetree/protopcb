@@ -249,6 +249,16 @@ export default function App() {
   const assignSymbolsByReference = useDesignStore((s) => s.assignSymbolsByReference);
   const setSchematicSheet = useDesignStore((s) => s.setSchematicSheet);
   const setStepUrlByFootprint = useDesignStore((s) => s.setStepUrlByFootprint);
+  const renameDocument = useDesignStore((s) => s.renameDocument);
+  /** 导出前确保工程有名字：未命名时弹框询问，命名后显示在导航栏并作为文件名 */
+  const ensureProjectName = (): boolean => {
+    const cur = useDesignStore.getState().doc.name;
+    if (cur && cur !== '未命名设计' && cur !== 'Untitled Design') return true;
+    const n = window.prompt(t('请为该工程命名（将作为导出文件名）'), t('我的硬件方案'));
+    if (!n?.trim()) return false;
+    renameDocument(n.trim());
+    return true;
+  };
   const importPcbText = (text: string): { comps: number; skipped: number } => {
     const data = parseKicadPcb(text);
     // 注册 PCB 内嵌封装定义 → 导入器件焊盘精确、3D 按真实焊盘构建
@@ -325,6 +335,11 @@ export default function App() {
           <span style={{ fontSize: 24 }}>⚡</span>
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
             <span style={{ fontSize: 18, fontWeight: 700, color: COLORS.green }}>{t('硬件原型工坊')}</span>
+            <span onClick={() => { const n = window.prompt(t('项目名称'), doc.name); if (n?.trim()) renameDocument(n.trim()); }}
+              title={t('点击修改项目名称')}
+              style={{ marginLeft: 10, fontSize: 12, color: '#475569', background: '#f1f5f9', padding: '3px 10px', borderRadius: 6, cursor: 'pointer', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              📁 {doc.name}
+            </span>
             <span style={{ fontSize: 10, color: '#94a3b8' }}>{t('AI 方案生成、器件选型与 PCB 预布局')}</span>
           </div>
         </div>
@@ -333,9 +348,9 @@ export default function App() {
             style={{ fontSize: 10, color: '#94a3b8', alignSelf: 'center', marginRight: 4 }}>✓ {t('已自动保存')} {savedAt}</span>}
           <button onClick={toggleLang} title={lang === 'zh' ? 'Switch to English' : '切换为中文'}
             style={{ ...hbtn, fontWeight: 800 }}>{lang === 'zh' ? '中 | EN' : 'EN | 中'}</button>
-          <button onClick={() => setPcbExportOpen(true)} style={hbtn}>🏭 {t('导出PCB')}</button>
+          <button onClick={() => { if (ensureProjectName()) setPcbExportOpen(true); }} style={hbtn}>🏭 {t('导出PCB')}</button>
           <button onClick={() => exportMarkdownReport(doc)} style={hbtn}>📄 {t('方案报告')}</button>
-          <button onClick={() => exportDocument(doc)} style={hbtn}>⬇ {t('导出设计')}</button>
+          <button onClick={() => { if (ensureProjectName()) exportDocument(useDesignStore.getState().doc); }} style={hbtn}>⬇ {t('导出设计')}</button>
           <button onClick={() => fileRef.current?.click()} style={hbtn}>⬆ {t('导入设计')}</button>
           <input ref={fileRef} type="file" accept=".json,.kicad_pcb,.kicad_sch,.zip" style={{ display: 'none' }} onChange={onImport} />
         </div>

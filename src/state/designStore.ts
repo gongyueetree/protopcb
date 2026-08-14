@@ -7,7 +7,7 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import type { ComponentCategory, CircuitCanvasDocument, PlacedComponent, BoardShapeKind } from '../design-core/document/types';
-import { createDocument, touchDocument } from '../design-core/document/factory';
+import { createDocument, touchDocument , createBoard} from '../design-core/document/factory';
 import type { ComponentSearchResult } from '../providers/types';
 import { searchResultToPlaced, nextReference, buildBom, runDesignReview } from '../design-core/document/services';
 import { resolveAffinity, signalFlowRank, isCore } from '../design-core/placement/affinity';
@@ -69,6 +69,7 @@ interface DesignState {
   select: (id: string | null) => void;
   toggleMulti: (id: string) => void;
   clearAll: () => void;
+  renameDocument: (name: string) => void;
   placeScheme: (results: ComponentSearchResult[], intent?: { requirement: string; rationale: string }) => void;
   loadDocument: (doc: CircuitCanvasDocument) => void;
   /** 导入 KiCad 板文件解析结果：按板框设尺寸、按位置摆放器件 */
@@ -361,14 +362,23 @@ export const useDesignStore = create<DesignState>()(
         s.multiSel = s.multiSel.includes(id) ? s.multiSel.filter((x) => x !== id) : [...s.multiSel, id];
       }),
 
+    renameDocument: (name) =>
+      set((s) => {
+        s.doc.name = name.trim() || s.doc.name;
+        s.doc = touchDocument(s.doc);
+      }),
+
     clearAll: () =>
       set((s) => {
         snapshot(s);
         s.doc.components = [];
-        // 清画布 = 清整个设计上下文：框图、连接、导入的原理图原样视图一并清空
+        // 清画布 = 清整个设计上下文：框图、连接、导入原理图、AI 方案意图、板框尺寸一并复位
         s.doc.functionalBlocks = [];
         s.doc.connections = [];
         s.doc.schematicSheet = undefined;
+        s.doc.designIntent = undefined;   // 方案报告不再带入清除前的 AI 方案
+        s.doc.reviewResults = [];
+        s.doc.board = createBoard();      // 板框长宽/形状回默认
         s.doc = touchDocument(refreshDerived(s.doc));
         s.selectedId = null;
         s.multiSel = [];

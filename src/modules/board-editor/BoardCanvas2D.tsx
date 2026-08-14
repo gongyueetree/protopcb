@@ -129,6 +129,7 @@ export function BoardCanvas2D() {
     select(c.instanceId);
     dragRef.current = { active: true, id: c.instanceId, sx: e.clientX, sy: e.clientY, startX: c.placement.xMm, startY: c.placement.yMm, mode: 'comp' };
   }, [select, toggleMulti]);
+    const [refHot, setRefHot] = useState(false);
 
   const onRefDesDown = useCallback((e: React.MouseEvent, c: PlacedComponent) => {
     e.stopPropagation();
@@ -226,6 +227,7 @@ function ComponentGlyph({ comp, selected, multi, overlap, inactive, hideRefDes, 
   comp: PlacedComponent; selected: boolean; multi: boolean; overlap: boolean; inactive: boolean; hideRefDes: boolean;
   onMouseDown: (e: React.MouseEvent) => void; onRefDesDown: (e: React.MouseEvent) => void;
 }) {
+  const [refHot, setRefHot] = useState(false);
   const disp = CATEGORY_DISPLAY[comp.category];
   const pads = padFootprintFor(comp.footprint.name);
   const isBottom = comp.placement.side === 'BOTTOM';
@@ -260,11 +262,19 @@ function ComponentGlyph({ comp, selected, multi, overlap, inactive, hideRefDes, 
             rx={p.round ? p.w * PX_PER_MM / 2 : 0.8} fill={copper} stroke={copperStroke} strokeWidth={0.3} />
         ))}
         {pads.pin1 && <circle cx={pads.pin1.x * PX_PER_MM} cy={pads.pin1.y * PX_PER_MM} r={1.6} fill="#dc2626" />}
-        {/* 位号：可拖动、可隐藏 */}
+        {/* 位号：可拖动、可隐藏；拖离本体时用虚线连回器件中心 */}
         {!hideRefDes && (
           <g transform={`${isBottom ? 'scale(-1,1) ' : ''}rotate(${-rot})`}>
+            {(() => {
+              const lx = rd.dx * PX_PER_MM, ly = -halfH - 6 + rd.dy * PX_PER_MM;
+              const far = Math.hypot(lx, ly) > Math.max(halfW, halfH) + 10;
+              return (far || refHot) ? (
+                <line x1={0} y1={0} x2={lx} y2={ly + 3} stroke={disp.color} strokeWidth={0.6} strokeDasharray="3 2" opacity={refHot ? 0.9 : 0.45} />
+              ) : null;
+            })()}
             <text x={rd.dx * PX_PER_MM} y={-halfH - 6 + rd.dy * PX_PER_MM} textAnchor="middle" fontSize={8} fontFamily="monospace" fontWeight={700}
               fill={isBottom ? '#3b82c4' : disp.color} style={{ cursor: 'move' }}
+              onMouseEnter={() => setRefHot(true)} onMouseLeave={() => setRefHot(false)}
               onMouseDown={onRefDesDown}>{comp.reference}</text>
           </g>
         )}

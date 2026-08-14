@@ -8,6 +8,7 @@ import { bomTotal } from '../../design-core/document/services';
 import { fmtMoney, COLORS } from '../../shared/theme';
 import { useEffect, useState } from 'react';
 import { fetchDigikeyOffer, type DigikeyOffer } from '../../providers/digikey';
+import { fetchSupplierOffers } from '../../providers/suppliers';
 
 export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: boolean; onToggleFullscreen?: () => void } = {}) {
   const bom = useDesignStore((s) => s.doc.bom);
@@ -16,21 +17,29 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
 
   // DigiKey 实时价格：逐型号查询（provider 内按 mpn 缓存，避免重复消耗配额）
   const [dkPrices, setDkPrices] = useState<Record<string, DigikeyOffer>>({});
+  /** DigiKey 无结果时的其他渠道报价（Mouser/Arrow/element14） */
+  const [netPrices, setNetPrices] = useState<Record<string, { vendor: string; price: number; currency?: string; stock?: number }>>({});
   useEffect(() => {
     let alive = true;
     (async () => {
       for (const l of bom) {
-        if (dkPrices[l.mpn]) continue;
+        if (dkPrices[l.mpn] || netPrices[l.mpn]) continue;
         const o = await fetchDigikeyOffer(l.mpn);
         if (!alive) return;
-        if (o?.found && o.unitPrice != null) setDkPrices((prev) => ({ ...prev, [l.mpn]: o }));
+        if (o?.found && o.unitPrice != null) { setDkPrices((prev) => ({ ...prev, [l.mpn]: o })); continue; }
+        // DigiKey 未收录 → 回落其他供应商 API，真正落实"网络估价"
+        const offers = await fetchSupplierOffers(l.mpn);
+        if (!alive) return;
+        const best = offers.filter((x) => x.found && x.price != null).sort((a, b) => (a.price ?? 0) - (b.price ?? 0))[0];
+        if (best) setNetPrices((prev) => ({ ...prev, [l.mpn]: { vendor: best.vendor, price: best.price!, currency: best.currency, stock: best.stock } }));
       }
     })();
     return () => { alive = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bom]);
   const dkOf = (mpn: string): DigikeyOffer | undefined => dkPrices[mpn];
-  const total = bom.reduce((sum, l) => sum + (dkOf(l.mpn)?.unitPrice ?? l.unitPrice?.amount ?? 0) * l.quantity, 0);
+  const netOf = (mpn: string) => netPrices[mpn];
+  const total = bom.reduce((sum, l) => sum + (dkOf(l.mpn)?.unitPrice ?? netOf(l.mpn)?.price ?? l.unitPrice?.amount ?? 0) * l.quantity, 0);
 
   /** RFC 4180：含逗号/双引号/换行的字段用双引号包裹，内部双引号写成两个 */
   const csvField = (v: unknown): string => {
@@ -41,8 +50,8 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
     const header = '序号,位号,型号,厂商,封装,单价,价格来源,数量';
     const rows = bom.map((l, i) => [
       i + 1, l.reference, l.mpn, l.manufacturer, l.footprint,
-      dkOf(l.mpn)?.unitPrice ?? l.unitPrice?.amount ?? '',
-      dkOf(l.mpn) ? 'DigiKey实时' : '演示估价',
+      dkOf(l.mpn)?.unitPrice ?? netOf(l.mpn)?.price ?? l.unitPrice?.amount ?? '',
+      dkOf(l.mpn) ? 'DigiKey实时' : netOf(l.mpn) ? `${netOf(l.mpn)!.vendor}实时` : '演示估价',
       l.quantity,
     ].map(csvField).join(','));
     const csv = '\uFEFF' + [header, ...rows].join('\r\n');
@@ -79,11 +88,15 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
                 <td style={{ padding: '7px 10px' }}>
                   {srcOf(l.reference) === 'EZPLM'
                     ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#e0f2fe', color: '#0369a1', fontWeight: 700 }}>ezPLM</span>
-                    : <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontWeight: 600 }}>{tr(tr('演示·网络估价'))}</span>}
+                    : netOf(l.mpn)
+                    ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#ede9fe', color: '#6d28d9', fontWeight: 700 }}>{netOf(l.mpn)!.vendor}</span>
+                    : <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontWeight: 600 }}>{tr('演示·估价')}</span>}
                 </td>
                 <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600 }}>
                   {dkOf(l.mpn)
                     ? <span title={`DigiKey 实时 · 库存 ${dkOf(l.mpn)!.stock?.toLocaleString() ?? '—'}`} style={{ color: '#0369a1' }}>¥{dkOf(l.mpn)!.unitPrice!.toFixed(2)} <span style={{ fontSize: 8.5, padding: '0 4px', borderRadius: 3, background: '#e0f2fe', fontWeight: 700 }}>DK</span></span>
+                    : netOf(l.mpn)
+                    ? <span title={`${netOf(l.mpn)!.vendor} 实时 · 库存 ${netOf(l.mpn)!.stock?.toLocaleString() ?? '—'}`} style={{ color: '#7c3aed' }}>{netOf(l.mpn)!.currency === 'USD' ? '$' : '¥'}{netOf(l.mpn)!.price.toFixed(2)} <span style={{ fontSize: 8.5, padding: '0 4px', borderRadius: 3, background: '#ede9fe', fontWeight: 700 }}>{netOf(l.mpn)!.vendor.slice(0, 4)}</span></span>
                     : <span style={{ color: '#059669' }}>{fmtMoney(l.unitPrice?.amount)}</span>}
                 </td>
                 <td style={{ padding: '7px 10px', textAlign: 'right' }}>{l.quantity}</td>
