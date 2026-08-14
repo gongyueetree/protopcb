@@ -59,6 +59,7 @@ const placedComponentSchema = z.object({
       imageUrl: z.string().optional(),
       stepUrl: z.string().optional(),
       anchorRef: z.string().optional(),
+      padNets: z.record(z.number()).optional(),
       officialUrl: z.string().optional(),
       footprintFileUrl: z.string().optional(),
       symbolFileUrl: z.string().optional(),
@@ -147,6 +148,8 @@ export const documentSchema = z.object({
     source: z.enum(['demo', 'standalone', 'integrated']),
   }),
   designIntent: z.object({ requirement: z.string(), rationale: z.string(), generatedAt: z.string() }).optional(),
+  /** 导入工程的电气网络表（网络号 → 网络名），导出 PCB 时写回 */
+  nets: z.record(z.string()).optional(),
   /** KiCad 工程导入的原理图原样视图（只读渲染：实例坐标/连线/结点/标签） */
   schematicSheet: z.object({
     instances: z.array(z.object({

@@ -88,6 +88,91 @@ export default async function handler(req, res) {
   if (path === 'status') {
     return res.status(200).send(JSON.stringify({ mouser: !!mouserKey, arrow: !!(arrowLogin && arrowKey), element14: !!e14Key }));
   }
+  // ── 关键词检索：给"网络" Tab 用（返回候选列表，含封装描述供映射） ──
+  if (path === 'search') {
+    const q = String(req.query.q ?? '').trim();
+    const limit = Math.min(20, Math.max(1, Number(req.query.limit) || 10));
+    if (q.length < 2) return res.status(400).send(JSON.stringify({ error: 'query too short' }));
+    const items = [];
+    const notes = [];
+
+    // Mouser 关键词检索
+    if (mouserKey) {
+      try {
+        const r = await fetch(`https://api.mouser.com/api/v1/search/keyword?apiKey=${encodeURIComponent(mouserKey)}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ SearchByKeywordRequest: { keyword: q, records: limit, startingRecord: 0 } }),
+        });
+        if (r.ok) {
+          const j = await r.json();
+          for (const p2 of (j?.SearchResults?.Parts ?? []).slice(0, limit)) {
+            const brk = (p2.PriceBreaks ?? [])[0];
+            items.push({
+              vendor: 'Mouser',
+              mpn: p2.ManufacturerPartNumber ?? '',
+              manufacturer: p2.Manufacturer ?? '',
+              description: p2.Description ?? '',
+              rawPackage: p2.Package ?? (p2.ProductAttributes ?? []).find((a) => /package|case/i.test(a?.AttributeName ?? ''))?.AttributeValue ?? '',
+              price: num(brk?.Price), currency: brk?.Currency,
+              stock: num(p2.AvailabilityInStock),
+              url: p2.ProductDetailUrl, datasheetUrl: p2.DataSheetUrl,
+            });
+          }
+        } else notes.push(`Mouser ${r.status}`);
+      } catch (e) { notes.push(`Mouser ${String(e.message ?? e).slice(0, 60)}`); }
+    }
+
+    // DigiKey 关键词检索（复用 /api/digikey 的令牌逻辑；未配置则跳过）
+    const dkId = t(process.env.DIGIKEY_CLIENT_ID), dkSecret = t(process.env.DIGIKEY_CLIENT_SECRET);
+    if (dkId && dkSecret && items.length < limit) {
+      try {
+        const tk = await fetch('https://api.digikey.com/v1/oauth2/token', {
+          method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `client_id=${encodeURIComponent(dkId)}&client_secret=${encodeURIComponent(dkSecret)}&grant_type=client_credentials`,
+        });
+        if (tk.ok) {
+          const { access_token } = await tk.json();
+          const r = await fetch('https://api.digikey.com/products/v4/search/keyword', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${access_token}`, 'X-DIGIKEY-Client-Id': dkId, 'X-DIGIKEY-Locale-Site': 'CN', 'X-DIGIKEY-Locale-Currency': 'CNY' },
+            body: JSON.stringify({ Keywords: q, Limit: limit, Offset: 0 }),
+          });
+          if (r.ok) {
+            const j = await r.json();
+            for (const p2 of (j?.Products ?? []).slice(0, limit)) {
+              const pkgParam = (p2.Parameters ?? []).find((a) => /package|case/i.test(a?.ParameterText ?? a?.Parameter ?? ''));
+              items.push({
+                vendor: 'DigiKey',
+                mpn: p2.ManufacturerProductNumber ?? p2.ManufacturerPartNumber ?? '',
+                manufacturer: p2.Manufacturer?.Name ?? p2.Manufacturer?.Value ?? '',
+                description: p2.Description?.ProductDescription ?? p2.ProductDescription ?? '',
+                rawPackage: pkgParam?.ValueText ?? pkgParam?.Value ?? '',
+                price: num(p2.UnitPrice ?? (p2.ProductVariations ?? [])[0]?.StandardPricing?.[0]?.UnitPrice),
+                currency: 'CNY',
+                stock: num(p2.QuantityAvailable),
+                url: p2.ProductUrl, datasheetUrl: p2.DatasheetUrl,
+              });
+            }
+          } else notes.push(`DigiKey ${r.status}`);
+        } else notes.push(`DigiKey token ${tk.status}`);
+      } catch (e) { notes.push(`DigiKey ${String(e.message ?? e).slice(0, 60)}`); }
+    }
+
+    // 去重（同型号取首个）
+    const seen = new Set();
+    const uniq = items.filter((x) => {
+      const k = String(x.mpn).toUpperCase();
+      if (!k || seen.has(k)) return false;
+      seen.add(k); return true;
+    }).slice(0, limit);
+
+    res.setHeader('Cache-Control', 'public, max-age=600');
+    return res.status(200).send(JSON.stringify({
+      items: uniq,
+      message: uniq.length ? undefined : (notes.length ? notes.join('; ') : (!mouserKey && !dkId ? '未配置 MOUSER_API_KEY / DIGIKEY_CLIENT_ID' : '无匹配结果')),
+    }));
+  }
+
   if (!mpn) return res.status(400).send(JSON.stringify({ error: 'usage: ?mpn=XXX' }));
 
   const jobs = [

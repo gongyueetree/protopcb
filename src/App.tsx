@@ -23,6 +23,7 @@ import { CustomPartWizard } from './modules/component-search/CustomPartWizard';
 import { loadCustomParts, deleteCustomPart, customPartToResult, bootCustomLib, type CustomPart } from './design-core/custom-lib';
 import { parseKicadPcb } from './design-core/geometry/kicad-pcb-import';
 import { parseKicadSch } from './design-core/geometry/kicad-sch-import';
+import { parseLegacySch, isLegacySch } from './design-core/geometry/kicad-sch-legacy';
 import { parseKicadMod } from './design-core/geometry/kicad-file-parser';
 import { findAlternatives, ALT_MODES, type AltMode, type AltResult, type AltCandidate } from './modules/component-search/alt-parts';
 import { autoKicadFootprint } from './design-core/geometry/auto-kicad-footprint';
@@ -277,6 +278,20 @@ export default function App() {
     return { comps: data.comps.length, skipped: data.skipped.length };
   };
 
+  /** KiCad 5 旧版 .sch：无内嵌符号定义，仅提取实例/连线/标签用于原样视图 */
+  const applyLegacySch = (text: string): { symbols: number; linked: number } => {
+    const r = parseLegacySch(text);
+    setSchematicSheet({
+      instances: r.comps.map((c) => ({ ref: c.ref, libId: c.libId, x: c.x, y: c.y, rot: c.rot, mirror: c.mirror, unit: c.unit })),
+      wires: r.wires,
+      junctions: r.junctions,
+      labels: r.labels,
+      noConnects: r.noConnects,
+      libSymbols: {},   // 旧格式符号在 -cache.lib 内，非本视图必需
+    });
+    return { symbols: 0, linked: 0 };
+  };
+
   /** 从 .kicad_sch 文本提取内嵌符号并按位号挂到已导入器件（原理图区随即显示真符号） */
   const applySchText = (text: string): { symbols: number; linked: number } => {
     const sch = parseKicadSch(text);
@@ -315,6 +330,7 @@ export default function App() {
         const names = Object.keys(entries).filter((n) => !n.startsWith('__MACOSX') && !n.endsWith('/'));
         const pcbName = names.filter((n) => /\.kicad_pcb$/i.test(n)).sort((a, b) => entries[b].length - entries[a].length)[0];
         const schNames = names.filter((n) => /\.kicad_sch$/i.test(n));
+        const legacySchNames = names.filter((n) => /\.sch$/i.test(n) && !/\.kicad_sch$/i.test(n));
         if (!pcbName) throw new Error(t('压缩包内未找到 .kicad_pcb 文件'));
         const r = importPcbText(strFromU8(entries[pcbName]));
         let symTotal = 0, linkTotal = 0;
@@ -322,10 +338,23 @@ export default function App() {
           const rr = applySchText(strFromU8(entries[sn]));
           symTotal += rr.symbols; linkTotal += rr.linked;
         }
+        // KiCad 5 旧格式：取器件最多的那张作为主图（老工程常为多页层级图）
+        if (!schNames.length && legacySchNames.length) {
+          const best = legacySchNames
+            .map((n) => ({ n, txt: strFromU8(entries[n]) }))
+            .filter((x) => isLegacySch(x.txt))
+            .sort((a, b) => (b.txt.match(/^\$Comp/gm)?.length ?? 0) - (a.txt.match(/^\$Comp/gm)?.length ?? 0))[0];
+          if (best) applyLegacySch(best.txt);
+        }
         alert(`${t('工程导入完成')}：PCB ${r.comps} ${t('个器件')}${r.skipped ? `（${r.skipped} ${t('个跳过')}）` : ''}${schNames.length ? ` · ${t('原理图')} ${schNames.length} ${t('张')}，${symTotal} ${t('个符号')}，${linkTotal} ${t('个器件已挂真符号')}` : ` · ${t('包内无原理图，符号用名字解析')}`}`);
       } else if (/\.kicad_pcb$/i.test(f.name)) {
         const r = importPcbText(await f.text());
         if (r.skipped) alert(`已导入 ${r.comps} 个器件；${r.skipped} 个封装缺少位置信息被跳过`);
+      } else if (/\.sch$/i.test(f.name) && !/\.kicad_sch$/i.test(f.name)) {
+        const txt = await f.text();
+        if (!isLegacySch(txt)) throw new Error(t('无法识别的原理图格式'));
+        applyLegacySch(txt);
+        alert(t('已载入 KiCad 5 旧版原理图（原样视图）'));
       } else if (/\.kicad_sch$/i.test(f.name)) {
         // 单独补挂原理图（画布已有对应位号的器件时）
         const rr = applySchText(await f.text());
@@ -362,7 +391,7 @@ export default function App() {
           <button onClick={() => exportMarkdownReport(doc)} style={hbtn}>📄 {t('方案报告')}</button>
           <button onClick={() => { if (ensureProjectName()) exportDocument(useDesignStore.getState().doc); }} style={hbtn}>⬇ {t('导出设计')}</button>
           <button onClick={() => fileRef.current?.click()} style={hbtn}>⬆ {t('导入设计')}</button>
-          <input ref={fileRef} type="file" accept=".json,.kicad_pcb,.kicad_sch,.zip" style={{ display: 'none' }} onChange={onImport} />
+          <input ref={fileRef} type="file" accept=".json,.kicad_pcb,.kicad_sch,.sch,.zip" style={{ display: 'none' }} onChange={onImport} />
         </div>
       </header>
 

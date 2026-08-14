@@ -4,6 +4,7 @@
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getProviders } from '../../providers/factory';
+import { searchSupplierParts, supplierPartToResult } from '../../providers/supplier-search';
 import { searchEzplmParts, ezplmLiveAvailable } from '../../providers/ezplm-live';
 import { useDesignStore } from '../../state/designStore';
 import { useT, useTranslated, tr } from '../../shared/i18n';
@@ -19,7 +20,20 @@ export function ComponentSearchPanel() {
   const [keyword, setKeyword] = useState('');
   const [category, setCategory] = useState<ComponentCategory | null>(null);
   const [orgOnly, setOrgOnly] = useState(false);
-  const [results, setResults] = useState<ComponentSearchResult[]>([]);
+  const [orgResults, setOrgResults] = useState<ComponentSearchResult[]>([]);
+  const [ezplmResults, setEzplmResults] = useState<ComponentSearchResult[]>([]);
+  const [netResults, setNetResults] = useState<ComponentSearchResult[]>([]);
+  const [netBusy, setNetBusy] = useState(false);
+  const [netMsg, setNetMsg] = useState('');
+  const [srcTab, setSrcTab] = useState<'org' | 'ezplm' | 'net'>('ezplm');
+  // 有数据的源才显示 Tab（要求：无本组织数据不显示该 Tab，ezPLM 搜不到也不显示）
+  const availTabs = ([
+    orgResults.length ? 'org' : null,
+    ezplmResults.length ? 'ezplm' : null,
+    netResults.length ? 'net' : null,
+  ].filter(Boolean) as ('org' | 'ezplm' | 'net')[]);
+  const results = srcTab === 'org' ? orgResults : srcTab === 'ezplm' ? ezplmResults : netResults;
+  const setResults = setEzplmResults;   // 兼容既有赋值路径（ezPLM 主源）
   const [expanded, setExpanded] = useState<string | null>(null);
   const addComponent = useDesignStore((s) => s.addComponent);
   const components = useDesignStore((s) => s.doc.components);
@@ -38,6 +52,24 @@ export function ComponentSearchPanel() {
 
   const runSearch = useCallback(async () => {
     const seq = ++searchSeq.current;
+    const q = keyword.trim();
+    // ── 本组织物料（orgOnly 检索）与 网络（DigiKey/Mouser）并行拉取 ──
+    if (q) {
+      providers.components.searchComponents({ keyword: q, orgOnly: true }, ctx)
+        .then((r: { items: ComponentSearchResult[] }) => { if (seq === searchSeq.current) setOrgResults(r.items ?? []); })
+        .catch(() => { if (seq === searchSeq.current) setOrgResults([]); });
+      setNetBusy(true); setNetMsg('');
+      searchSupplierParts(q, 10)
+        .then((r) => {
+          if (seq !== searchSeq.current) return;
+          setNetResults(r.items.map(supplierPartToResult));
+          setNetMsg(r.items.length ? '' : (r.message ?? ''));
+          setNetBusy(false);
+        })
+        .catch(() => { if (seq === searchSeq.current) { setNetResults([]); setNetBusy(false); } });
+    } else {
+      setOrgResults([]); setNetResults([]); setNetMsg('');
+    }
     // 关键词检索优先走 ezPLM 实时库（需 Vercel 配置 EZPLM_API_KEY）
     // 勾选「仅显示本组织物料」时跳过实时库（系统库物料不属于组织物料）
     if (keyword.trim() && !orgOnly) {
@@ -72,6 +104,12 @@ export function ComponentSearchPanel() {
     setResults(res.items);
   }, [keyword, category, orgOnly]);
 
+  // 当前 Tab 无结果时自动切到有结果的源（避免用户看到空白误以为没搜到）
+  useEffect(() => {
+    if (!availTabs.length) return;
+    if (!availTabs.includes(srcTab)) setSrcTab(availTabs[0]);
+  }, [availTabs.join(','), srcTab]);
+
   // 300ms 防抖：停止输入后才发请求（避免竞态 + 节省 ezPLM 每日调用配额）
   useEffect(() => {
     const t = setTimeout(runSearch, 300);
@@ -85,35 +123,37 @@ export function ComponentSearchPanel() {
           {liveStatus === 'live' ? '✓ ' + t('已连接 ezPLM 元器件库（实时检索）') : '内置演示数据 · 在 Vercel 配置 EZPLM_API_KEY 后接入实时库'}
         </div>
       )}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-        {CATEGORY_LIST.map((cat) => (
-          <button key={cat} onClick={() => setCategory(category === cat ? null : cat)}
-            style={chip(category === cat)}>
-            {CATEGORY_DISPLAY[cat].icon} {t(CATEGORY_DISPLAY[cat].name)}
-          </button>
-        ))}
-      </div>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, fontSize: 12, color: '#475569', cursor: 'pointer' }}>
-        <input type="checkbox" checked={orgOnly} onChange={(e) => setOrgOnly(e.target.checked)} style={{ accentColor: COLORS.green }} />
-        {t('仅显示本组织物料')}
-      </label>
       <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder={t('搜索型号、封装、关键词...')}
         style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #dbe6dd', fontSize: 13, outline: 'none', boxSizing: 'border-box', marginBottom: 10 }} />
+      {/* 三源 Tab：本组织 / ezPLM / 网络（DigiKey+Mouser）；无数据的源不显示 Tab */}
+      {keyword.trim() && (
+        <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+          {availTabs.map((tb) => (
+            <button key={tb} onClick={() => setSrcTab(tb)}
+              style={{ flex: 1, padding: '5px 0', borderRadius: 6, border: '1px solid ' + (srcTab === tb ? COLORS.green : '#dbe6dd'), background: srcTab === tb ? COLORS.greenBg : '#fff', color: srcTab === tb ? COLORS.green : '#64748b', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+              {tb === 'org' ? tr('本组织') : tb === 'ezplm' ? 'ezPLM' : tr('网络')}
+              <span style={{ marginLeft: 4, fontSize: 9.5, opacity: .75 }}>{tb === 'org' ? orgResults.length : tb === 'ezplm' ? ezplmResults.length : netResults.length}</span>
+            </button>
+          ))}
+          {netBusy && <span style={{ alignSelf: 'center', fontSize: 10, color: '#94a3b8' }}>⟳</span>}
+        </div>
+      )}
       <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>{t('找到')} {results.length} {t('个结果')}</div>
       {results.length === 0 && keyword.trim() === '' && (
         <div style={{ padding: '14px 12px', borderRadius: 8, background: '#f8fafc', border: '1px dashed #e2e8f0', fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>
           {tr('输入型号/关键词检索 ezPLM 实时库；通用封装请用「KiCad封装库」tab')}
         </div>
       )}
-      {results.length === 0 && keyword.trim() !== '' && (
+      {!availTabs.length && keyword.trim() !== '' && !netBusy && (
+        <div style={{ padding: '10px 12px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a', fontSize: 11, color: '#92400e', marginBottom: 8 }}>
+          {tr('本组织、ezPLM 与网络（DigiKey/Mouser）均未查询到结果')}
+          {netMsg && <div style={{ marginTop: 3, fontSize: 10, color: '#a16207' }}>{netMsg}</div>}
+        </div>
+      )}
+      {false && results.length === 0 && keyword.trim() !== '' && (
         <div style={{ padding: '10px 12px', borderRadius: 8, background: searchErr === 'network' ? '#fef2f2' : '#fffbeb', border: `1px solid ${searchErr === 'network' ? '#fecaca' : '#fde68a'}`, fontSize: 11, color: searchErr === 'network' ? '#b91c1c' : '#92400e', marginBottom: 8 }}>
           {searchErr === 'network'
             ? t('网络或服务异常，请稍后重试；若持续失败请检查 Vercel 的 EZPLM_API_KEY 配置')
-            : category
-              ? <>
-                  {tr('当前仅搜索：')}<b>{tr(CATEGORY_DISPLAY[category].name)}</b>{' —— '}
-                  <button onClick={() => setCategory(null)} style={{ padding: '2px 8px', borderRadius: 5, border: '1px solid #d97706', background: '#fff', color: '#92400e', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{tr('一键搜索全部分类')}</button>
-                </>
             : liveStatus === 'demo'
               ? t('演示目录未收录该型号 —— 配置 EZPLM_API_KEY 接入实时库，或用「定制模块」自行创建')
               : t('ezPLM 库未收录该型号 —— 可换关键词，或用「定制模块」上传 datasheet 创建')}

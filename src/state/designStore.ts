@@ -441,6 +441,7 @@ export const useDesignStore = create<DesignState>()(
             // 内嵌 (model) 引用 → 拉取 KiCad 官方 3D（LFS 经代理解析）
             stepUrl: mref ? `/api/kicadlib?path=step&lib=${encodeURIComponent(mref.lib3d)}&name=${encodeURIComponent(mref.name3d)}` : undefined,
           } as ComponentSearchResult, k.reference);
+          if (k.padNets) placed.display = { ...(placed.display ?? {}), padNets: k.padNets };
           placed.placement = {
             ...placed.placement,
             xMm: k.xMm,
@@ -451,6 +452,7 @@ export const useDesignStore = create<DesignState>()(
           };
           return placed;
         });
+        s.doc.nets = Object.fromEntries(Object.entries(data.nets ?? {}).map(([k, v]) => [k, String(v)]));
         s.doc.board.widthMm = data.widthMm;
         s.doc.board.heightMm = data.heightMm;
         s.doc.board.shape = 'rect';

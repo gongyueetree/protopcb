@@ -102,6 +102,8 @@ export interface PlacedComponent {
     stepUrl?: string;
     /** 辅件归属的核心器件位号（自动布局锚定用） */
     anchorRef?: string;
+    /** 焊盘号 → 网络号（导入工程带来，导出时写回） */
+    padNets?: Record<string, number>;
     officialUrl?: string;
     footprintFileUrl?: string;
     symbolFileUrl?: string;
@@ -166,6 +168,8 @@ export interface ReviewFinding {
 
 /* ---------- 顶层文档 ---------- */
 export interface CircuitCanvasDocument {
+  /** 导入工程的电气网络表（网络号 → 网络名） */
+  nets?: Record<string, string>;
   /** KiCad 工程导入的原理图原样视图（只读） */
   schematicSheet?: {
     instances: { ref: string; libId: string; x: number; y: number; rot: number; mirror?: string; unit?: number }[];

@@ -62,7 +62,15 @@ function edgeCuts(doc: CircuitCanvasDocument): string[] {
 }
 
 /** 单个器件 → footprint 块 */
-function footprintBlock(c: PlacedComponent): string {
+function footprintBlock(c: PlacedComponent, docNets?: Record<string, string>): string {
+  // 焊盘网络：导入工程保留的 padNets（无则不写，KiCad 视为 no net）
+  const netOf = (padNum: string | number): string => {
+    const id = c.display?.padNets?.[String(padNum)];
+    if (id == null) return '';
+    const nm = docNets?.[String(id)] ?? '';
+    const q = /[^A-Za-z0-9_+\-./]/.test(nm) ? JSON.stringify(nm) : nm;
+    return ' (net ' + id + (nm ? ' ' + q : '') + ')';
+  };
   const fp = padFootprintFor(c.footprint.name);
   const isBottom = c.placement.side === 'BOTTOM';
   const layer = isBottom ? 'B.Cu' : 'F.Cu';
@@ -86,10 +94,10 @@ function footprintBlock(c: PlacedComponent): string {
     for (const p of fp.pads) {
       if (p.round) {
         const drill = Math.max(0.8, p.w - 0.6);
-        L.push(`    (pad "${p.num}" thru_hole circle (at ${F(p.x)} ${F(p.y)} ${kicadRot}) (size ${F(p.w)} ${F(p.h)}) (drill ${F(drill)}) (layers "*.Cu" "*.Mask"))`);
+        L.push(`    (pad "${p.num}" thru_hole circle (at ${F(p.x)} ${F(p.y)} ${kicadRot}) (size ${F(p.w)} ${F(p.h)}) (drill ${F(drill)}) (layers "*.Cu" "*.Mask")${netOf(p.num)})`);
       } else {
         const padLayers = isBottom ? '"B.Cu" "B.Paste" "B.Mask"' : '"F.Cu" "F.Paste" "F.Mask"';
-        L.push(`    (pad "${p.num}" smd roundrect (at ${F(p.x)} ${F(p.y)} ${kicadRot}) (size ${F(p.w)} ${F(p.h)}) (layers ${padLayers}) (roundrect_rratio 0.15))`);
+        L.push(`    (pad "${p.num}" smd roundrect (at ${F(p.x)} ${F(p.y)} ${kicadRot}) (size ${F(p.w)} ${F(p.h)}) (layers ${padLayers}) (roundrect_rratio 0.15)${netOf(p.num)})`);
       }
     }
   } else {
@@ -144,7 +152,15 @@ export function buildKicadPcb(doc: CircuitCanvasDocument): string {
   L.push(``);
   L.push(`  (setup (pad_to_mask_clearance 0))`);
   L.push(``);
+  // 电气网络：导入工程带来的网表原样写回（无则仅 net 0，如实反映"无网络"）
   L.push(`  (net 0 "")`);
+  const netEntries = Object.entries(doc.nets ?? {})
+    .map(([id, name]) => [Number(id), name] as [number, string])
+    .filter(([id]) => Number.isFinite(id) && id > 0)
+    .sort((a, b) => a[0] - b[0]);
+  for (const [id, name] of netEntries) {
+    L.push(`  (net ${id} ${/[^A-Za-z0-9_+\-./]/.test(name) || name === '' ? JSON.stringify(name) : name})`);
+  }
   L.push(``);
   // 板框
   L.push(...edgeCuts(doc));
@@ -152,7 +168,7 @@ export function buildKicadPcb(doc: CircuitCanvasDocument): string {
   // 定位孔
   mountingHoleCenters(doc.board).forEach((c, i) => { L.push(holeBlock(c.x, c.y, i + 1)); L.push(``); });
   // 器件
-  for (const c of doc.components) { L.push(footprintBlock(c)); L.push(``); }
+  for (const c of doc.components) { L.push(footprintBlock(c, doc.nets)); L.push(``); }
   L.push(`)`);
   return L.join('\n');
 }

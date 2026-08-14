@@ -22,6 +22,8 @@ const num = (l: SExpr[] | undefined, i: number): number => {
 
 export interface KicadImportedComp {
   reference: string;
+  /** 焊盘号 → 网络号（来自源文件，导出时写回） */
+  padNets?: Record<string, number>;
   value: string;
   footprintName: string;
   xMm: number;
@@ -31,6 +33,8 @@ export interface KicadImportedComp {
 }
 
 export interface KicadImportResult {
+  /** 网络表：网络号 → 网络名（导出时原样写回，保留电气连接） */
+  nets: Record<number, string>;
   /** 板框左上角在 KiCad 图纸中的绝对坐标（器件坐标需减去它） */
   originXMm: number;
   originYMm: number;
@@ -93,6 +97,12 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const skipped: string[] = [];
   const footprintDefs: Record<string, PadFootprint> = {};
   const modelRefs: Record<string, { lib3d: string; name3d: string }> = {};
+  // 顶层网络表：(net 3 +5V) / (net 1 "Net-(R20-Pad1)")
+  const nets: Record<number, string> = {};
+  for (const n of findAll(pcb, 'net')) {
+    const id = Number(n[1]);
+    if (Number.isFinite(id)) nets[id] = String(n[2] ?? '').replace(/^"|"$/g, '');
+  }
   let hasMountingHoles = false;
   for (const fp of fps) {
     const lib = String(fp[1] ?? '');
@@ -115,7 +125,15 @@ export function parseKicadPcb(text: string): KicadImportResult {
     if (!at) { skipped.push(fpName); continue; }
     // 器件包围盒也参与板框推断（无 Edge.Cuts 时兜底）
     grow(num(at, 1), num(at, 2));
+    // 焊盘网络：pad 内嵌 (net id "name")
+    const padNets: Record<string, number> = {};
+    for (const pd of findAll(fp, 'pad')) {
+      const pnum = String(pd[1] ?? '').replace(/^"|"$/g, '');
+      const nn = find(pd, 'net');
+      if (pnum && nn && Number.isFinite(Number(nn[1]))) padNets[pnum] = Number(nn[1]);
+    }
     comps.push({
+      padNets: Object.keys(padNets).length ? padNets : undefined,
       reference: reference || `X${comps.length + 1}`,
       value: value || fpName,
       footprintName: fpName,
@@ -135,5 +153,5 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const widthMm = Math.max(20, Math.ceil((maxX - ox + pad)));
   const heightMm = Math.max(20, Math.ceil((maxY - oy + pad)));
 
-  return { widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs };
+  return { nets, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs };
 }

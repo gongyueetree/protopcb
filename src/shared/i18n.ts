@@ -30,6 +30,10 @@ export const useLangStore = create<LangState>((set) => ({
 
 /* ───────────── 固定文案词典（key = 中文原文） ───────────── */
 const DICT: Record<string, string> = {
+  '网络': 'Web',
+  '本组织、ezPLM 与网络（DigiKey/Mouser）均未查询到结果': 'No results in My Org, ezPLM, or Web (DigiKey/Mouser)',
+  '无法识别的原理图格式': 'Unrecognized schematic format',
+  '已载入 KiCad 5 旧版原理图（原样视图）': 'Loaded legacy KiCad 5 schematic (as-is view)',
   '💡 替代料智能推荐': '💡 Alternative Parts', '搜索替代料': 'Find alternatives',
   'Pin-to-Pin': 'Pin-to-Pin', '封装兼容': 'Package compatible', '功能兼容': 'Function compatible',
   '国产替代': 'Domestic', '低成本优先': 'Lowest cost',
