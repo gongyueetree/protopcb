@@ -78,6 +78,14 @@ export function parseFootprintNode(fp: SExpr[]): PadFootprint | null {
       const at = find(p, 'at');
       const size = find(p, 'size');
       if (!at || !size) continue;
+      // 仅铜箔焊盘参与渲染：纯 F.Paste / F.Mask 的工艺焊盘（锡膏开窗、阻焊开窗）不是真实焊盘，
+      // 混入会导致同一封装出现重复/错位的"焊盘"（KiCad 5 工程常见，如 0201 电容带独立锡膏层）
+      const layersNode = find(p, 'layers');
+      if (layersNode) {
+        const ls = layersNode.slice(1).map((x) => String(x));
+        const hasCu = ls.some((l) => /(^|\.)Cu$|^\*\.Cu$|\*\.Cu/.test(l) || /^[FB]\.Cu$/.test(l));
+        if (!hasCu) continue;
+      }
       const rot = numAt(at, 3) % 180;
       let w = numAt(size, 1), h = numAt(size, 2);
       if (Math.abs(rot) === 90) [w, h] = [h, w]; // 旋转 90° 的焊盘等效交换宽高

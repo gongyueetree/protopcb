@@ -31,6 +31,9 @@ export interface KicadImportedComp {
 }
 
 export interface KicadImportResult {
+  /** 板框左上角在 KiCad 图纸中的绝对坐标（器件坐标需减去它） */
+  originXMm: number;
+  originYMm: number;
   widthMm: number;
   heightMm: number;
   comps: KicadImportedComp[];
@@ -132,5 +135,5 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const widthMm = Math.max(20, Math.ceil((maxX - ox + pad)));
   const heightMm = Math.max(20, Math.ceil((maxY - oy + pad)));
 
-  return { widthMm, heightMm, comps, hasMountingHoles, skipped, footprintDefs, modelRefs };
+  return { widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs };
 }

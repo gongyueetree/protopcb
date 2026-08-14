@@ -445,7 +445,8 @@ export const useDesignStore = create<DesignState>()(
             ...placed.placement,
             xMm: k.xMm,
             yMm: k.yMm,
-            rotation: k.rotation === 90 || k.rotation === 180 || k.rotation === 270 ? k.rotation : 0,
+            // 保留任意角度（KiCad 支持 0.1° 精度）；此前非 90/180/270 一律归零导致器件朝向错乱
+            rotation: ((k.rotation % 360) + 360) % 360,
             side: k.layer === 'bottom' ? 'BOTTOM' : 'TOP',
           };
           return placed;
