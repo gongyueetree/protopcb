@@ -24,6 +24,7 @@ import { loadCustomParts, deleteCustomPart, customPartToResult, bootCustomLib, t
 import { parseKicadPcb } from './design-core/geometry/kicad-pcb-import';
 import { parseKicadSch } from './design-core/geometry/kicad-sch-import';
 import { parseKicadMod } from './design-core/geometry/kicad-file-parser';
+import { findAlternatives, ALT_MODES, type AltMode, type AltResult, type AltCandidate } from './modules/component-search/alt-parts';
 import { autoKicadFootprint } from './design-core/geometry/auto-kicad-footprint';
 import { useT, useLangStore, useTranslated, tr } from './shared/i18n';
 import { registerFootprintOverride, registerSymbolOverride, symbolOverrideFor, footprintOverrideFor } from './design-core/geometry/lib-file-registry';
@@ -93,7 +94,7 @@ export default function App() {
   const [leftTab, setLeftTab] = useState<'model' | 'footprint' | 'custom'>('model');
   const [pcbExportOpen, setPcbExportOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
-  const [wizard, setWizard] = useState<{ open: boolean; mpn?: string } | null>(null);
+  const [wizard, setWizard] = useState<{ open: boolean; mpn?: string; editPart?: CustomPart } | null>(null);
   const [wizardTick, setWizardTick] = useState(0);
   useEffect(() => { bootCustomLib(); }, []);
   // 自动保存（本地）：doc 变更 800ms 防抖写 localStorage；启动时若有存档且当前为空则恢复
@@ -103,6 +104,15 @@ export default function App() {
     if (loadDocumentRef.current) return;
     loadDocumentRef.current = true;
     try {
+      // 首次加载（本标签页会话的第一次）清空画布：不恢复自动存档，从干净状态开始；
+      // 同一会话内的刷新（F5/路由重载）仍然恢复，避免误丢正在进行的设计。
+      const FRESH_KEY = 'cc_session_started';
+      const isFirstLoad = !sessionStorage.getItem(FRESH_KEY);
+      if (isFirstLoad) {
+        sessionStorage.setItem(FRESH_KEY, '1');
+        localStorage.removeItem('cc_doc_autosave');
+        return;
+      }
       const saved = localStorage.getItem('cc_doc_autosave');
       if (saved && useDesignStore.getState().doc.components.length === 0) {
         const parsed = JSON.parse(saved) as { doc: Parameters<typeof loadDocument>[0]; at: string };
@@ -376,7 +386,7 @@ export default function App() {
                 <button key={id} onClick={() => setLeftTab(id)} style={{ flex: 1, padding: '7px 0', fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1px solid ${leftTab === id ? COLORS.green : '#dbe6dd'}`, borderRadius: 8, background: leftTab === id ? COLORS.greenBg : '#fff', color: leftTab === id ? COLORS.green : '#64748b' }}>{label}</button>
               ))}
             </div>
-            {leftTab === 'model' ? <ComponentSearchPanel /> : leftTab === 'footprint' ? <FootprintLibraryPanel /> : <CustomLibPanel onOpenWizard={() => setWizard({ open: true })} wizardTick={wizardTick} />}
+            {leftTab === 'model' ? <ComponentSearchPanel /> : leftTab === 'footprint' ? <FootprintLibraryPanel /> : <CustomLibPanel onOpenWizard={() => setWizard({ open: true })} onEditPart={(p) => setWizard({ open: true, editPart: p })} wizardTick={wizardTick} />}
           </div>
         </aside>
 
@@ -594,7 +604,7 @@ export default function App() {
       )}
 
       {wizard?.open && (
-        <CustomPartWizard initialMpn={wizard.mpn}
+        <CustomPartWizard initialMpn={wizard.mpn} editPart={wizard.editPart}
           onSaved={() => { setWizard(null); setWizardTick((t) => t + 1); setLeftTab('custom'); }}
           onClose={() => setWizard(null)} />
       )}
@@ -623,39 +633,31 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
   const [refDesigns, setRefDesigns] = useState<ReferenceDesign[]>([]);
   const [dkOffer, setDkOffer] = useState<DigikeyOffer | null>(null);
   const [supOffers, setSupOffers] = useState<SupplierOffer[]>([]);
-  const [aiAlts, setAiAlts] = useState<{ mpn: string; manufacturer: string; description?: string; footprint: string }[] | null>(null);
+  const [altResult, setAltResult] = useState<AltResult | null>(null);
+  const [altMode, setAltMode] = useState<AltMode>('funcCompat');
   const [aiAltBusy, setAiAltBusy] = useState(false);
+  const [altProgress, setAltProgress] = useState('');
   const [aiAltMsg, setAiAltMsg] = useState('');
 
   const searchAiAlts = async () => {
     if (!c || aiAltBusy) return;
-    setAiAltBusy(true);
-    setAiAltMsg('');
-    setAiAlts(null);
+    setAiAltBusy(true); setAiAltMsg(''); setAltResult(null); setAltProgress('');
     try {
-      if (!(await geminiAvailable())) { setAiAltMsg('未配置 Gemini（Vercel 环境变量 GEMINI_API_KEY）'); setAiAltBusy(false); return; }
-      // 1) 大模型给候选替代型号
-      const text = await geminiComplete(`器件 ${c.mpn}（${c.manufacturer}，${c.display?.description ?? ''}，封装 ${c.footprint.name}）。
-请给出 5 个功能等效或引脚兼容的替代器件型号（不同厂商优先，含国产替代）。严格输出 JSON 数组，勿输出其它文字：
-["型号1","型号2","型号3","型号4","型号5"]`);
-      const candidates = extractJson<string[]>(text).filter((m) => typeof m === 'string' && m.trim()).slice(0, 6);
-      // 2) 逐个经 ezPLM API 验证并取详情（比对映射到我们数据库）
-      const found: NonNullable<typeof aiAlts> = [];
-      for (const cand of candidates) {
-        if (found.length >= 5) break;
-        const live = await searchEzplmParts(cand.trim(), 3).catch(() => ({ available: false, items: [] }));
-        const hit = live.items.find((i) => i.mpn.toUpperCase().startsWith(cand.trim().toUpperCase()) && i.mpn !== c.mpn) ?? live.items.find((i) => i.mpn !== c.mpn);
-        if (hit && !found.some((f) => f.mpn === hit.mpn)) {
-          found.push({ mpn: hit.mpn, manufacturer: hit.manufacturer, description: hit.description, footprint: hit.defaultFootprintName });
-        }
+      const r = await findAlternatives({
+        mpn: c.mpn, manufacturer: c.manufacturer, description: c.display?.description,
+        footprint: c.footprint.name, mode: altMode,
+        onProgress: setAltProgress,
+      });
+      setAltResult(r);
+      if (!r.recommendations.length && !r.pending.length) {
+        setAiAltMsg(`没有满足「${ALT_MODES[altMode].label}」模式的候选（已排除 ${r.eliminated.length} 个）`);
       }
-      setAiAlts(found);
-      if (!found.length) setAiAltMsg('大模型候选型号均未在 ezPLM 库中命中');
     } catch (e) {
       setAiAltMsg('搜索失败：' + (e as Error).message);
     }
-    setAiAltBusy(false);
+    setAiAltBusy(false); setAltProgress('');
   };
+
   useEffect(() => {
     if (!c) return;
     setRefDesigns([]);
@@ -791,27 +793,46 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
         ); })()}
       </div>
 
-      {/* AI 替代料：Gemini 找候选 → ezPLM API 验证映射 */}
+      {/* AI 替代料：模式化推荐 + 权威来源门槛 + 确定性评分（移植 altpart-pro 决策模型） */}
       <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: aiAlts?.length || aiAltMsg ? 6 : 0 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309' }}>{tr('💡 替代料（AI × ezPLM）')}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309' }}>{tr('💡 替代料智能推荐')}</span>
           <span style={{ flex: 1 }} />
           <button onClick={searchAiAlts} disabled={aiAltBusy} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: aiAltBusy ? '#d6d3d1' : '#b45309', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: aiAltBusy ? 'default' : 'pointer' }}>
-            {aiAltBusy ? tr('搜索中…') : '🤖 ' + tr('AI 搜索替代料')}
+            {aiAltBusy ? '⟳ ' + tr('搜索中…') : '🤖 ' + tr('搜索替代料')}
           </button>
         </div>
+        {/* 替代模式：硬门槛程序化判定，不只是提示词 */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+          {(Object.keys(ALT_MODES) as AltMode[]).map((m) => (
+            <button key={m} onClick={() => setAltMode(m)} title={ALT_MODES[m].note}
+              style={{ padding: '3px 8px', borderRadius: 5, border: '1px solid ' + (altMode === m ? '#b45309' : '#fde68a'), background: altMode === m ? '#b45309' : '#fff', color: altMode === m ? '#fff' : '#92400e', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
+              {tr(ALT_MODES[m].label)}
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: 9.5, color: '#a16207', marginBottom: 6 }}>{tr(ALT_MODES[altMode].note)}</div>
+        {altProgress && <div style={{ fontSize: 10, color: '#92400e', marginBottom: 4 }}>{altProgress}</div>}
         {aiAltMsg && <div style={{ fontSize: 10, color: '#92400e' }}>{aiAltMsg}</div>}
-        {aiAlts?.map((a, i) => (
-          <div key={i} style={{ padding: '6px 8px', marginBottom: 4, borderRadius: 6, background: '#fff', border: '1px solid #fef3c7' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 9, padding: '0 5px', borderRadius: 3, background: '#e0f2fe', color: '#0369a1', fontWeight: 700 }}>ezPLM</span>
-              <span style={{ fontFamily: 'monospace', fontSize: 11.5, fontWeight: 700 }}>{a.mpn}</span>
-              <span style={{ fontSize: 9.5, color: '#94a3b8' }}>{a.manufacturer}</span>
-              <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: '#f1f5f9', color: '#475569', fontWeight: 600 }}>{a.footprint}</span>
-            </div>
-            {a.description && <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>{a.description}</div>}
-          </div>
+        {altResult?.notice && <div style={{ fontSize: 10, color: '#b45309', marginBottom: 4 }}>⚠ {altResult.notice}</div>}
+
+        {altResult?.recommendations.map((a) => (
+          <AltCard key={a.mpn} a={a} onUse={() => { if (a.componentId) { useDesignStore.getState().linkSymbolFrom(c.instanceId, { mpn: a.mpn }); setAiAltMsg(tr('已选用') + ' ' + a.mpn); } }} />
         ))}
+        {!!altResult?.pending.length && (
+          <div style={{ marginTop: 6 }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: '#a16207', marginBottom: 3 }}>{tr('待核验候选（需人工核对 datasheet）')}</div>
+            {altResult.pending.map((a) => <AltCard key={a.mpn} a={a} />)}
+          </div>
+        )}
+        {!!altResult?.eliminated.length && (
+          <details style={{ marginTop: 6 }}>
+            <summary style={{ fontSize: 9.5, color: '#94a3b8', cursor: 'pointer' }}>{tr('已排除')} {altResult.eliminated.length} {tr('个')}</summary>
+            {altResult.eliminated.map((e, i) => (
+              <div key={i} style={{ fontSize: 9.5, color: '#94a3b8', padding: '2px 4px' }}>{e.mpn} — {e.reason}</div>
+            ))}
+          </details>
+        )}
       </div>
 
       {/* 替代料（本组织映射） */}
@@ -837,7 +858,7 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
 
 
 /** 定制模块库面板：已保存器件列表 + 新建入口 */
-function CustomLibPanel({ onOpenWizard, wizardTick }: { onOpenWizard: () => void; wizardTick: number }) {
+function CustomLibPanel({ onOpenWizard, onEditPart, wizardTick }: { onOpenWizard: () => void; onEditPart: (p: CustomPart) => void; wizardTick: number }) {
   const addComponent = useDesignStore((s) => s.addComponent);
   const [, setRefresh] = useState(0);
   const parts = useMemo(() => loadCustomParts(), [wizardTick]);
@@ -852,7 +873,8 @@ function CustomLibPanel({ onOpenWizard, wizardTick }: { onOpenWizard: () => void
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 9, padding: '0 5px', borderRadius: 3, background: '#f5f3ff', color: '#6d28d9', fontWeight: 700 }}>{tr('自建')}</span>
             <span style={{ fontFamily: 'monospace', fontSize: 12.5, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.mpn}</span>
-            <button onClick={() => addComponent(customPartToResult(p))} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: COLORS.green, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>＋</button>
+            <button onClick={() => addComponent(customPartToResult(p))} title={tr('放到画布')} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: COLORS.green, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>＋</button>
+            <button onClick={() => onEditPart(p)} title={tr('编辑该定制器件')} style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #ddd6fe', background: '#f5f3ff', color: '#6d28d9', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>✎</button>
             <button onClick={() => { deleteCustomPart(p.id); setRefresh((x) => x + 1); }} style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 13 }}>×</button>
           </div>
           <div style={{ fontSize: 10.5, color: '#64748b', marginTop: 2 }}>{p.pins.length} {tr('脚')} · {p.footprintName}{p.description ? ' · ' + p.description : ''}</div>
@@ -1253,3 +1275,28 @@ const hbtn: React.CSSProperties = { padding: '5px 12px', borderRadius: 8, border
 const ibtn: React.CSSProperties = { width: 34, height: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: '1px solid #E8F3EE', background: '#fff', fontSize: 15, lineHeight: 1, color: '#2C3E50', cursor: 'pointer', padding: 0 };
 const tbtn: React.CSSProperties = { padding: '7px 14px', borderRadius: 6, border: '1px solid #E8F3EE', background: '#fff', fontSize: 13, fontWeight: 500, color: '#2C3E50', cursor: 'pointer' };
 const smbtn: React.CSSProperties = { padding: '3px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#475569' };
+
+/** 替代料候选卡片：来源徽标 + 评分 + 判定说明 */
+function AltCard({ a, onUse }: { a: AltCandidate; onUse?: () => void }) {
+  const srcBadge = a.source === 'ezplm' ? { t: 'ezPLM', bg: '#e0f2fe', fg: '#0369a1' }
+    : a.source === 'supplier' ? { t: tr('分销商'), bg: '#ede9fe', fg: '#6d28d9' }
+    : { t: tr('待核验'), bg: '#fef3c7', fg: '#92400e' };
+  return (
+    <div style={{ padding: '6px 8px', marginBottom: 4, borderRadius: 6, background: '#fff', border: '1px solid #fef3c7' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 9, padding: '0 5px', borderRadius: 3, background: srcBadge.bg, color: srcBadge.fg, fontWeight: 700 }}>{srcBadge.t}</span>
+        <span style={{ fontFamily: 'monospace', fontSize: 11.5, fontWeight: 700 }}>{a.mpn}</span>
+        <span style={{ fontSize: 9.5, color: '#94a3b8' }}>{a.manufacturer}</span>
+        {a.footprint && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: '#f1f5f9', color: '#475569', fontWeight: 600 }}>{a.footprint}</span>}
+        {a.price != null && <span style={{ fontSize: 9.5, color: '#059669', fontWeight: 700 }}>{a.currency === 'USD' ? '$' : '¥'}{a.price.toFixed(2)}</span>}
+        <span style={{ flex: 1 }} />
+        <span title={tr('技术兼容度 × 来源可信度')} style={{ fontSize: 9.5, fontWeight: 700, color: a.score >= 70 ? '#059669' : a.score >= 40 ? '#b45309' : '#94a3b8' }}>{a.score}</span>
+        {onUse && a.componentId && (
+          <button onClick={onUse} style={{ padding: '2px 7px', borderRadius: 4, border: '1px solid #bae6fd', background: '#f0f9ff', color: '#0369a1', fontSize: 9.5, fontWeight: 700, cursor: 'pointer' }}>{tr('选用')}</button>
+        )}
+      </div>
+      {a.description && <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>{a.description}</div>}
+      {!!a.notes.length && <div style={{ fontSize: 9.5, color: '#a16207', marginTop: 2 }}>{a.notes.join(' · ')}</div>}
+    </div>
+  );
+}

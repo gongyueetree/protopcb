@@ -22,12 +22,13 @@ const FAMILIES: [CustomPkg['family'], string][] = [
 ];
 const CATS: [ComponentCategory, string][] = [['ic', '集成电路'], ['mcu', '微控制器'], ['power', '电源'], ['connector', '连接器'], ['passive', '无源'], ['electromech', '机电(继电器/开关)'], ['sensor', '传感器'], ['rf', '射频无线']];
 
-export function CustomPartWizard({ initialMpn, onSaved, onClose }: { initialMpn?: string; onSaved: (p: CustomPart) => void; onClose: () => void }) {
-  const [mpn, setMpn] = useState(initialMpn ?? '');
-  const [desc, setDesc] = useState('');
-  const [cat, setCat] = useState<ComponentCategory>('ic');
-  const [pins, setPins] = useState<CustomPin[]>([{ num: '1', name: 'VCC', type: 'power_in' }, { num: '2', name: 'GND', type: 'power_in' }]);
-  const [pkg, setPkg] = useState<CustomPkg>({ family: 'dual', bodyW: 4.9, bodyH: 3.9, pitch: 1.27 });
+export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { initialMpn?: string; editPart?: CustomPart; onSaved: (p: CustomPart) => void; onClose: () => void }) {
+  // editPart 存在 = 编辑既有自建器件（保留 id/createdAt，保存即覆盖）
+  const [mpn, setMpn] = useState(editPart?.mpn ?? initialMpn ?? '');
+  const [desc, setDesc] = useState(editPart?.description ?? '');
+  const [cat, setCat] = useState<ComponentCategory>(editPart?.category ?? 'ic');
+  const [pins, setPins] = useState<CustomPin[]>(editPart?.pins ?? [{ num: '1', name: 'VCC', type: 'power_in' }, { num: '2', name: 'GND', type: 'power_in' }]);
+  const [pkg, setPkg] = useState<CustomPkg>(editPart?.pkg ?? { family: 'dual', bodyW: 4.9, bodyH: 3.9, pitch: 1.27 });
   const [aiUrl, setAiUrl] = useState('');
   const [aiText, setAiText] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
@@ -164,8 +165,9 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
   const save = () => {
     if (!mpn.trim() || !pins.length) { setAiMsg('型号与管脚不能为空'); return; }
     const part: CustomPart = {
-      id: Math.random().toString(36).slice(2, 10), mpn: mpn.trim(), description: desc.trim() || undefined,
-      category: cat, pins, pkg, footprintName: fpName, createdAt: Date.now(),
+      // 编辑模式保留原 id/创建时间（保存即覆盖同一条，不产生重复器件）
+      id: editPart?.id ?? Math.random().toString(36).slice(2, 10), mpn: mpn.trim(), description: desc.trim() || undefined,
+      category: cat, pins, pkg, footprintName: fpName, createdAt: editPart?.createdAt ?? Date.now(),
     };
     saveCustomPart(part);
     onSaved(part);

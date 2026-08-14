@@ -30,6 +30,13 @@ export const useLangStore = create<LangState>((set) => ({
 
 /* ───────────── 固定文案词典（key = 中文原文） ───────────── */
 const DICT: Record<string, string> = {
+  '💡 替代料智能推荐': '💡 Alternative Parts', '搜索替代料': 'Find alternatives',
+  'Pin-to-Pin': 'Pin-to-Pin', '封装兼容': 'Package compatible', '功能兼容': 'Function compatible',
+  '国产替代': 'Domestic', '低成本优先': 'Lowest cost',
+  '待核验候选（需人工核对 datasheet）': 'Pending verification (check datasheet manually)',
+  '已排除': 'Excluded', '分销商': 'Distributor', '待核验': 'Unverified', '选用': 'Use',
+  '技术兼容度 × 来源可信度': 'technical fit x source confidence', '已选用': 'Now using',
+  '编辑该定制器件': 'Edit this custom part', '放到画布': 'Place on canvas',
   '项目名称': 'Project name', '点击修改项目名称': 'Click to rename project',
   '请为该工程命名（将作为导出文件名）': 'Name this project (used as the export filename)',
   '我的硬件方案': 'My Hardware Design', '演示·估价': 'demo estimate',
