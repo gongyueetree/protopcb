@@ -25,7 +25,7 @@ import { parseKicadPcb } from './design-core/geometry/kicad-pcb-import';
 import { parseKicadSch } from './design-core/geometry/kicad-sch-import';
 import { parseLegacySch, isLegacySch } from './design-core/geometry/kicad-sch-legacy';
 import { parseKicadMod } from './design-core/geometry/kicad-file-parser';
-import { findAlternatives, ALT_MODES, type AltMode, type AltResult, type AltCandidate } from './modules/component-search/alt-parts';
+import { recommendSubCircuit, type SubCircuitItem } from './modules/component-search/sub-circuit';
 import { autoKicadFootprint } from './design-core/geometry/auto-kicad-footprint';
 import { useT, useLangStore, useTranslated, tr } from './shared/i18n';
 import { registerFootprintOverride, registerSymbolOverride, symbolOverrideFor, footprintOverrideFor } from './design-core/geometry/lib-file-registry';
@@ -662,29 +662,24 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
   const [refDesigns, setRefDesigns] = useState<ReferenceDesign[]>([]);
   const [dkOffer, setDkOffer] = useState<DigikeyOffer | null>(null);
   const [supOffers, setSupOffers] = useState<SupplierOffer[]>([]);
-  const [altResult, setAltResult] = useState<AltResult | null>(null);
-  const [altMode, setAltMode] = useState<AltMode>('funcCompat');
-  const [aiAltBusy, setAiAltBusy] = useState(false);
-  const [altProgress, setAltProgress] = useState('');
-  const [aiAltMsg, setAiAltMsg] = useState('');
-
-  const searchAiAlts = async () => {
-    if (!c || aiAltBusy) return;
-    setAiAltBusy(true); setAiAltMsg(''); setAltResult(null); setAltProgress('');
+  const [subItems, setSubItems] = useState<SubCircuitItem[] | null>(null);
+  const [subBusy, setSubBusy] = useState(false);
+  const [subMsg, setSubMsg] = useState('');
+  const placeSubCircuit = useDesignStore((s2) => s2.placeSubCircuit);
+  const runSubCircuit = async () => {
+    if (!c || subBusy) return;
+    setSubBusy(true); setSubMsg(''); setSubItems(null);
     try {
-      const r = await findAlternatives({
-        mpn: c.mpn, manufacturer: c.manufacturer, description: c.display?.description,
-        footprint: c.footprint.name, mode: altMode,
-        onProgress: setAltProgress,
-      });
-      setAltResult(r);
-      if (!r.recommendations.length && !r.pending.length) {
-        setAiAltMsg(`没有满足「${ALT_MODES[altMode].label}」模式的候选（已排除 ${r.eliminated.length} 个）`);
-      }
-    } catch (e) {
-      setAiAltMsg('搜索失败：' + (e as Error).message);
-    }
-    setAiAltBusy(false); setAltProgress('');
+      const items = await recommendSubCircuit({ mpn: c.mpn, manufacturer: c.manufacturer, description: c.display?.description });
+      setSubItems(items);
+    } catch (e) { setSubMsg((e as Error).message); }
+    setSubBusy(false);
+  };
+  const loadSubCircuit = () => {
+    if (!c || !subItems?.length) return;
+    const n = placeSubCircuit(c.instanceId, subItems);
+    setSubMsg(`✓ 已上画布 ${n} 个器件（围绕 ${c.reference}，按管脚序排布）`);
+    setSubItems(null);
   };
 
   useEffect(() => {
@@ -820,6 +815,35 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
             <span style={{ fontSize: 10, color: '#94a3b8' }}>{tr('跳转 ↗')}</span>
           </a>
         ); })()}
+      </div>
+
+      {/* 子电路推荐：大模型提取典型应用电路 → 一键上画布（锚定核心、管脚序排布） */}
+      <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: subItems?.length || subMsg ? 6 : 0 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d' }}>🧩 {tr('子电路推荐')}</span>
+          <span style={{ fontSize: 9.5, color: '#4d7c0f' }}>{tr('典型应用电路的周边器件')}</span>
+          <span style={{ flex: 1 }} />
+          <button onClick={runSubCircuit} disabled={subBusy} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: subBusy ? '#d6d3d1' : '#15803d', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: subBusy ? 'default' : 'pointer' }}>
+            {subBusy ? '⟳ ' + tr('分析中…') : '🤖 ' + tr('推荐')}
+          </button>
+        </div>
+        {subMsg && <div style={{ fontSize: 10, color: subMsg.startsWith('✓') ? '#15803d' : '#b45309', marginBottom: 4 }}>{subMsg}</div>}
+        {!!subItems?.length && (
+          <>
+            {subItems.map((it, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', marginBottom: 3, borderRadius: 5, background: '#fff', border: '1px solid #dcfce7', fontSize: 10.5 }}>
+                <span style={{ fontWeight: 700, color: '#166534', minWidth: 72 }}>{it.role}</span>
+                <span style={{ fontFamily: 'monospace' }}>{it.value}{it.qty > 1 ? ` ×${it.qty}` : ''}</span>
+                <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: '#f1f5f9', color: '#475569' }}>{it.footprint}</span>
+                <span style={{ flex: 1 }} />
+                <span style={{ fontSize: 9.5, color: '#64748b' }}>→ {it.connectsTo}</span>
+              </div>
+            ))}
+            <button onClick={loadSubCircuit} style={{ width: '100%', marginTop: 4, padding: '6px 0', borderRadius: 6, border: 'none', background: '#16a34a', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+              ⬇ {tr('一键上画布')}（{subItems.reduce((a, b) => a + b.qty, 0)} {tr('个器件，围绕')} {c.reference}）
+            </button>
+          </>
+        )}
       </div>
 
       {/* 替代料（本组织映射） */}
@@ -1266,27 +1290,3 @@ const ibtn: React.CSSProperties = { width: 34, height: 32, display: 'inline-flex
 const tbtn: React.CSSProperties = { padding: '7px 14px', borderRadius: 6, border: '1px solid #E8F3EE', background: '#fff', fontSize: 13, fontWeight: 500, color: '#2C3E50', cursor: 'pointer' };
 const smbtn: React.CSSProperties = { padding: '3px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#475569' };
 
-/** 替代料候选卡片：来源徽标 + 评分 + 判定说明 */
-function AltCard({ a, onUse }: { a: AltCandidate; onUse?: () => void }) {
-  const srcBadge = a.source === 'ezplm' ? { t: 'ezPLM', bg: '#e0f2fe', fg: '#0369a1' }
-    : a.source === 'supplier' ? { t: tr('分销商'), bg: '#ede9fe', fg: '#6d28d9' }
-    : { t: tr('待核验'), bg: '#fef3c7', fg: '#92400e' };
-  return (
-    <div style={{ padding: '6px 8px', marginBottom: 4, borderRadius: 6, background: '#fff', border: '1px solid #fef3c7' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 9, padding: '0 5px', borderRadius: 3, background: srcBadge.bg, color: srcBadge.fg, fontWeight: 700 }}>{srcBadge.t}</span>
-        <span style={{ fontFamily: 'monospace', fontSize: 11.5, fontWeight: 700 }}>{a.mpn}</span>
-        <span style={{ fontSize: 9.5, color: '#94a3b8' }}>{a.manufacturer}</span>
-        {a.footprint && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: '#f1f5f9', color: '#475569', fontWeight: 600 }}>{a.footprint}</span>}
-        {a.price != null && <span style={{ fontSize: 9.5, color: '#059669', fontWeight: 700 }}>{a.currency === 'USD' ? '$' : '¥'}{a.price.toFixed(2)}</span>}
-        <span style={{ flex: 1 }} />
-        <span title={tr('技术兼容度 × 来源可信度')} style={{ fontSize: 9.5, fontWeight: 700, color: a.score >= 70 ? '#059669' : a.score >= 40 ? '#b45309' : '#94a3b8' }}>{a.score}</span>
-        {onUse && a.componentId && (
-          <button onClick={onUse} style={{ padding: '2px 7px', borderRadius: 4, border: '1px solid #bae6fd', background: '#f0f9ff', color: '#0369a1', fontSize: 9.5, fontWeight: 700, cursor: 'pointer' }}>{tr('选用')}</button>
-        )}
-      </div>
-      {a.description && <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>{a.description}</div>}
-      {!!a.notes.length && <div style={{ fontSize: 9.5, color: '#a16207', marginTop: 2 }}>{a.notes.join(' · ')}</div>}
-    </div>
-  );
-}

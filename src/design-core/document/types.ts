@@ -104,6 +104,8 @@ export interface PlacedComponent {
     anchorRef?: string;
     /** 焊盘号 → 网络号（导入工程带来，导出时写回） */
     padNets?: Record<string, number>;
+    /** 3D 视图中的高度偏移（mm，托高/压低模型，不影响 2D） */
+    zOffsetMm?: number;
     officialUrl?: string;
     footprintFileUrl?: string;
     symbolFileUrl?: string;

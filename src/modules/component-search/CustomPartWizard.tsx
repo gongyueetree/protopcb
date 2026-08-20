@@ -6,7 +6,7 @@
  * 表单统一可编辑；保存 → 定制库（localStorage）+ 符号覆盖注册，封装经合成 KiCad 名走既有解析器。
  */
 import { tr } from '../../shared/i18n';
-import { useMemo, useState } from 'react';
+import { useMemo, useState , useEffect} from 'react';
 import { COLORS } from '../../shared/theme';
 import { geminiAvailable, geminiComplete, extractJson } from '../../providers/gemini';
 import { padFootprintFor } from '../../design-core/geometry/footprint-pads';
@@ -36,6 +36,14 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
 
   const fpName = customFootprintName({ mpn: mpn || 'X', pkg, pins });
   const fp = useMemo(() => buildCustomFootprint(pkg, pins.length), [pkg, pkg.manualPads, pins.length]);
+  // 手动焊盘模式：焊盘行数自动跟随管脚数（不足补行、超出截断，已填内容保留）
+  useEffect(() => {
+    if (pkg.family !== 'manual') return;
+    const cur = pkg.manualPads ?? [];
+    if (cur.length === pins.length) return;
+    const next = pins.map((pn, i) => cur[i] ?? { num: pn.num || String(i + 1), x: +(i * 1.27).toFixed(2), y: 0, w: 0.6, h: 1.2, round: false });
+    setPkg((prev) => ({ ...prev, manualPads: next }));
+  }, [pins.length, pkg.family]);
 
   const EXTRACT_PROMPT = `请从以上器件资料中提取信息，严格输出 JSON（勿输出其它文字）：
 {"mpn":"型号","description":"30字内功能描述","category":"ic|mcu|power|connector|passive",
@@ -43,6 +51,34 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
 "package":{"family":"dual|quad|qfn|header|chip","bodyW":本体宽mm,"bodyH":本体长mm,"pitch":引脚间距mm,"outlineW":模块整体轮廓宽mm(若焊盘只占模块一部分则填写否则省略),"outlineH":模块整体轮廓高mm}}
 side 规则：电源脚 top，地脚 bottom，输入类 left，输出类 right
 pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
+
+  /** 图片提取：引脚图/封装图截图 → Gemini 视觉 → 填表 */
+  const onImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (f.size > 4 * 1024 * 1024) { setAiMsg('图片超过 4MB，请压缩后重试'); return; }
+    setAiBusy(true); setAiMsg(tr('视觉识别中…'));
+    try {
+      const b64 = await new Promise<string>((res, rej) => {
+        const rd = new FileReader();
+        rd.onload = () => res(String(rd.result).split(',')[1] ?? '');
+        rd.onerror = () => rej(new Error('读取失败'));
+        rd.readAsDataURL(f);
+      });
+      const r = await fetch('/api/gemini', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: EXTRACT_PROMPT, imageBase64: b64, imageMime: f.type || 'image/png' }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const text = String((await r.json()).text ?? '');
+      applyExtract(extractJson(text));
+      setAiMsg('✓ ' + tr('已从图片提取，请核对下方表单（视觉识别务必人工复核管脚号）'));
+    } catch (err) {
+      setAiMsg(tr('图片提取失败') + '：' + (err as Error).message);
+    }
+    setAiBusy(false);
+  };
 
   const applyExtract = (j: { mpn?: string; description?: string; category?: string; pins?: CustomPin[]; package?: Partial<CustomPkg> }) => {
     if (j.mpn) setMpn(j.mpn);
@@ -187,6 +223,10 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
             <label style={{ padding: '6px 12px', borderRadius: 6, border: '1px dashed #c4b5fd', background: '#fff', fontSize: 11, fontWeight: 700, color: '#6d28d9', cursor: 'pointer' }}>
               📄 上传 PDF<input type="file" accept="application/pdf" onChange={onPdf} style={{ display: 'none' }} />
             </label>
+            <label style={{ padding: '6px 12px', borderRadius: 6, border: '1px dashed #c4b5fd', background: '#fff', fontSize: 11, fontWeight: 700, color: '#6d28d9', cursor: 'pointer' }}
+              title={tr('上传引脚图/封装图截图，AI 视觉识别管脚与封装参数')}>
+              🖼 上传图片<input type="file" accept="image/png,image/jpeg,image/webp" onChange={onImage} style={{ display: 'none' }} />
+            </label>
             <input value={aiUrl} onChange={(e) => setAiUrl(e.target.value)} placeholder={tr('或粘贴器件页面 URL…')} style={{ ...inp, flex: 1, minWidth: 200 }} />
             <button disabled={aiBusy || !aiUrl.trim()} onClick={() => runAi({ url: aiUrl.trim() })} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', background: '#6d28d9', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', opacity: aiBusy || !aiUrl.trim() ? 0.5 : 1 }}>{tr('提取')}</button>
           </div>
@@ -293,7 +333,7 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
                 const ext = Math.max(padExt, fp.bodyW / 2, fp.bodyH / 2) * 2 + 1;
                 return (
                   <svg viewBox={`${-ext / 2} ${-ext / 2} ${ext} ${ext}`} style={{ width: '90%', height: '90%' }} preserveAspectRatio="xMidYMid meet">
-                    <rect x={-fp.bodyW / 2} y={-fp.bodyH / 2} width={fp.bodyW} height={fp.bodyH} fill="none" stroke="#1f5c3b" strokeWidth={ext * 0.008} strokeDasharray={pkg.outlineW ? `${ext * 0.02} ${ext * 0.015}` : undefined} />
+                    <rect x={-fp.bodyW / 2} y={-fp.bodyH / 2} width={fp.bodyW} height={fp.bodyH} fill="none" stroke="#1f5c3b" strokeWidth={ext * 0.008}  />
                     {fp.pads.map((pd, i) => pd.round
                       ? <circle key={i} cx={pd.x} cy={pd.y} r={pd.w / 2} fill="#c08a2d" />
                       : <rect key={i} x={pd.x - pd.w / 2} y={pd.y - pd.h / 2} width={pd.w} height={pd.h} rx={Math.min(pd.w, pd.h) * 0.2} fill="#c08a2d" />)}

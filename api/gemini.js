@@ -74,6 +74,13 @@ export default async function handler(req, res) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body ?? {});
     let prompt = String(body.prompt ?? '');
     if (!prompt) return res.status(400).send(JSON.stringify({ error: 'prompt required' }));
+    // 图片模式：datasheet 截图/引脚图直接喂视觉模型
+    if (body.imageBase64) {
+      const mime = String(body.imageMime ?? 'image/png');
+      const out = await callGemini(apiKey, prompt, Number(body.temperature ?? 0.2), { mime_type: mime, data: String(body.imageBase64) });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).send(JSON.stringify({ text: out.text, model: out.model }));
+    }
     // URL 模式：PDF 链接下载字节直喂模型（inline_data）；网页链接抓正文文本
     let urlInline = null;
     if (body.url) {

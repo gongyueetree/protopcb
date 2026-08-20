@@ -30,6 +30,12 @@ export const useLangStore = create<LangState>((set) => ({
 
 /* ───────────── 固定文案词典（key = 中文原文） ───────────── */
 const DICT: Record<string, string> = {
+  '典型应用电路的周边器件': 'Supporting parts from typical application circuits',
+  '分析中…': 'Analyzing…', '推荐': 'Recommend', '一键上画布': 'Place all', '个器件，围绕': 'parts around',
+  '位移': 'Move', '方向': 'Rotate', '高度': 'Height', '复位高度': 'Reset height',
+  '视觉识别中…': 'Vision extracting…', '图片提取失败': 'Image extraction failed',
+  '已从图片提取，请核对下方表单（视觉识别务必人工复核管脚号）': 'Extracted from image — verify pin numbers manually below',
+  '上传引脚图/封装图截图，AI 视觉识别管脚与封装参数': 'Upload a pinout/package image; AI vision extracts pins & package params',
   '点击手工修改单价': 'Click to edit unit price', '录入': 'Manual', '网络价格': 'Web price',
   '连线说明': 'About nets', '连线由器件电源/信号属性自动生成；手工连线编辑正在开发中。拖动器件可调整布局，拖动连线中点可微调走线。': 'Nets are auto-generated from component power/signal attributes; manual wiring is under development. Drag components to adjust layout; drag a net midpoint to tweak routing.',
   '网络': 'Web',

@@ -39,6 +39,10 @@ interface DesignState {
   /** 一键整理：对画布现有器件重新自动布局（进撤销历史） */
   autoArrange: () => void;
   moveComponent: (instanceId: string, xMm: number, yMm: number) => void;
+  /** 3D 高度偏移（mm） */
+  setZOffset: (instanceId: string, zMm: number) => void;
+  /** 子电路一键上画布：辅件锚定核心器件、按管脚顺序围核心排布（不重叠，间距≥3mm） */
+  placeSubCircuit: (coreInstanceId: string, items: { role: string; value: string; mpn?: string; category: ComponentCategory; footprint: string; connectsTo: string; qty: number }[]) => number;
   rotateComponent: (instanceId: string) => void;
   setBoardSize: (w: number, h: number) => void;
   setBoardShape: (shape: BoardShapeKind) => void;
@@ -149,6 +153,50 @@ export const useDesignStore = create<DesignState>()(
         s.doc = touchDocument(refreshDerived(s.doc));
         s.selectedId = s.selectedId === id ? null : s.selectedId;
         s.overlaps = findOverlaps(s.doc.components);
+      }),
+
+    placeSubCircuit: (coreInstanceId, items) => {
+      let placedCount = 0;
+      set((s) => {
+        const core = s.doc.components.find((c) => c.instanceId === coreInstanceId);
+        if (!core) return;
+        snapshot(s);
+        // 按连接管脚名排序（同脚聚在一起 → 围核心时相邻）
+        const flat: typeof items = [];
+        for (const it of [...items].sort((a, b) => a.connectsTo.localeCompare(b.connectsTo))) {
+          for (let i = 0; i < it.qty; i++) flat.push(it);
+        }
+        for (const it of flat) {
+          const placed = searchResultToPlaced({
+            componentId: `sub_${core.reference}_${it.role}`.replace(/[^\w-]/g, '_') + '_' + placedCount,
+            mpn: it.mpn ?? it.value,
+            manufacturer: '—',
+            category: it.category,
+            defaultFootprintName: it.footprint,
+            family: /^C_/.test(it.footprint) ? 'MLCC' : /^R_/.test(it.footprint) ? 'Resistor' : /^L_/.test(it.footprint) ? 'Inductor' : /^LED/.test(it.footprint) ? 'LED' : /^D_/.test(it.footprint) ? 'Diode' : /Crystal/i.test(it.footprint) ? 'Crystal' : '子电路',
+            description: `${it.role} · 接 ${core.reference}.${it.connectsTo}`,
+            pins: 2,
+          } as ComponentSearchResult, nextReference({ category: it.category, mpn: it.mpn ?? it.value, defaultFootprintName: it.footprint, description: it.role }, s.doc.components));
+          placed.placement.side = core.placement.side;
+          placed.display = { ...(placed.display ?? {}), anchorRef: core.reference };
+          const sameLayer = s.doc.components.filter((c) => c.placement.side === core.placement.side);
+          const pos = solvePlacement(placed, { board: s.doc.board, existing: sameLayer, rules: DEFAULT_PLACEMENT_RULES });
+          placed.placement.xMm = pos.x;
+          placed.placement.yMm = pos.y;
+          s.doc.components.push(placed);
+          placedCount++;
+        }
+        s.doc = touchDocument(refreshDerived(s.doc));
+      });
+      return placedCount;
+    },
+
+    setZOffset: (instanceId, zMm) =>
+      set((s) => {
+        const c = s.doc.components.find((x) => x.instanceId === instanceId);
+        if (!c) return;
+        c.display = { ...(c.display ?? {}), zOffsetMm: Math.max(-2, Math.min(10, zMm)) };
+        s.doc = touchDocument(s.doc);
       }),
 
     moveComponent: (id, xMm, yMm) =>

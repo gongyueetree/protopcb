@@ -60,6 +60,7 @@ const placedComponentSchema = z.object({
       stepUrl: z.string().optional(),
       anchorRef: z.string().optional(),
       padNets: z.record(z.number()).optional(),
+      zOffsetMm: z.number().optional(),
       officialUrl: z.string().optional(),
       footprintFileUrl: z.string().optional(),
       symbolFileUrl: z.string().optional(),

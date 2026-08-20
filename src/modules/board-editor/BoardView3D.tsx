@@ -17,6 +17,11 @@ import type { CircuitCanvasDocument } from '../../design-core/document/types';
 
 export function BoardView3D() {
   const doc = useDesignStore((s) => s.doc);
+  const selectedId = useDesignStore((s) => s.selectedId);
+  const moveComponent = useDesignStore((s) => s.moveComponent);
+  const rotateComponent = useDesignStore((s) => s.rotateComponent);
+  const setZOffset = useDesignStore((s) => s.setZOffset);
+  const selComp = doc.components.find((c) => c.instanceId === selectedId);
   const libVersion = useLibFileStore((s) => s.version);
   const mountRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<{
@@ -146,6 +151,26 @@ export function BoardView3D() {
         );
       })()}
       <div ref={mountRef} style={{ width: '100%', height: '100%', cursor: 'grab', background: '#ffffff' }} />
+      {/* 选中器件的 3D 调整条：高度 / 方向 / 位移（2D 选中后切到 3D 即可用） */}
+      {selComp && (
+        <div style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 6, display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', borderRadius: 12, background: 'rgba(255,255,255,.96)', border: '1px solid #d1dbe5', boxShadow: '0 4px 14px rgba(15,23,42,.12)', fontSize: 11 }}>
+          <span style={{ fontWeight: 800, color: '#1f5c3b' }}>{selComp.reference}</span>
+          <span style={{ color: '#cbd5e1' }}>|</span>
+          <span style={{ color: '#64748b' }}>{tr('位移')}</span>
+          {([['←', -0.5, 0], ['→', 0.5, 0], ['↑', 0, -0.5], ['↓', 0, 0.5]] as const).map(([lb, dx, dy]) => (
+            <button key={lb} onClick={() => moveComponent(selComp.instanceId, selComp.placement.xMm + dx, selComp.placement.yMm + dy)} style={mini}>{lb}</button>
+          ))}
+          <span style={{ color: '#cbd5e1' }}>|</span>
+          <span style={{ color: '#64748b' }}>{tr('方向')}</span>
+          <button onClick={() => rotateComponent(selComp.instanceId)} style={mini}>⟳90°</button>
+          <span style={{ color: '#cbd5e1' }}>|</span>
+          <span style={{ color: '#64748b' }}>{tr('高度')}</span>
+          <button onClick={() => setZOffset(selComp.instanceId, (selComp.display?.zOffsetMm ?? 0) - 0.2)} style={mini}>−</button>
+          <span style={{ minWidth: 42, textAlign: 'center', fontFamily: 'monospace' }}>{(selComp.display?.zOffsetMm ?? 0).toFixed(1)}mm</span>
+          <button onClick={() => setZOffset(selComp.instanceId, (selComp.display?.zOffsetMm ?? 0) + 0.2)} style={mini}>＋</button>
+          {(selComp.display?.zOffsetMm ?? 0) !== 0 && <button onClick={() => setZOffset(selComp.instanceId, 0)} style={{ ...mini, color: '#b45309' }} title={tr('复位高度')}>⌀</button>}
+        </div>
+      )}
       <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', padding: '5px 14px', borderRadius: 16, background: 'rgba(255,255,255,.92)', border: '1px solid #14532d', color: '#14532d', fontSize: 11, fontWeight: 700, pointerEvents: 'none' }}>
         🖱 {tr('拖拽旋转 · 滚轮缩放 · 真实 3D 封装')}
       </div>
@@ -224,13 +249,14 @@ function rebuildBoard(group: THREE.Group, doc: CircuitCanvasDocument) {
     const model = buildComponent3D(comp);
     const localX = comp.placement.xMm - W / 2;
     const localZ = comp.placement.yMm - H / 2;
+    const zOff = comp.display?.zOffsetMm ?? 0;
     if (comp.placement.side === 'BOTTOM') {
       // 底层：翻到板下方（绕 X 轴翻转 180°），旋转取镜像
-      model.position.set(localX, -boardThk, localZ);
+      model.position.set(localX, -boardThk - zOff, localZ);
       model.rotation.x = Math.PI;
       model.rotation.y = -(comp.placement.rotation * Math.PI) / 180;
     } else {
-      model.position.set(localX, 0, localZ);
+      model.position.set(localX, zOff, localZ);
       model.rotation.y = (comp.placement.rotation * Math.PI) / 180;
     }
     group.add(model);
@@ -256,3 +282,5 @@ function disposeObj(obj: THREE.Object3D) {
     if (m.geometry) m.geometry.dispose();
   });
 }
+
+const mini: React.CSSProperties = { width: 26, height: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 5, border: '1px solid #dbe6dd', background: '#fff', fontSize: 11, fontWeight: 700, color: '#334155', cursor: 'pointer', padding: 0 };
