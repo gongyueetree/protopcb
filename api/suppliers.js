@@ -5,6 +5,8 @@
  *   MOUSER_API_KEY                      — Mouser Search API
  *   ARROW_LOGIN + ARROW_API_KEY         — Arrow ItemService（两个都要）
  *   ELEMENT14_API_KEY                   — element14/Farnell Product Search
+ *   CECPORT_API_KEY                     — 中电港（国产渠道，预留：配置后自动启用）
+ *   B1B_API_KEY                         — 百芯（国产渠道，预留：配置后自动启用）
  *
  * GET /api/suppliers?path=status → { mouser, arrow, element14 }（各自是否已配置）
  * GET /api/suppliers?mpn=XXX     → { offers: [{vendor, configured, found, price, currency, stock, url}] }
@@ -14,6 +16,32 @@
  */
 
 const num = (v) => { const n = parseFloat(String(v ?? '').replace(/[^0-9.]/g, '')); return Number.isFinite(n) ? n : undefined; };
+
+/* ---------- 国产渠道预留骨架（中电港 / 百芯）----------
+ * 两家均需商务开通后获得 API 文档；以下按常见 REST 形态编写，
+ * 拿到真实文档后只需校准 URL、鉴权头和响应字段映射。 */
+async function queryCecport(key, mpn) {
+  // TODO(接入时校准)：中电港 API 端点与鉴权方式
+  const r = await fetch(`https://api.cecport.com/v1/product/search?keyword=${encodeURIComponent(mpn)}`, {
+    headers: { Authorization: `Bearer ${key}` },
+  });
+  if (!r.ok) throw new Error(`cecport ${r.status}`);
+  const j = await r.json();
+  const p = (j?.data?.list ?? j?.results ?? [])[0];
+  if (!p) return { found: false };
+  return { found: true, price: num(p.price ?? p.unitPrice), currency: p.currency ?? 'CNY', stock: num(p.stock ?? p.quantity), url: p.url };
+}
+async function queryB1b(key, mpn) {
+  // TODO(接入时校准)：百芯 API 端点与鉴权方式
+  const r = await fetch(`https://api.b1b.com/open/search?q=${encodeURIComponent(mpn)}`, {
+    headers: { 'X-API-KEY': key },
+  });
+  if (!r.ok) throw new Error(`b1b ${r.status}`);
+  const j = await r.json();
+  const p = (j?.data ?? j?.items ?? [])[0];
+  if (!p) return { found: false };
+  return { found: true, price: num(p.price), currency: 'CNY', stock: num(p.stock), url: p.url };
+}
 
 /* ---------- Mouser ---------- */
 async function queryMouser(key, mpn) {
@@ -84,9 +112,11 @@ export default async function handler(req, res) {
   const arrowLogin = t(process.env.ARROW_LOGIN);
   const arrowKey = t(process.env.ARROW_API_KEY);
   const e14Key = t(process.env.ELEMENT14_API_KEY);
+  const cecKey = t(process.env.CECPORT_API_KEY);
+  const b1bKey = t(process.env.B1B_API_KEY);
 
   if (path === 'status') {
-    return res.status(200).send(JSON.stringify({ mouser: !!mouserKey, arrow: !!(arrowLogin && arrowKey), element14: !!e14Key }));
+    return res.status(200).send(JSON.stringify({ mouser: !!mouserKey, arrow: !!(arrowLogin && arrowKey), element14: !!e14Key, cecport: !!cecKey, b1b: !!b1bKey }));
   }
   // ── 关键词检索：给"网络" Tab 用（返回候选列表，含封装描述供映射） ──
   if (path === 'search') {
@@ -177,6 +207,9 @@ export default async function handler(req, res) {
 
   const jobs = [
     { vendor: 'Mouser', configured: !!mouserKey, run: () => queryMouser(mouserKey, String(mpn)) },
+    // 国产渠道（预留骨架）：配置 Key 后按各家真实响应字段校准 map 函数即可启用
+    { vendor: 'CECPort', configured: !!cecKey, run: () => queryCecport(cecKey, String(mpn)) },
+    { vendor: 'B1B', configured: !!b1bKey, run: () => queryB1b(b1bKey, String(mpn)) },
     { vendor: 'Arrow', configured: !!(arrowLogin && arrowKey), run: () => queryArrow(arrowLogin, arrowKey, String(mpn)) },
     { vendor: 'element14', configured: !!e14Key, run: () => queryElement14(e14Key, String(mpn)) },
   ];

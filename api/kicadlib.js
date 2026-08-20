@@ -178,7 +178,7 @@ export default async function handler(req, res) {
         hits = [];
         const LIB_BUDGET = 40; // 每次最多探这么多个库，控制冷启动耗时
         for (const ln of ordered.slice(0, LIB_BUDGET)) {
-          if (hits.length >= 60) break;
+          if (hits.length >= 100) break;
           let names = getCached(isSym ? `symlist:${ln}` : `list:${ln}`);
           if (!names) {
             try {
@@ -205,7 +205,7 @@ export default async function handler(req, res) {
           }
           const qFlat = q.replace(/[\s_-]+/g, '');
           for (const n of names) {
-            if (hits.length >= 60) break;
+            if (hits.length >= 100) break;
             const nl = n.toLowerCase();
             const nFlat = nl.replace(/[\s_-]+/g, '');
             if (tokens.every((t) => nl.includes(t)) || nFlat.includes(qFlat)) hits.push({ lib: ln, name: n });

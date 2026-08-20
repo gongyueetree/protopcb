@@ -243,6 +243,8 @@ export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscr
     <div style={{ padding: 12, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 14, fontWeight: 700 }}>⚡ 原理图</span>
+        <span title={tr('连线由器件电源/信号属性自动生成；手工连线编辑正在开发中。拖动器件可调整布局，拖动连线中点可微调走线。')}
+          style={{ fontSize: 10, color: '#94a3b8', cursor: 'help' }}>ⓘ {tr('连线说明')}</span>
         {sheet && (
           <span style={{ display: 'inline-flex', borderRadius: 7, overflow: 'hidden', border: '1px solid #cbd5e1' }}>
             {([['imported', tr('KiCad 原图')], ['auto', tr('自动生成')]] as const).map(([v, l]) => (

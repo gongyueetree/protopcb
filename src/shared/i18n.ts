@@ -30,6 +30,8 @@ export const useLangStore = create<LangState>((set) => ({
 
 /* ───────────── 固定文案词典（key = 中文原文） ───────────── */
 const DICT: Record<string, string> = {
+  '点击手工修改单价': 'Click to edit unit price', '录入': 'Manual', '网络价格': 'Web price',
+  '连线说明': 'About nets', '连线由器件电源/信号属性自动生成；手工连线编辑正在开发中。拖动器件可调整布局，拖动连线中点可微调走线。': 'Nets are auto-generated from component power/signal attributes; manual wiring is under development. Drag components to adjust layout; drag a net midpoint to tweak routing.',
   '网络': 'Web',
   '本组织、ezPLM 与网络（DigiKey/Mouser）均未查询到结果': 'No results in My Org, ezPLM, or Web (DigiKey/Mouser)',
   '无法识别的原理图格式': 'Unrecognized schematic format',

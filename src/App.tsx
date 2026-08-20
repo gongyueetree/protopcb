@@ -376,7 +376,7 @@ export default function App() {
             <span style={{ fontSize: 18, fontWeight: 700, color: COLORS.green }}>{t('硬件原型工坊')}</span>
             <span onClick={() => { const n = window.prompt(t('项目名称'), doc.name); if (n?.trim()) renameDocument(n.trim()); }}
               title={t('点击修改项目名称')}
-              style={{ marginLeft: 10, fontSize: 12, color: '#475569', background: '#f1f5f9', padding: '3px 10px', borderRadius: 6, cursor: 'pointer', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              style={{ marginLeft: 26, fontSize: 12, color: '#475569', background: '#f1f5f9', padding: '3px 10px', borderRadius: 6, cursor: 'pointer', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               📁 {doc.name}
             </span>
             <span style={{ fontSize: 10, color: '#94a3b8' }}>{t('AI 方案生成、器件选型与 PCB 预布局')}</span>
@@ -822,48 +822,6 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
         ); })()}
       </div>
 
-      {/* AI 替代料：模式化推荐 + 权威来源门槛 + 确定性评分（移植 altpart-pro 决策模型） */}
-      <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309' }}>{tr('💡 替代料智能推荐')}</span>
-          <span style={{ flex: 1 }} />
-          <button onClick={searchAiAlts} disabled={aiAltBusy} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: aiAltBusy ? '#d6d3d1' : '#b45309', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: aiAltBusy ? 'default' : 'pointer' }}>
-            {aiAltBusy ? '⟳ ' + tr('搜索中…') : '🤖 ' + tr('搜索替代料')}
-          </button>
-        </div>
-        {/* 替代模式：硬门槛程序化判定，不只是提示词 */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-          {(Object.keys(ALT_MODES) as AltMode[]).map((m) => (
-            <button key={m} onClick={() => setAltMode(m)} title={ALT_MODES[m].note}
-              style={{ padding: '3px 8px', borderRadius: 5, border: '1px solid ' + (altMode === m ? '#b45309' : '#fde68a'), background: altMode === m ? '#b45309' : '#fff', color: altMode === m ? '#fff' : '#92400e', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
-              {tr(ALT_MODES[m].label)}
-            </button>
-          ))}
-        </div>
-        <div style={{ fontSize: 9.5, color: '#a16207', marginBottom: 6 }}>{tr(ALT_MODES[altMode].note)}</div>
-        {altProgress && <div style={{ fontSize: 10, color: '#92400e', marginBottom: 4 }}>{altProgress}</div>}
-        {aiAltMsg && <div style={{ fontSize: 10, color: '#92400e' }}>{aiAltMsg}</div>}
-        {altResult?.notice && <div style={{ fontSize: 10, color: '#b45309', marginBottom: 4 }}>⚠ {altResult.notice}</div>}
-
-        {altResult?.recommendations.map((a) => (
-          <AltCard key={a.mpn} a={a} onUse={() => { if (a.componentId) { useDesignStore.getState().linkSymbolFrom(c.instanceId, { mpn: a.mpn }); setAiAltMsg(tr('已选用') + ' ' + a.mpn); } }} />
-        ))}
-        {!!altResult?.pending.length && (
-          <div style={{ marginTop: 6 }}>
-            <div style={{ fontSize: 9.5, fontWeight: 700, color: '#a16207', marginBottom: 3 }}>{tr('待核验候选（需人工核对 datasheet）')}</div>
-            {altResult.pending.map((a) => <AltCard key={a.mpn} a={a} />)}
-          </div>
-        )}
-        {!!altResult?.eliminated.length && (
-          <details style={{ marginTop: 6 }}>
-            <summary style={{ fontSize: 9.5, color: '#94a3b8', cursor: 'pointer' }}>{tr('已排除')} {altResult.eliminated.length} {tr('个')}</summary>
-            {altResult.eliminated.map((e, i) => (
-              <div key={i} style={{ fontSize: 9.5, color: '#94a3b8', padding: '2px 4px' }}>{e.mpn} — {e.reason}</div>
-            ))}
-          </details>
-        )}
-      </div>
-
       {/* 替代料（本组织映射） */}
       {alts.length > 0 && (
         <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a' }}>
@@ -1008,6 +966,7 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
       const fp = parseKicadMod(text);
       if (!fp || !fp.pads.length) throw new Error(tr('封装解析失败（无焊盘）'));
       registerFootprintOverride(name, fp);
+      useLibFileStore.getState().bump();   // 通知 2D 画布重取焊盘（否则 3D 对了 2D 还是旧的）
       const modelRef = text.match(/\(model\s+"([^"]+)"/)?.[1];
       const mm = modelRef?.match(/([^/\\]+)\.3dshapes[/\\]([^/\\]+)\.(step|stp|wrl)$/i);
       const stepUrl = mm ? `/api/kicadlib?path=step&lib=${encodeURIComponent(mm[1])}&name=${encodeURIComponent(mm[2])}` : undefined;
@@ -1042,7 +1001,7 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
     try { const j = await fetch(`/api/kicadlib?path=symlist&lib=${encodeURIComponent(lib)}`).then((r) => r.json()); setKsItems(j.items ?? []); }
     catch { setKsMsg(tr('网络错误，无法访问 KiCad 官方库')); }
   };
-  const ksPick = async (name: string) => {
+  const ksPick = async (name: string, isRetry = false) => {
     setKsMsg(tr('加载符号…'));
     try {
       const r = await fetch(`/api/kicadlib?path=sym&lib=${encodeURIComponent(ksLib)}&name=${encodeURIComponent(name)}`);
@@ -1062,7 +1021,9 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
       linkSymbolByMpn(c.mpn, key); // 同型号全部器件一并关联
       setKsMsg(`✓ ${tr('已关联符号')} ${name}`);
       setKsOpen(false);
-    } catch (e) { setKsMsg(tr('添加失败：') + (e as Error).message); }
+    } catch (e) {
+      if (!isRetry) { ksPick(name, true); return; }   // 首次可能命中过期分支引用，自动换正确 ref 重试一次
+ setKsMsg(tr('添加失败：') + (e as Error).message); }
   };
   const ksFiltered = ksKw.trim() ? ksItems.filter((n) => n.toLowerCase().includes(ksKw.trim().toLowerCase())) : ksItems;
 

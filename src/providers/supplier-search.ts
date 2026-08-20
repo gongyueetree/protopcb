@@ -100,6 +100,20 @@ export function mapToKicadFootprint(rawPackage: string, description: string, mpn
   return undefined;
 }
 
+/** 从 KiCad 封装名推断管脚数（SOIC-16 → 16；R_0402 → 2；推断不出按类别兜底） */
+export function pinsFromFootprint(fp: string | undefined, cat: ComponentCategory): number {
+  const m = (fp ?? '').match(/(?:SOIC|TSSOP|SSOP|MSOP|LQFP|TQFP|QFN|DFN|DIP|SOT-23)-(\d{1,3})/i);
+  if (m) return parseInt(m[1], 10);
+  if (/SOT-23(?!-)/i.test(fp ?? '')) return 3;
+  if (cat === 'passive') return 2;
+  return 2;
+}
+
+/** 是否为"模块/开发板"类（要求元器件优先，模块沉底） */
+export function isModuleLike(p: SupplierPart): boolean {
+  return /module|board|kit|eval|breakout|shield|开发板|模块|评估板/i.test(`${p.description ?? ''} ${p.mpn}`);
+}
+
 /** 分销商结果 → 画布可用的搜索结果（封装映射失败时仍可放置，走参数化几何） */
 export function supplierPartToResult(p: SupplierPart): ComponentSearchResult {
   const cat = guessCategory(`${p.description ?? ''} ${p.mpn}`);
@@ -111,7 +125,7 @@ export function supplierPartToResult(p: SupplierPart): ComponentSearchResult {
     defaultFootprintName: p.footprintName ?? p.rawPackage ?? 'UNKNOWN',
     description: p.description,
     family: cat === 'passive' ? (/resistor|电阻/i.test(p.description ?? '') ? 'Resistor' : 'MLCC') : '分销商检索',
-    pins: 2,
+    pins: pinsFromFootprint(p.footprintName, cat),
     unitPrice: p.price != null ? { amount: p.price, currency: p.currency ?? 'USD' } : undefined,
     datasheetUrl: p.datasheetUrl,
   } as ComponentSearchResult;
@@ -133,6 +147,7 @@ export async function searchSupplierParts(keyword: string, limit = 10): Promise<
       ...x,
       footprintName: x.footprintName ?? mapToKicadFootprint(x.rawPackage ?? '', x.description ?? '', x.mpn),
     }));
+    items.sort((a, b) => Number(isModuleLike(a)) - Number(isModuleLike(b)));
     return { available: true, items, message: j.message };
   } catch (e) {
     return { available: false, items: [], message: (e as Error).message };

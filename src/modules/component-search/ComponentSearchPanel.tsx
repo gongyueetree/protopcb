@@ -26,13 +26,16 @@ export function ComponentSearchPanel() {
   const [netBusy, setNetBusy] = useState(false);
   const [netMsg, setNetMsg] = useState('');
   const [srcTab, setSrcTab] = useState<'org' | 'ezplm' | 'net'>('ezplm');
+  // 型号重合去重：ezPLM 已收录的型号不再出现在"网络" Tab（ezPLM 数据更权威）
+  const ezplmMpns = new Set(ezplmResults.map((x) => x.mpn.toUpperCase()));
+  const dedupedNet = netResults.filter((x) => !ezplmMpns.has(x.mpn.toUpperCase()));
   // 有数据的源才显示 Tab（要求：无本组织数据不显示该 Tab，ezPLM 搜不到也不显示）
   const availTabs = ([
     orgResults.length ? 'org' : null,
     ezplmResults.length ? 'ezplm' : null,
-    netResults.length ? 'net' : null,
+    dedupedNet.length ? 'net' : null,
   ].filter(Boolean) as ('org' | 'ezplm' | 'net')[]);
-  const results = srcTab === 'org' ? orgResults : srcTab === 'ezplm' ? ezplmResults : netResults;
+  const results = srcTab === 'org' ? orgResults : srcTab === 'ezplm' ? ezplmResults : dedupedNet;
   const setResults = setEzplmResults;   // 兼容既有赋值路径（ezPLM 主源）
   const [expanded, setExpanded] = useState<string | null>(null);
   const addComponent = useDesignStore((s) => s.addComponent);
@@ -62,7 +65,7 @@ export function ComponentSearchPanel() {
       searchSupplierParts(q, 10)
         .then((r) => {
           if (seq !== searchSeq.current) return;
-          setNetResults(r.items.map(supplierPartToResult));
+          setNetResults(r.items.map(supplierPartToResult));   // 渲染时再按 ezPLM 去重（见 dedupedNet）
           setNetMsg(r.items.length ? '' : (r.message ?? ''));
           setNetBusy(false);
         })
@@ -132,7 +135,7 @@ export function ComponentSearchPanel() {
             <button key={tb} onClick={() => setSrcTab(tb)}
               style={{ flex: 1, padding: '5px 0', borderRadius: 6, border: '1px solid ' + (srcTab === tb ? COLORS.green : '#dbe6dd'), background: srcTab === tb ? COLORS.greenBg : '#fff', color: srcTab === tb ? COLORS.green : '#64748b', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
               {tb === 'org' ? tr('本组织') : tb === 'ezplm' ? 'ezPLM' : tr('网络')}
-              <span style={{ marginLeft: 4, fontSize: 9.5, opacity: .75 }}>{tb === 'org' ? orgResults.length : tb === 'ezplm' ? ezplmResults.length : netResults.length}</span>
+              <span style={{ marginLeft: 4, fontSize: 9.5, opacity: .75 }}>{tb === 'org' ? orgResults.length : tb === 'ezplm' ? ezplmResults.length : dedupedNet.length}</span>
             </button>
           ))}
           {netBusy && <span style={{ alignSelf: 'center', fontSize: 10, color: '#94a3b8' }}>⟳</span>}

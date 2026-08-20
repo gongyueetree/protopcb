@@ -67,6 +67,11 @@ export function parseKicadMod(text: string): PadFootprint | null {
 /** 解析单个 footprint/module 节点（.kicad_mod 根节点，或 .kicad_pcb 内嵌节点——PCB 文件自包含完整焊盘定义） */
 export function parseFootprintNode(fp: SExpr[]): PadFootprint | null {
   try {
+    // KiCad 焊盘的 (at x y rot) 中 rot 是"绝对角"（已叠加模块自身旋转）。
+    // 提取封装定义时必须减去模块角，否则旋转过的器件其非方形焊盘宽高互换
+    //（实测：QFN/SOIC 在 (at … 90) 的模块里焊盘全带 90）。
+    const modAt = find(fp, 'at');
+    const modRot = modAt ? numAt(modAt, 3) : 0;
 
     const pads: Pad[] = [];
     let autoNum = 0;
@@ -86,9 +91,9 @@ export function parseFootprintNode(fp: SExpr[]): PadFootprint | null {
         const hasCu = ls.some((l) => /(^|\.)Cu$|^\*\.Cu$|\*\.Cu/.test(l) || /^[FB]\.Cu$/.test(l));
         if (!hasCu) continue;
       }
-      const rot = numAt(at, 3) % 180;
+      const rot = (((numAt(at, 3) - modRot) % 180) + 180) % 180;
       let w = numAt(size, 1), h = numAt(size, 2);
-      if (Math.abs(rot) === 90) [w, h] = [h, w]; // 旋转 90° 的焊盘等效交换宽高
+      if (rot === 90) [w, h] = [h, w]; // 局部旋转 90° 的焊盘等效交换宽高
       const round = shape === 'circle' || shape === 'oval' || type === 'thru_hole' || type === 'np_thru_hole';
       const num = parseInt(numRaw, 10);
       pads.push({ x: numAt(at, 1), y: numAt(at, 2), w, h, num: Number.isFinite(num) ? num : ++autoNum, round });

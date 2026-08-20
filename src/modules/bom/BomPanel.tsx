@@ -39,6 +39,10 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   }, [bom]);
   const dkOf = (mpn: string): DigikeyOffer | undefined => dkPrices[mpn];
   const netOf = (mpn: string) => netPrices[mpn];
+  /** 手工录入价（优先级最高，来源显示「录入」） */
+  const [manualPrices, setManualPrices] = useState<Record<string, number>>({});
+  const [editingMpn, setEditingMpn] = useState<string | null>(null);
+  const manOf = (mpn: string): number | undefined => manualPrices[mpn];
   const total = bom.reduce((sum, l) => sum + (dkOf(l.mpn)?.unitPrice ?? netOf(l.mpn)?.price ?? l.unitPrice?.amount ?? 0) * l.quantity, 0);
 
   /** RFC 4180：含逗号/双引号/换行的字段用双引号包裹，内部双引号写成两个 */
@@ -50,8 +54,8 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
     const header = '序号,位号,型号,厂商,封装,单价,价格来源,数量';
     const rows = bom.map((l, i) => [
       i + 1, l.reference, l.mpn, l.manufacturer, l.footprint,
-      dkOf(l.mpn)?.unitPrice ?? netOf(l.mpn)?.price ?? l.unitPrice?.amount ?? '',
-      dkOf(l.mpn) ? 'DigiKey实时' : netOf(l.mpn) ? `${netOf(l.mpn)!.vendor}实时` : '演示估价',
+      manOf(l.mpn) ?? dkOf(l.mpn)?.unitPrice ?? netOf(l.mpn)?.price ?? l.unitPrice?.amount ?? '',
+      manOf(l.mpn) != null ? '录入' : dkOf(l.mpn) ? '网络价格(DigiKey)' : netOf(l.mpn) ? `网络价格(${netOf(l.mpn)!.vendor})` : '',
       l.quantity,
     ].map(csvField).join(','));
     const csv = '\uFEFF' + [header, ...rows].join('\r\n');
@@ -86,18 +90,31 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
                 <td style={{ padding: '7px 10px', color: '#64748b' }}>{l.manufacturer}</td>
                 <td style={{ padding: '7px 10px', color: '#64748b' }}>{l.footprint}</td>
                 <td style={{ padding: '7px 10px' }}>
-                  {srcOf(l.reference) === 'EZPLM'
-                    ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#e0f2fe', color: '#0369a1', fontWeight: 700 }}>ezPLM</span>
-                    : netOf(l.mpn)
-                    ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#ede9fe', color: '#6d28d9', fontWeight: 700 }}>{netOf(l.mpn)!.vendor}</span>
-                    : <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontWeight: 600 }}>{tr('演示·估价')}</span>}
+                  {manOf(l.mpn) != null
+                    ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#ccfbf1', color: '#0f766e', fontWeight: 700 }}>{tr('录入')}</span>
+                    : dkOf(l.mpn) || netOf(l.mpn)
+                    ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#e0f2fe', color: '#0369a1', fontWeight: 700 }}>{tr('网络价格')}{dkOf(l.mpn) ? '·DK' : '·' + netOf(l.mpn)!.vendor.slice(0, 4)}</span>
+                    : srcOf(l.reference) === 'EZPLM'
+                    ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#f1f5f9', color: '#64748b', fontWeight: 700 }}>ezPLM</span>
+                    : <span style={{ fontSize: 10, color: '#cbd5e1' }}>—</span>}
                 </td>
                 <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600 }}>
-                  {dkOf(l.mpn)
-                    ? <span title={`DigiKey 实时 · 库存 ${dkOf(l.mpn)!.stock?.toLocaleString() ?? '—'}`} style={{ color: '#0369a1' }}>¥{dkOf(l.mpn)!.unitPrice!.toFixed(2)} <span style={{ fontSize: 8.5, padding: '0 4px', borderRadius: 3, background: '#e0f2fe', fontWeight: 700 }}>DK</span></span>
-                    : netOf(l.mpn)
-                    ? <span title={`${netOf(l.mpn)!.vendor} 实时 · 库存 ${netOf(l.mpn)!.stock?.toLocaleString() ?? '—'}`} style={{ color: '#7c3aed' }}>{netOf(l.mpn)!.currency === 'USD' ? '$' : '¥'}{netOf(l.mpn)!.price.toFixed(2)} <span style={{ fontSize: 8.5, padding: '0 4px', borderRadius: 3, background: '#ede9fe', fontWeight: 700 }}>{netOf(l.mpn)!.vendor.slice(0, 4)}</span></span>
-                    : <span style={{ color: '#059669' }}>{fmtMoney(l.unitPrice?.amount)}</span>}
+                  {editingMpn === l.mpn ? (
+                    <input autoFocus type="number" step="0.01" defaultValue={manOf(l.mpn) ?? dkOf(l.mpn)?.unitPrice ?? netOf(l.mpn)?.price ?? l.unitPrice?.amount ?? ''}
+                      onBlur={(e) => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && v >= 0) setManualPrices((prev) => ({ ...prev, [l.mpn]: v })); setEditingMpn(null); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditingMpn(null); }}
+                      style={{ width: 70, padding: '2px 5px', borderRadius: 4, border: '1px solid #93c5fd', fontSize: 11, textAlign: 'right' }} />
+                  ) : (
+                    <span onClick={() => setEditingMpn(l.mpn)} title={tr('点击手工修改单价')} style={{ cursor: 'pointer' }}>
+                      {manOf(l.mpn) != null
+                        ? <span style={{ color: '#0f766e' }}>¥{manOf(l.mpn)!.toFixed(2)} ✎</span>
+                        : dkOf(l.mpn)
+                        ? <span title={`DigiKey 实时 · 库存 ${dkOf(l.mpn)!.stock?.toLocaleString() ?? '—'}`} style={{ color: '#0369a1' }}>¥{dkOf(l.mpn)!.unitPrice!.toFixed(2)}</span>
+                        : netOf(l.mpn)
+                        ? <span title={`${netOf(l.mpn)!.vendor} 实时`} style={{ color: '#7c3aed' }}>{netOf(l.mpn)!.currency === 'USD' ? '$' : '¥'}{netOf(l.mpn)!.price.toFixed(2)}</span>
+                        : <span style={{ color: '#94a3b8' }}>{l.unitPrice?.amount != null ? fmtMoney(l.unitPrice.amount) : '—'}</span>}
+                    </span>
+                  )}
                 </td>
                 <td style={{ padding: '7px 10px', textAlign: 'right' }}>{l.quantity}</td>
               </tr>
