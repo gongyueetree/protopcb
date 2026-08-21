@@ -33,7 +33,13 @@ export function solvePlacement(comp: PlacedComponent, ctx: PlaceContext): Point 
   if (anchorComp) {
     anchor = { x: anchorComp.placement.xMm, y: anchorComp.placement.yMm };
     const free0 = spiralFree(anchor, w, h, occupied);
-    return clampCenter(free0, w, h, board);
+    const clamped = clampCenter(free0, w, h, board);
+    // clamp 可能把点推回到已占区域 → 以夹紧点为圆心再螺旋一次，保证最终无重叠
+    const r0: Rect = { x: clamped.x - w / 2, y: clamped.y - h / 2, width: w, height: h };
+    if (occupied.some((o) => rectsOverlap(r0, o, DEFAULT_GAP_MM))) {
+      return clampCenter(spiralFree(clamped, w, h, occupied), w, h, board);
+    }
+    return clamped;
   }
 
   if (rule?.type === 'EDGE_ALIGN') {

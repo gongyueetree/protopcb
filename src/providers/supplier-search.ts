@@ -101,12 +101,16 @@ export function mapToKicadFootprint(rawPackage: string, description: string, mpn
 }
 
 /** 从 KiCad 封装名推断管脚数（SOIC-16 → 16；R_0402 → 2；推断不出按类别兜底） */
-export function pinsFromFootprint(fp: string | undefined, cat: ComponentCategory): number {
+export function pinsFromFootprint(fp: string | undefined, cat: ComponentCategory, description?: string): number {
   const m = (fp ?? '').match(/(?:SOIC|TSSOP|SSOP|MSOP|LQFP|TQFP|QFN|DFN|DIP|SOT-23)-(\d{1,3})/i);
   if (m) return parseInt(m[1], 10);
   if (/SOT-23(?!-)/i.test(fp ?? '')) return 3;
-  if (cat === 'passive') return 2;
-  return 2;
+  // 描述里的 "48-LQFP" / "SOIC-16" / "20-Pin" 口径
+  const d = description ?? '';
+  const dm = d.match(/(\d{1,3})-(?:LQFP|TQFP|QFN|DFN|SOIC|SSOP|TSSOP|MSOP|DIP|VQFN|WQFN|Pin|pin)/)
+    ?? d.match(/(?:LQFP|TQFP|QFN|DFN|SOIC|SSOP|TSSOP|MSOP|DIP)-(\d{1,3})/i);
+  if (dm) return parseInt(dm[1], 10);
+  return cat === 'passive' ? 2 : 2;
 }
 
 /** 是否为"模块/开发板"类（要求元器件优先，模块沉底） */
@@ -125,7 +129,7 @@ export function supplierPartToResult(p: SupplierPart): ComponentSearchResult {
     defaultFootprintName: p.footprintName ?? p.rawPackage ?? 'UNKNOWN',
     description: p.description,
     family: cat === 'passive' ? (/resistor|电阻/i.test(p.description ?? '') ? 'Resistor' : 'MLCC') : '分销商检索',
-    pins: pinsFromFootprint(p.footprintName, cat),
+    pins: pinsFromFootprint(p.footprintName, cat, p.description),
     unitPrice: p.price != null ? { amount: p.price, currency: p.currency ?? 'USD' } : undefined,
     datasheetUrl: p.datasheetUrl,
   } as ComponentSearchResult;
@@ -147,8 +151,11 @@ export async function searchSupplierParts(keyword: string, limit = 10): Promise<
       ...x,
       footprintName: x.footprintName ?? mapToKicadFootprint(x.rawPackage ?? '', x.description ?? '', x.mpn),
     }));
-    items.sort((a, b) => Number(isModuleLike(a)) - Number(isModuleLike(b)));
-    return { available: true, items, message: j.message };
+    // 元器件优先：模块/开发板默认排除；元器件不足 3 条时才让模块补位（沉底）
+    const parts = items.filter((x) => !isModuleLike(x));
+    const modules = items.filter(isModuleLike);
+    const merged = parts.length >= 3 ? parts : [...parts, ...modules];
+    return { available: true, items: merged, message: j.message };
   } catch (e) {
     return { available: false, items: [], message: (e as Error).message };
   }

@@ -4,7 +4,7 @@
  * 真实 PCB 板 + 参数化 3D 封装，鼠标拖拽旋转、滚轮缩放。仅查看。
  */
 import { tr } from '../../shared/i18n';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect , useState} from 'react';
 import * as THREE from 'three';
 import { buildStudioEnvironment } from './studio-env';
 import { useDesignStore } from '../../state/designStore';
@@ -17,6 +17,7 @@ import type { CircuitCanvasDocument } from '../../design-core/document/types';
 
 export function BoardView3D() {
   const doc = useDesignStore((s) => s.doc);
+  const [bannerHidden, setBannerHidden] = useState(false);
   const selectedId = useDesignStore((s) => s.selectedId);
   const moveComponent = useDesignStore((s) => s.moveComponent);
   const rotateComponent = useDesignStore((s) => s.rotateComponent);
@@ -138,15 +139,18 @@ export function BoardView3D() {
       {(() => {
         const st = stepStats();
         const total = doc.components.filter((c) => c.display?.stepUrl).length;
-        if (!total) return null;
+        if (!total || bannerHidden) return null;
         const allOk = st.ready >= total && !st.loading;
+        const soft404 = st.failed > 0 && /404|无匹配/.test(st.lastError ?? '');   // 库中没有该模型属正常情况
         return (
-          <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 5, fontSize: 10.5, padding: '4px 10px', borderRadius: 6, background: st.failed ? '#fef2f2' : allOk ? '#f0fdf4' : '#fefce8', border: `1px solid ${st.failed ? '#fecaca' : allOk ? '#bbf7d0' : '#fde68a'}`, color: st.failed ? '#b91c1c' : allOk ? '#15803d' : '#a16207', maxWidth: 380 }}>
+          <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 5, fontSize: 10.5, padding: '4px 24px 4px 10px', borderRadius: 6, background: st.failed && !soft404 ? '#fef2f2' : allOk ? '#f0fdf4' : '#fefce8', border: `1px solid ${st.failed && !soft404 ? '#fecaca' : allOk ? '#bbf7d0' : '#fde68a'}`, color: st.failed && !soft404 ? '#b91c1c' : allOk ? '#15803d' : '#a16207', maxWidth: 380 }}>
+            <span onClick={() => setBannerHidden(true)} style={{ position: 'absolute', top: 2, right: 6, cursor: 'pointer', fontWeight: 700 }}>×</span>
             {st.failed
               ? `真实3D: ${st.ready} 成功 · ${st.failed} 失败 — ${st.lastError}`
               : st.loading
                 ? `真实3D模型转换中… (${st.ready}/${total}) 首次需下载 3D 引擎(约8MB)`
                 : `✓ 真实 STEP 模型已加载 (${st.ready}/${total})`}
+            {soft404 && <div style={{ fontSize: 9.5, marginTop: 2 }}>{tr('（个别封装官方库无 3D 模型属正常，已用参数化模型兜底）')}</div>}
           </div>
         );
       })()}

@@ -19,6 +19,7 @@ const nid = () => `net_${++netCounter}_${Date.now()}`;
 export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: boolean; onToggleFullscreen?: () => void }) {
   const sheet = useDesignStore((st) => st.doc.schematicSheet);
   const [schView, setSchView] = useState<'imported' | 'auto'>('imported');
+  const [wireHint, setWireHint] = useState(false);
   const items = useDesignStore((s) => s.doc.components);
   const pos = useSchematicStore((s) => s.pos);
   const nets = useSchematicStore((s) => s.nets);
@@ -245,6 +246,12 @@ export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscr
         <span style={{ fontSize: 14, fontWeight: 700 }}>⚡ 原理图</span>
         <span title={tr('连线由器件电源/信号属性自动生成；手工连线编辑正在开发中。拖动器件可调整布局，拖动连线中点可微调走线。')}
           style={{ fontSize: 10, color: '#94a3b8', cursor: 'help' }}>ⓘ {tr('连线说明')}</span>
+        {wireHint && (
+          <span style={{ fontSize: 10, color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe', padding: '2px 8px', borderRadius: 6 }}>
+            {tr('左右拖动可移中线 · 双击可改网络标签 · 手工新增连线开发中')}
+            <span onClick={() => setWireHint(false)} style={{ marginLeft: 6, cursor: 'pointer', fontWeight: 700 }}>×</span>
+          </span>
+        )}
         {sheet && (
           <span style={{ display: 'inline-flex', borderRadius: 7, overflow: 'hidden', border: '1px solid #cbd5e1' }}>
             {([['imported', tr('KiCad 原图')], ['auto', tr('自动生成')]] as const).map(([v, l]) => (
@@ -334,7 +341,7 @@ export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscr
               <g key={n.id}>
                 <path d={`M${x1},${y1} H${midX} V${y2} H${x2}`} fill="none" stroke="transparent" strokeWidth={12} style={{ cursor: 'ew-resize' }}
                   onMouseDown={(e) => { e.stopPropagation(); setSel(n.id); setSelSym(null); netDragRef.current = { active: true, id: n.id, sx: e.clientX, dx: n.midDx ?? 0 }; }}
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); setWireHint(true); }}
                   onDoubleClick={(e) => { e.stopPropagation(); setEdit({ type: 'netlabel', id: n.id, text: n.label }); }} />
                 <path d={`M${x1},${y1} H${midX} V${y2} H${x2}`} fill="none" stroke={isSel ? '#2563eb' : n.color} strokeWidth={isSel ? 2.2 : 1.4} style={{ pointerEvents: 'none' }} />
                 <circle cx={x1} cy={y1} r={2.5} fill={isSel ? '#2563eb' : n.color} /><circle cx={x2} cy={y2} r={2.5} fill={isSel ? '#2563eb' : n.color} />

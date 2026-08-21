@@ -74,6 +74,12 @@ export default async function handler(req, res) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body ?? {});
     let prompt = String(body.prompt ?? '');
     if (!prompt) return res.status(400).send(JSON.stringify({ error: 'prompt required' }));
+    // PDF 上传直读：不经 ds2kicad 时的兜底提取链路
+    if (body.pdfBase64) {
+      const out = await callGemini(apiKey, prompt, Number(body.temperature ?? 0.2), { mime_type: 'application/pdf', data: String(body.pdfBase64) });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).send(JSON.stringify({ text: out.text, model: out.model }));
+    }
     // 图片模式：datasheet 截图/引脚图直接喂视觉模型
     if (body.imageBase64) {
       const mime = String(body.imageMime ?? 'image/png');

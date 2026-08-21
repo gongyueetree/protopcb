@@ -95,7 +95,12 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
       g.pins.forEach((pn, i) => {
         const tip = T(pn.x, pn.y), end = T(pn.ex, pn.ey);
         kids.push(<line key={'pl' + i} x1={tip.x} y1={tip.y} x2={end.x} y2={end.y} stroke="#8a1c1c" strokeWidth={1.2} />);
-        kids.push(<text key={'pn' + i} x={(tip.x + end.x) / 2} y={(tip.y + end.y) / 2 - 2} fontSize={6.5} fill="#7c2d12" textAnchor="middle">{pn.number}</text>);
+        // 脚号放在管脚中点、沿"法线方向"外移，避免竖直管脚的数字压在上下轮廓线上
+        const mx = (tip.x + end.x) / 2, my = (tip.y + end.y) / 2;
+        const dx = end.x - tip.x, dy = end.y - tip.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const nx = -dy / len, ny = dx / len;   // 单位法线
+        kids.push(<text key={'pn' + i} x={mx + nx * 5} y={my + ny * 5 + 2} fontSize={6.5} fill="#7c2d12" textAnchor="middle">{pn.number}</text>);
       });
       // 位号（电源符号不标）
       if (!inst.ref.startsWith('#')) {

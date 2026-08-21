@@ -53,8 +53,8 @@ async function queryMouser(key, mpn) {
   if (!r.ok) throw new Error(`mouser ${r.status}`);
   const j = await r.json();
   const parts = j?.SearchResults?.Parts ?? [];
-  const exact = parts.find((p) => String(p?.ManufacturerPartNumber ?? '').toUpperCase() === mpn.toUpperCase()) ?? parts[0];
-  if (!exact) return { found: false };
+  const exact = parts.find((p) => String(p?.ManufacturerPartNumber ?? '').toUpperCase() === mpn.toUpperCase());
+  if (!exact) return { found: false, note: 'no exact match' };   // 模糊命中不作数：错型号的价格比没有价格更有害
   const brk = (exact.PriceBreaks ?? [])[0];
   return {
     found: true,
@@ -77,6 +77,8 @@ async function queryArrow(login, key, mpn) {
   const pd = src.flatMap((sc) => sc?.sourceParts ?? [])[0];
   const price = pd?.Prices?.resaleList?.[0]?.price ?? pd?.prices?.[0]?.price;
   const stock = pd?.Availability?.[0]?.fohQuantity;
+  const arrowMpn = String(p?.partNum ?? p?.mpn ?? p?.partNumber ?? '').toUpperCase();
+  if (arrowMpn && arrowMpn !== mpn.toUpperCase()) return { found: false, note: 'no exact match' };
   return {
     found: true,
     price: num(price),
@@ -95,6 +97,8 @@ async function queryElement14(key, mpn) {
   const products = j?.manufacturerPartNumberSearchReturn?.products ?? j?.keywordSearchReturn?.products ?? [];
   const p = products[0];
   if (!p) return { found: false };
+  const e14Mpn = String(p?.translatedManufacturerPartNumber ?? p?.manufacturerPartNumber ?? '').toUpperCase();
+  if (e14Mpn && e14Mpn !== mpn.toUpperCase()) return { found: false, note: 'no exact match' };
   return {
     found: true,
     price: num(p.prices?.[0]?.cost),

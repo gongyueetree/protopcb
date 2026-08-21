@@ -36,6 +36,9 @@ function normalize(items: Partial<SubCircuitItem>[]): SubCircuitItem[] {
   for (const it of items) {
     if (!it || !it.role || !it.value) continue;
     const val = String(it.value);
+    // 电源轨不是元器件：+5V/-5V/GND/VCC/VDD 之类在原理图里用电源符号表达，不上画布
+    if (/^[+\-±]?\d+(\.\d+)?\s*V$/i.test(val.trim()) || /^(GND|VCC|VDD|VSS|VEE|AGND|DGND|VBUS)$/i.test(val.trim())
+      || /电源轨|power rail/i.test(it.role ?? '')) continue;
     let cat = (it.category as ComponentCategory) ?? 'passive';
     let fp = String(it.footprint ?? '');
     const isR = /Ω|ohm|电阻|^R\b/i.test(val) || /电阻|resistor/i.test(it.role ?? '');

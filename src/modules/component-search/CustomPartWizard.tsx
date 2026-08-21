@@ -68,7 +68,7 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
       });
       const r = await fetch('/api/gemini', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: EXTRACT_PROMPT, imageBase64: b64, imageMime: f.type || 'image/png' }),
+        body: JSON.stringify({ prompt: EXTRACT_PROMPT + '\n补充：这是一张图片。请先判断它是「引脚定义图」还是「封装尺寸图」：引脚图 → 重点提取 pins（脚号+名称+类型）；封装尺寸图 → 重点提取 package（bodyW/bodyH/pitch，单位 mm，并按脚号数量推断 family）。两类信息都可见时都提取。', imageBase64: b64, imageMime: f.type || 'image/png' }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const text = String((await r.json()).text ?? '');
@@ -191,11 +191,47 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
 
   const onPdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (!f) return;
-    if (f.size > 3.5 * 1024 * 1024) { setAiMsg('PDF 需小于 3.5MB（代理请求体限制），过大请复制关键页文本粘贴'); return; }
-    const b64 = await new Promise<string>((res) => { const rd = new FileReader(); rd.onload = () => res(String(rd.result).split(',')[1]); rd.readAsDataURL(f); });
-    runAi({ fileBase64: b64, mimeType: 'application/pdf' });
     e.target.value = '';
+    if (!f) return;
+    if (f.size > 3 * 1024 * 1024) { setAiMsg(tr('PDF 超过 3MB，请压缩或改用 URL 方式')); return; }
+    setAiBusy(true); setAiMsg(tr('解析 PDF 中…'));
+    try {
+      const b64 = await new Promise<string>((res, rej) => {
+        const rd = new FileReader();
+        rd.onload = () => res(String(rd.result).split(',')[1] ?? '');
+        rd.onerror = () => rej(new Error('读取失败'));
+        rd.readAsDataURL(f);
+      });
+      let text = '';
+      let engine = '';
+      // 首选 ds2kicad（确定性解析 + 溯源）；不可用/失败则自动回落 Gemini 直读
+      try {
+        const r = await fetch('/api/ds2kicad', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pdfBase64: b64, fileName: f.name }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(String(j?.error ?? `HTTP ${r.status}`));
+        applyDs2kicad(j);
+        setAiMsg('✓ ' + tr('已提取（DS2KiCad），请核对下方表单后保存'));
+        setAiBusy(false);
+        return;
+      } catch (dsErr) {
+        engine = `ds2kicad 不可用（${(dsErr as Error).message.slice(0, 80)}），已回落 Gemini`;
+      }
+      const r2 = await fetch('/api/gemini', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: EXTRACT_PROMPT, pdfBase64: b64 }),
+      });
+      const j2 = await r2.json().catch(() => ({}));
+      if (!r2.ok) throw new Error(String((j2 as { error?: string })?.error ?? `HTTP ${r2.status}`));
+      text = String((j2 as { text?: string }).text ?? '');
+      applyExtract(extractJson(text));
+      setAiMsg('✓ ' + tr('已提取（Gemini 直读）') + (engine ? ' · ' + engine : ''));
+    } catch (err) {
+      setAiMsg(tr('提取失败') + '：' + (err as Error).message);
+    }
+    setAiBusy(false);
   };
 
   const save = () => {

@@ -30,6 +30,11 @@ export const useLangStore = create<LangState>((set) => ({
 
 /* ───────────── 固定文案词典（key = 中文原文） ───────────── */
 const DICT: Record<string, string> = {
+  '（个别封装官方库无 3D 模型属正常，已用参数化模型兜底）': '(Some footprints have no official 3D model — parametric fallback used)',
+  '左右拖动可移中线 · 双击可改网络标签 · 手工新增连线开发中': 'Drag to shift midline · double-click to edit net label · manual wiring in development',
+  'PDF 超过 3MB，请压缩或改用 URL 方式': 'PDF exceeds 3MB — compress it or use a URL',
+  '解析 PDF 中…': 'Parsing PDF…', '已提取（DS2KiCad），请核对下方表单后保存': 'Extracted via DS2KiCad — verify the form below',
+  '已提取（Gemini 直读）': 'Extracted via Gemini', 'BOM 总价（录入 > 网络实时价 > 估价）': 'BOM total (manual > live > estimate)',
   '典型应用电路的周边器件': 'Supporting parts from typical application circuits',
   '分析中…': 'Analyzing…', '推荐': 'Recommend', '一键上画布': 'Place all', '个器件，围绕': 'parts around',
   '位移': 'Move', '方向': 'Rotate', '高度': 'Height', '复位高度': 'Reset height',

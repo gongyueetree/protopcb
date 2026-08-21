@@ -43,7 +43,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   const [manualPrices, setManualPrices] = useState<Record<string, number>>({});
   const [editingMpn, setEditingMpn] = useState<string | null>(null);
   const manOf = (mpn: string): number | undefined => manualPrices[mpn];
-  const total = bom.reduce((sum, l) => sum + (dkOf(l.mpn)?.unitPrice ?? netOf(l.mpn)?.price ?? l.unitPrice?.amount ?? 0) * l.quantity, 0);
+  const total = bom.reduce((sum, l) => sum + (manOf(l.mpn) ?? dkOf(l.mpn)?.unitPrice ?? netOf(l.mpn)?.price ?? l.unitPrice?.amount ?? 0) * l.quantity, 0);
 
   /** RFC 4180：含逗号/双引号/换行的字段用双引号包裹，内部双引号写成两个 */
   const csvField = (v: unknown): string => {
@@ -121,7 +121,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
             ))}
           </tbody>
           <tfoot><tr>
-            <td colSpan={6} style={{ padding: 10, textAlign: 'right', fontWeight: 700, borderTop: '2px solid #e2e8f0' }}>{tr('BOM 总价（DigiKey 实时价优先）')}</td>
+            <td colSpan={6} style={{ padding: 10, textAlign: 'right', fontWeight: 700, borderTop: '2px solid #e2e8f0' }}>{tr('BOM 总价（录入 > 网络实时价 > 估价）')}</td>
             <td style={{ padding: 10, textAlign: 'right', fontWeight: 700, color: '#dc2626', fontSize: 14, borderTop: '2px solid #e2e8f0' }}>{fmtMoney(total)}</td>
             <td style={{ borderTop: '2px solid #e2e8f0' }} />
           </tr></tfoot>

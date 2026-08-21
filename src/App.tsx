@@ -374,15 +374,13 @@ export default function App() {
           <span style={{ fontSize: 24 }}>⚡</span>
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
             <span style={{ fontSize: 18, fontWeight: 700, color: COLORS.green }}>{t('硬件原型工坊')}</span>
-            <span onClick={() => { const n = window.prompt(t('项目名称'), doc.name); if (n?.trim()) renameDocument(n.trim()); }}
-              title={t('点击修改项目名称')}
-              style={{ marginLeft: 26, fontSize: 12, color: '#475569', background: '#f1f5f9', padding: '3px 10px', borderRadius: 6, cursor: 'pointer', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              📁 {doc.name}
-            </span>
             <span style={{ fontSize: 10, color: '#94a3b8' }}>{t('AI 方案生成、器件选型与 PCB 预布局')}</span>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <span onClick={() => { const n = window.prompt(t('项目名称'), doc.name); if (n?.trim()) renameDocument(n.trim()); }}
+            title={t('点击修改项目名称')}
+            style={{ fontSize: 12, color: '#475569', background: '#f1f5f9', padding: '3px 10px', borderRadius: 6, cursor: 'pointer', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📁 {doc.name}</span>
           {savedAt && <span title={t('设计已自动保存在本浏览器（localStorage），导出设计可得到可分享的 JSON 文件')}
             style={{ fontSize: 10, color: '#94a3b8', alignSelf: 'center', marginRight: 4 }}>✓ {t('已自动保存')} {savedAt}</span>}
           <button onClick={toggleLang} title={lang === 'zh' ? 'Switch to English' : '切换为中文'}
@@ -741,6 +739,7 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
 
       {/* 封装占位器件：补型号 + 上传自定义原理图符号 */}
       {(c.display?.family === 'Footprint'
+        || !hasRealMpn(c.mpn)
         || (!c.display?.symbolFileUrl && !c.display?.symbolFromMpn && !c.customSymbolSvg)
         || (!c.display?.footprintFileUrl && !footprintOverrideFor(c.footprint.name))) && <FootprintPartEditor c={c} onBuild={onBuild} />}
 
@@ -759,7 +758,8 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
         </div>
       )}
 
-      {/* 采购渠道：DigiKey 真实 API；Mouser/CECPORT 暂为演示数据（接入 API 后替换） */}
+      {/* 采购渠道：仅当型号明确（真实 MPN）时显示并查询；分销商侧已做精确匹配 */}
+      {hasRealMpn(c.mpn) && (<>
       <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: '#f0f9ff', border: '1px solid #bae6fd' }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: '#0369a1', marginBottom: 6 }}>🛒 {t('采购渠道')}</div>
         {dkOffer?.found ? (
@@ -816,6 +816,7 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
           </a>
         ); })()}
       </div>
+      </>)}
 
       {/* 子电路推荐：大模型提取典型应用电路 → 一键上画布（锚定核心、管脚序排布） */}
       <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
@@ -1290,3 +1291,12 @@ const ibtn: React.CSSProperties = { width: 34, height: 32, display: 'inline-flex
 const tbtn: React.CSSProperties = { padding: '7px 14px', borderRadius: 6, border: '1px solid #E8F3EE', background: '#fff', fontSize: 13, fontWeight: 500, color: '#2C3E50', cursor: 'pointer' };
 const smbtn: React.CSSProperties = { padding: '3px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#475569' };
 
+
+/** 是否是可用于分销商查询的真实型号（排除占位/自建/子电路通用值/中文值） */
+function hasRealMpn(mpn: string): boolean {
+  if (!mpn || mpn.length < 4) return false;
+  if (/^(fp_|CUSTOM_|sub_)/i.test(mpn)) return false;
+  if (/[\u4e00-\u9fff]/.test(mpn)) return false;
+  if (/^\d+(\.\d+)?(pF|nF|uF|k?Ω|ohm|uH|nH|MHz|kHz)$/i.test(mpn)) return false;
+  return /[A-Za-z]/.test(mpn) && /\d/.test(mpn);
+}

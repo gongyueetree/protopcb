@@ -109,10 +109,10 @@ export function FootprintLibraryPanel() {
                 style={{ padding: '5px 10px', borderRadius: 5, border: 'none', background: COLORS.green, color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: xbusy ? 'wait' : 'pointer', opacity: xkw.trim().length < 2 ? 0.5 : 1 }}>{xbusy ? '⟳' : '🔍'}</button>
             </div>
             {xhits.length > 0 && (
-              <div style={{ display: xkw.trim() ? 'none' : undefined, maxHeight: 180, overflow: 'auto', marginBottom: 6, border: '1px solid #e2e8f0', borderRadius: 6, padding: 4 }}>
+              <div style={{ maxHeight: 180, overflow: 'auto', marginBottom: 6, border: '1px solid #e2e8f0', borderRadius: 6, padding: 4 }}>
                 <div style={{ fontSize: 9.5, color: '#475569', fontWeight: 700, marginBottom: 3 }}>{tr('搜索结果')}（{xhits.length}）</div>
                 {xhits.map((h) => (
-                  <div key={h.lib + '/' + h.name} onClick={() => { setKlLib(h.lib); klAdd(h.name, h.lib); }}
+                  <div key={h.lib + '/' + h.name} onClick={() => klAdd(h.name, h.lib)}
                     style={{ padding: '4px 8px', marginBottom: 3, borderRadius: 5, background: '#f8fafc', fontSize: 10.5, fontFamily: 'monospace', cursor: 'pointer' }} title={h.lib + ' / ' + h.name}>
                     <span style={{ color: COLORS.green }}>{h.lib}</span> / {h.name}
                   </div>
@@ -136,7 +136,7 @@ export function FootprintLibraryPanel() {
             )}
             {klBusy === 'items' && <div style={{ fontSize: 11, color: '#94a3b8' }}>{tr('加载封装列表…')}</div>}
             {!xkw.trim() && klLib && !klBusy && <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 4 }}>{klFiltered.length} / {klItems.length}</div>}
-            <div style={{ maxHeight: 220, overflow: 'auto' }}>
+            <div style={{ display: xkw.trim() ? 'none' : undefined, maxHeight: 220, overflow: 'auto' }}>
               {klFiltered.slice(0, 200).map((n) => (
                 <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', marginBottom: 3, borderRadius: 6, background: '#f8fafc', fontSize: 10.5 }}>
                   <span style={{ flex: 1, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={n}>{n}</span>
