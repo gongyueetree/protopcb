@@ -7,6 +7,7 @@ import { useDesignStore } from '../../state/designStore';
 import { bomTotal } from '../../design-core/document/services';
 import { fmtMoney, COLORS } from '../../shared/theme';
 import { useEffect, useState } from 'react';
+import type { BomLine } from '../../design-core/document/types';
 import { isPriceable, whyNotPriceable, classifyByRefDes, pricingPriority, CLASS_LABEL } from './part-class';
 import { fetchDigikeyOffer, type DigikeyOffer } from '../../providers/digikey';
 import { fetchSupplierOffers } from '../../providers/suppliers';
@@ -22,6 +23,19 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   const [netPrices, setNetPrices] = useState<Record<string, { vendor: string; price: number; currency?: string; stock?: number }>>({});
   /** 已查询完成的型号（无论有无结果）—— 用于把"查询中…"落定为"无报价" */
   const [queried, setQueried] = useState<Record<string, true>>({});
+  /** 无报价行的人工查价：模糊候选列表（用户点选后作为录入价） */
+  const [fuzzy, setFuzzy] = useState<{ line: BomLine; busy: boolean; items: { vendor: string; mpn: string; manufacturer: string; description?: string; price: number; currency?: string; stock?: number; url?: string }[]; msg?: string } | null>(null);
+  const openFuzzy = async (l: BomLine) => {
+    setFuzzy({ line: l, busy: true, items: [] });
+    try {
+      const qs = new URLSearchParams({ path: 'fuzzy', mpn: l.mpn ?? '', footprint: l.footprint ?? '', desc: l.description ?? '' });
+      const r = await fetch(`/api/suppliers?${qs}`);
+      const j = await r.json();
+      setFuzzy({ line: l, busy: false, items: Array.isArray(j.items) ? j.items : [], msg: j.message });
+    } catch (e) {
+      setFuzzy({ line: l, busy: false, items: [], msg: (e as Error).message });
+    }
+  };
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -80,6 +94,36 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
     a.click();
   };
 
+  const fuzzyModal = fuzzy && (
+    <div onClick={() => setFuzzy(null)}
+      style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(15,23,42,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(560px, 96vw)', maxHeight: '78vh', overflow: 'auto', background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 12px 40px rgba(15,23,42,.2)' }}>
+        <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 2 }}>{tr('查找相近器件')} · {fuzzy.line.reference}</div>
+        <div style={{ fontSize: 10.5, color: '#64748b', marginBottom: 10 }}>
+          {[fuzzy.line.mpn, fuzzy.line.footprint].filter(Boolean).join(' · ')}
+          <span style={{ marginLeft: 6, color: '#b45309' }}>{tr('模糊匹配结果需人工确认后作为录入价')}</span>
+        </div>
+        {fuzzy.busy && <div style={{ fontSize: 11.5, color: '#64748b' }}>{tr('检索中…')}</div>}
+        {!fuzzy.busy && !fuzzy.items.length && <div style={{ fontSize: 11.5, color: '#92400e' }}>{fuzzy.msg ?? tr('未找到相近器件')}</div>}
+        {fuzzy.items.map((it, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', marginBottom: 5, borderRadius: 7, border: '1px solid #e2e8f0' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: 'monospace', fontSize: 11.5, fontWeight: 700 }}>{it.mpn}</div>
+              <div style={{ fontSize: 10, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.manufacturer} · {it.description}</div>
+            </div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: '#059669' }}>{it.currency === 'USD' ? '$' : '¥'}{it.price.toFixed(3)}</div>
+            <button onClick={() => { setManualPrices((prev) => ({ ...prev, [fuzzy.line.mpn]: it.price })); setFuzzy(null); }}
+              style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#1f5c3b', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{tr('采用')}</button>
+          </div>
+        ))}
+        <div style={{ textAlign: 'right', marginTop: 8 }}>
+          <button onClick={() => setFuzzy(null)} style={{ padding: '5px 14px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', fontSize: 11.5, cursor: 'pointer' }}>{tr('关闭')}</button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div style={{ padding: 16, height: '100%', overflow: 'auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -116,7 +160,8 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
                       return why
                         ? <span style={{ fontSize: 9.5, color: '#94a3b8' }} title={CLASS_LABEL[classifyByRefDes(l.reference, l.footprint, l.mpn)]}>{tr(why)}</span>
                         : queried[l.mpn]
-                        ? <span style={{ fontSize: 9.5, color: '#94a3b8' }} title={tr('各分销商均无该型号的精确匹配')}>{tr('无报价')}</span>
+                        ? <span onClick={() => openFuzzy(l)} title={tr('点击按型号/封装/值模糊查找相近器件的价格')}
+                            style={{ fontSize: 9.5, color: '#0369a1', cursor: 'pointer', textDecoration: 'underline dotted' }}>{tr('查找相近')}</span>
                         : <span style={{ fontSize: 10, color: '#cbd5e1' }}>{tr('查询中…')}</span>;
                     })()}
                 </td>
@@ -149,6 +194,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
           </tr></tfoot>
         </table>
       )}
+      {fuzzyModal}
     </div>
   );
 }

@@ -12,7 +12,7 @@ import type { ComponentSearchResult } from '../providers/types';
 import { searchResultToPlaced, nextReference, buildBom, runDesignReview } from '../design-core/document/services';
 import { resolveAffinity, signalFlowRank, isCore } from '../design-core/placement/affinity';
 import { solvePlacement, DEFAULT_PLACEMENT_RULES, autoPlaceAll } from '../design-core/placement';
-import { clampComponentToBoard, hasOverlap, findOverlaps } from '../design-core/collision';
+import { clampComponentToBoard, hasOverlap, findOverlaps, BOARD_MARGIN_MM } from '../design-core/collision';
 import { appConfig } from '../config';
 
 const HISTORY_LIMIT = 60;
@@ -117,9 +117,20 @@ export const useDesignStore = create<DesignState>()(
         placed.placement.side = s.activeLayer;
         // 只与同层器件避让
         const sameLayer = s.doc.components.filter((c) => c.placement.side === s.activeLayer);
+        // 器件比板大时先扩板：否则夹紧只能保证左上角在板内，主体会跑到画布外
+        const gw = placed.footprint.geometry.courtyardWidthMm ?? placed.footprint.geometry.bodyWidthMm;
+        const gh = placed.footprint.geometry.courtyardHeightMm ?? placed.footprint.geometry.bodyHeightMm;
+        const need = (v: number) => Math.ceil(v + BOARD_MARGIN_MM * 2 + 2);
+        if (gw > s.doc.board.widthMm - BOARD_MARGIN_MM * 2) s.doc.board.widthMm = need(gw);
+        if (gh > s.doc.board.heightMm - BOARD_MARGIN_MM * 2) s.doc.board.heightMm = need(gh);
+
         const pos = solvePlacement(placed, { board: s.doc.board, existing: sameLayer, rules: DEFAULT_PLACEMENT_RULES });
         placed.placement.xMm = pos.x;
         placed.placement.yMm = pos.y;
+        // 兜底：确保主体完整落在板内（clamp 用真实 courtyard）
+        const fixed = clampComponentToBoard(placed, s.doc.board);
+        placed.placement.xMm = fixed.x;
+        placed.placement.yMm = fixed.y;
         s.doc.components.push(placed);
         s.doc = touchDocument(refreshDerived(s.doc));
         s.overlaps = findOverlaps(s.doc.components);

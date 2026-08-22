@@ -9,7 +9,15 @@
  * 用平衡括号文本扫描而非全量 S 表达式解析：sch 文件可达数 MB，只取所需区块更稳更快。
  */
 
-export interface SchInstance { ref: string; libId: string; value?: string; x: number; y: number; rot: number; mirror?: string; unit?: number }
+export interface SchInstance {
+  ref: string; libId: string; value?: string;
+  x: number; y: number; rot: number; mirror?: string; unit?: number;
+  mat?: [number, number, number, number];
+  /** 位号标注的绝对坐标与朝向（KiCad 中用户可拖动，必须原样还原，否则会压到连线上） */
+  refPos?: { x: number; y: number; rot: number; hidden: boolean };
+  /** 值标注的绝对坐标与朝向 */
+  valPos?: { x: number; y: number; rot: number; hidden: boolean };
+}
 
 export interface KicadSchResult {
   /** libId → 符号定义块原文（顶层 (symbol "Lib:Name" …)） */
@@ -83,13 +91,32 @@ export function parseKicadSch(text: string): KicadSchResult {
     if (!block) break;
     const lid = block.match(/\(lib_id\s+"([^"]+)"/)?.[1];
     const ref = block.match(/\(property\s+"Reference"\s+"([^"]+)"/)?.[1];
+    /** 取某个 property 的文本 + 标注位置（KiCad6：(property "X" "v" (at x y rot) … (effects … hide))） */
+    const propOf = (nameRe: string) => {
+      const m = block.match(new RegExp(`\\(property\\s+"${nameRe}"\\s+"((?:[^"\\\\]|\\\\.)*)"([\\s\\S]{0,400}?)\\)\\s*(?=\\(property|$)`));
+      if (!m) return undefined;
+      const at2 = m[2].match(/\(at\s+([-\d.]+)\s+([-\d.]+)(?:\s+([-\d.]+))?\)/);
+      return {
+        text: m[1],
+        pos: at2 ? {
+          x: parseFloat(at2[1]), y: parseFloat(at2[2]), rot: at2[3] ? parseFloat(at2[3]) : 0,
+          hidden: /\bhide\b/.test(m[2]),
+        } : undefined,
+      };
+    };
     if (lid && ref) {
       const at = block.match(/\(at\s+([-\d.]+)\s+([-\d.]+)(?:\s+([-\d.]+))?\)/);
       const mirror = block.match(/\(mirror\s+([xy])\)/)?.[1];
       const unit = block.match(/\(unit\s+(\d+)\)/)?.[1];
       if (at) {
-        const value = block.match(/\(property\s+"Value"\s+"((?:[^"\\]|\\.)*)"/)?.[1];
-        instances.push({ ref, libId: lid, value, x: parseFloat(at[1]), y: parseFloat(at[2]), rot: at[3] ? parseFloat(at[3]) : 0, mirror, unit: unit ? parseInt(unit, 10) : undefined });
+        const refProp = propOf('Reference');
+        const valProp = propOf('Value');
+        instances.push({
+          ref, libId: lid, value: valProp?.text,
+          x: parseFloat(at[1]), y: parseFloat(at[2]), rot: at[3] ? parseFloat(at[3]) : 0,
+          mirror, unit: unit ? parseInt(unit, 10) : undefined,
+          refPos: refProp?.pos, valPos: valProp?.pos,
+        });
       }
       if (!ref.startsWith('#') && !lid.startsWith('power:')) refToLibId[ref] = lid;
     }

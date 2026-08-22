@@ -121,7 +121,41 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
       });
       // 位号（电源符号不标）
       if (!inst.ref.startsWith('#')) {
-        // 位号紧贴本体上沿、值贴下沿：本体范围取图元包围盒（原来固定 -18 会离小符号很远）
+        // KiCad 里位号/值是可拖动的独立标注，工程文件带绝对坐标 —— 原样还原，
+        // 否则按本体推算会压到连线上。
+        // 电源/接地符号：位号 #PWR… 无意义（KiCad 亦隐藏），要显示的是网络名（GND/+5V/+3V3）
+        const isPower = inst.ref.startsWith('#') || /^power:/i.test(inst.libId);
+        if (isPower) {
+          const netName = inst.value || inst.libId.split(':').pop() || '';
+          if (netName) {
+            const p0 = T(0, 0);
+            const vp = inst.valPos && !inst.valPos.hidden ? { x: inst.valPos.x * PXMM, y: inst.valPos.y * PXMM } : null;
+            // GND 类符号文字在下方，电源类在上方（与 KiCad 习惯一致）
+            const isGnd = /^(GND|GNDA|GNDD|AGND|DGND|VSS|EARTH)$/i.test(netName);
+            kids.push(<text key="pwr" x={vp?.x ?? p0.x} y={vp?.y ?? (p0.y + (isGnd ? 15 : -8))} fontSize={8}
+              fontWeight={600} fill="#7c2d12" textAnchor="middle" fontFamily="monospace"
+              style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={3}>{netName}</text>);
+          }
+          els.push(<g key={'i' + ii}>{kids}</g>);
+          return;
+        }
+
+        if (inst.refPos || inst.valPos) {
+          if (inst.refPos && !inst.refPos.hidden) {
+            kids.push(<text key="refA" x={inst.refPos.x * PXMM} y={inst.refPos.y * PXMM} fontSize={8.5} fontWeight={700}
+              fill="#0e7490" textAnchor="middle" fontFamily="monospace" style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={3}
+              transform={inst.refPos.rot === 90 || inst.refPos.rot === 270 ? `rotate(-90 ${inst.refPos.x * PXMM} ${inst.refPos.y * PXMM})` : undefined}>{inst.ref}</text>);
+          }
+          if (inst.valPos && !inst.valPos.hidden && inst.value) {
+            kids.push(<text key="valA" x={inst.valPos.x * PXMM} y={inst.valPos.y * PXMM} fontSize={8} fill="#7c2d12"
+              textAnchor="middle" fontFamily="monospace" style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={3}
+              transform={inst.valPos.rot === 90 || inst.valPos.rot === 270 ? `rotate(-90 ${inst.valPos.x * PXMM} ${inst.valPos.y * PXMM})` : undefined}>{inst.value}</text>);
+          }
+          els.push(<g key={'i' + ii}>{kids}</g>);
+          return;
+        }
+
+        // 无标注坐标（旧格式）：位号紧贴本体上沿、值贴下沿
         const ys: number[] = [];
         g.rects.forEach((r2) => { ys.push(T(r2.x1, r2.y1).y, T(r2.x2, r2.y2).y); });
         g.polys.forEach((pl) => pl.forEach((pt) => ys.push(T(pt.x, pt.y).y)));

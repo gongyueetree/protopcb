@@ -209,6 +209,40 @@ export default async function handler(req, res) {
     }));
   }
 
+  // ── 模糊候选：BOM 中无报价的行，由用户主动点击后按 型号/封装/值 综合检索 ──
+  // 与自动估价不同，这里刻意放宽匹配，把候选交给用户判断（自动链路仍只认精确匹配）
+  if (path === 'fuzzy') {
+    const q = [req.query.mpn, req.query.value, req.query.footprint, req.query.desc]
+      .map((x) => String(x ?? '').trim()).filter(Boolean).join(' ').slice(0, 120);
+    if (!q) return res.status(400).send(JSON.stringify({ error: 'need mpn/value/footprint' }));
+    const items = [];
+    if (mouserKey) {
+      try {
+        const r = await fetch(`https://api.mouser.com/api/v1/search/keyword?apiKey=${encodeURIComponent(mouserKey)}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ SearchByKeywordRequest: { keyword: q, records: 8, startingRecord: 0 } }),
+        });
+        if (r.ok) {
+          const j = await r.json();
+          for (const p2 of (j?.SearchResults?.Parts ?? []).slice(0, 8)) {
+            const brk = (p2.PriceBreaks ?? [])[0];
+            if (!brk) continue;
+            items.push({
+              vendor: 'Mouser', mpn: p2.ManufacturerPartNumber ?? '', manufacturer: p2.Manufacturer ?? '',
+              description: p2.Description ?? '', price: num(brk.Price), currency: brk.Currency,
+              stock: num(p2.AvailabilityInStock), url: p2.ProductDetailUrl,
+            });
+          }
+        }
+      } catch { /* 忽略单一渠道失败 */ }
+    }
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return res.status(200).send(JSON.stringify({
+      items,
+      message: items.length ? undefined : (mouserKey ? '未找到相近器件' : '未配置 MOUSER_API_KEY'),
+    }));
+  }
+
   if (!mpn) return res.status(400).send(JSON.stringify({ error: 'usage: ?mpn=XXX' }));
 
   const jobs = [

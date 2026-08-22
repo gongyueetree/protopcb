@@ -4,6 +4,8 @@
  * 数据存于 store 的 functionalBlocks + connections。
  */
 import { tr } from '../../shared/i18n';
+import { analyzeArchitecture, layoutArchBlocks, colorForKind } from './arch-analysis';
+import type { ConnectionStyle } from '../../design-core/document/types';
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useDesignStore } from '../../state/designStore';
 import { BD_SHAPES, BdShape } from './shapes';
@@ -24,6 +26,38 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
   const [connecting, setConnecting] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [archBusy, setArchBusy] = useState(false);
+  const [archMsg, setArchMsg] = useState('');
+  const runArchAI = async () => {
+    if (archBusy) return;
+    setArchBusy(true); setArchMsg('');
+    try {
+      const doc = useDesignStore.getState().doc;
+      const r = await analyzeArchitecture(doc);
+      const pos = layoutArchBlocks(r.blocks);
+      const refToId = new Map(doc.components.map((c) => [c.reference, c.instanceId]));
+      setBlocks(r.blocks.map((b) => ({
+        id: b.id,
+        label: b.label,
+        sublabel: b.refs.join(' '),
+        shape: 'rounded',
+        x: pos[b.id]?.x ?? 400, y: pos[b.id]?.y ?? 300,
+        w: 168, h: 74,
+        color: colorForKind(b.kind),
+        componentIds: b.refs.map((rf) => refToId.get(rf)).filter((v): v is string => !!v),
+      })));
+      setConns(r.edges.map((e, i) => ({
+        id: `arch_${i}`, fromId: e.from, toId: e.to,
+        label: e.signal,
+        style: (e.kind === 'bus' ? 'bus' : 'single') as ConnectionStyle,
+        color: e.kind === 'power' ? '#b45309' : e.kind === 'analog' ? '#0e7490' : e.kind === 'clock' ? '#a16207' : undefined,
+      })));
+      setArchMsg(r.summary);
+    } catch (e) {
+      setArchMsg('分析失败：' + (e as Error).message);
+    }
+    setArchBusy(false);
+  };
   const [editId, setEditId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
 
@@ -177,7 +211,11 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
         <button onClick={addNode} style={tb}>+ {tr('模块')}</button>
         <button onClick={() => setConnecting(connecting ? null : '__pick__')} style={{ ...tb, ...(connecting ? { background: '#f0fdf4', color: '#16a34a', borderColor: '#22c55e' } : {}) }}>{connecting ? '✕ ' + tr('取消连线') : '+ ' + tr('连线')}</button>
         <button onClick={del} disabled={!sel} style={{ ...tb, opacity: sel ? 1 : 0.5 }}>🗑 删除</button>
-        <button onClick={regen} style={tb}>🔄 重新生成</button>
+        <button onClick={regen} style={tb}>🔄 {tr('按类别生成')}</button>
+        <button onClick={runArchAI} disabled={archBusy} title={tr('由 AI 分析器件与网络，划分真实的功能子系统与信号流')}
+          style={{ ...tb, background: archBusy ? '#d6d3d1' : '#1a6b3c', color: '#fff', border: 'none', fontWeight: 700 }}>
+          {archBusy ? '⟳ ' + tr('分析中…') : '🤖 ' + tr('AI 架构分析')}
+        </button>
         <button onClick={fitView} style={tb}>⊡ 适应</button>
         <button onClick={() => {
           const svg = svgRef.current; if (!svg) return;
@@ -275,6 +313,12 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
           <span onClick={fitView} style={{ minWidth: 34, textAlign: 'center', fontWeight: 600, cursor: 'pointer' }}>{Math.round(zoom * 100)}%</span>
           <button onClick={() => setZoom((z) => Math.min(4, z * 1.25))} style={zb}>+</button>
         </div>
+        {archMsg && (
+          <div style={{ position: 'absolute', top: 8, left: 8, right: 8, zIndex: 5, fontSize: 11, padding: '6px 26px 6px 10px', borderRadius: 8, background: archMsg.startsWith('分析失败') ? '#fef2f2' : '#f0fdf4', border: '1px solid ' + (archMsg.startsWith('分析失败') ? '#fecaca' : '#bbf7d0'), color: archMsg.startsWith('分析失败') ? '#b91c1c' : '#166534' }}>
+            {archMsg}
+            <span onClick={() => setArchMsg('')} style={{ position: 'absolute', top: 4, right: 8, cursor: 'pointer', fontWeight: 700 }}>×</span>
+          </div>
+        )}
         {blocks.length === 0 && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13 }}>{tr('添加器件后自动生成框图，或点「+ 模块」手动创建')}</div>}
       </div>
     </div>
