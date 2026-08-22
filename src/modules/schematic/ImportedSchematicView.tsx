@@ -92,9 +92,11 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
       g.arcs.forEach((ar, i) => {
         kids.push(<path key={'a' + i} d={arcPts(T(ar.x1, ar.y1), T(ar.xm, ar.ym), T(ar.x2, ar.y2))} fill="none" stroke="#8a1c1c" strokeWidth={1.3} />);
       });
+      const showPinNums = g.pins.length > 2;   // 两脚无源件（R/C/L…）与 KiCad 一致：不显示脚号
       g.pins.forEach((pn, i) => {
         const tip = T(pn.x, pn.y), end = T(pn.ex, pn.ey);
         kids.push(<line key={'pl' + i} x1={tip.x} y1={tip.y} x2={end.x} y2={end.y} stroke="#8a1c1c" strokeWidth={1.2} />);
+        if (!showPinNums) return;
         // 脚号放在管脚中点、沿"法线方向"外移，避免竖直管脚的数字压在上下轮廓线上
         const mx = (tip.x + end.x) / 2, my = (tip.y + end.y) / 2;
         const dx = end.x - tip.x, dy = end.y - tip.y;
@@ -104,14 +106,40 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
       });
       // 位号（电源符号不标）
       if (!inst.ref.startsWith('#')) {
-        kids.push(<text key="ref" x={T(0, 0).x} y={T(0, 0).y - 14} fontSize={8.5} fontWeight={700} fill="#0e7490" textAnchor="middle" fontFamily="monospace">{inst.ref}</text>);
+        kids.push(<text key="ref" x={T(0, 0).x} y={T(0, 0).y - 18} fontSize={8.5} fontWeight={700} fill="#0e7490" textAnchor="middle" fontFamily="monospace"
+          style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={3}>{inst.ref}</text>);
       }
       els.push(<g key={'inst' + ii}>{kids}</g>);
     });
+    // 图框与标题栏
+    if (sheet.frame) {
+      const F = sheet.frame;
+      const fw = F.wMm * PXMM, fh = F.hMm * PXMM;
+      els.unshift(
+        <g key="frame">
+          <rect x={0} y={0} width={fw} height={fh} fill="none" stroke="#8a1c1c" strokeWidth={1.4} />
+          <rect x={3 * PXMM} y={3 * PXMM} width={fw - 6 * PXMM} height={fh - 6 * PXMM} fill="none" stroke="#8a1c1c" strokeWidth={0.7} />
+          <g transform={`translate(${fw - 78 * PXMM}, ${fh - 26 * PXMM})`}>
+            <rect x={0} y={0} width={75 * PXMM} height={23 * PXMM} fill="#fffef9" stroke="#8a1c1c" strokeWidth={0.9} />
+            {F.title && <text x={4} y={13} fontSize={11} fontWeight={700} fill="#7c2d12">{F.title}</text>}
+            <text x={4} y={27} fontSize={8} fill="#7c2d12">{[F.company, F.date, F.rev ? 'Rev ' + F.rev : ''].filter(Boolean).join(' · ')}</text>
+            {(F.comments ?? []).slice(0, 2).map((cm, i) => (
+              <text key={i} x={4} y={39 + i * 11} fontSize={7.5} fill="#a16207">{cm}</text>
+            ))}
+          </g>
+        </g>,
+      );
+    }
+
     // 标签
     sheet.labels.forEach((lb, i) => {
+      // KiCad 标签的 180° 是"向左书写"而非镜像翻转 —— 用锚点表达，避免文字倒置
+      const r = ((lb.rot % 360) + 360) % 360;
+      const anchor = r === 180 ? 'end' : 'start';
+      const rot = r === 90 ? -90 : r === 270 ? -90 : 0;
       els.push(<text key={'lb' + i} x={lb.x * PXMM} y={lb.y * PXMM - 2} fontSize={8} fill="#166534" fontFamily="monospace"
-        transform={lb.rot ? `rotate(${-lb.rot} ${lb.x * PXMM} ${lb.y * PXMM})` : undefined}>{lb.text}</text>);
+        textAnchor={anchor}
+        transform={rot ? `rotate(${rot} ${lb.x * PXMM} ${lb.y * PXMM})` : undefined}>{lb.text}</text>);
     });
     return els;
   }, [sheet]);

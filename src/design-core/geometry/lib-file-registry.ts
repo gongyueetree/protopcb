@@ -258,7 +258,8 @@ export function parseKicadSym(text: string): ParsedSymbol | null {
         out.pins.push({
           tipX: tip.x, tipY: tip.y, endX: end.x, endY: end.y,
           name: p.name === '~' ? '' : p.name, number: p.number,
-          nameX: end.x + (end.x >= tip.x ? 3 : -3), nameY: end.y + 2.5,
+          nameX: Math.abs(end.x - tip.x) < 0.5 ? end.x + 2 : end.x + (end.x >= tip.x ? 3 : -3),
+          nameY: Math.abs(end.x - tip.x) < 0.5 ? end.y + (end.y >= tip.y ? 8 : -5) : end.y + 2.5,
           numX: (tip.x + end.x) / 2, numY: (tip.y + end.y) / 2 - 2,
         });
       }
@@ -275,7 +276,8 @@ export function parseKicadSym(text: string): ParsedSymbol | null {
         pins: un.pins.map((pp) => {
           const tip = toPx0(pp.x, pp.y), end = toPx0(pp.ex, pp.ey);
           return { tipX: tip.x, tipY: tip.y, endX: end.x, endY: end.y, name: pp.name === '~' ? '' : pp.name, number: pp.number,
-            nameX: end.x + (end.x >= tip.x ? 3 : -3), nameY: end.y + 2.5, numX: (tip.x + end.x) / 2, numY: (tip.y + end.y) / 2 - 2 };
+            nameX: Math.abs(end.x - tip.x) < 0.5 ? end.x + 2 : end.x + (end.x >= tip.x ? 3 : -3),
+          nameY: Math.abs(end.x - tip.x) < 0.5 ? end.y + (end.y >= tip.y ? 8 : -5) : end.y + 2.5, numX: (tip.x + end.x) / 2, numY: (tip.y + end.y) / 2 - 2 };
         }),
       });
       out.h = Math.max(out.h, wh.h);

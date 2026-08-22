@@ -157,9 +157,10 @@ export function ensureStepModel(url: string | undefined) {
 
         // 形态特征
         const volRatio = info.vol / maxVol;
-        const nearBottom = info.minZ < botZ + height * 0.42;
-        const spansHeight = info.dz > height * 0.55;
-        const isLead = volRatio < 0.28 && nearBottom && !spansHeight;
+        const nearBottom = info.minZ < botZ + height * 0.5;
+        const spansHeight = info.dz > height * 0.62;
+        const thin = info.dz < height * 0.5;
+        const isLead = (volRatio < 0.35 && nearBottom && !spansHeight) || (thin && nearBottom && volRatio < 0.45);
 
         // 配色与参数化模型统一：深色塑封本体 + 金色引脚（STEP 自带有效颜色时仍尊重原色）
         let mat: THREE.MeshStandardMaterial;

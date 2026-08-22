@@ -39,8 +39,14 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   }, [bom]);
   const dkOf = (mpn: string): DigikeyOffer | undefined => dkPrices[mpn];
   const netOf = (mpn: string) => netPrices[mpn];
-  /** 手工录入价（优先级最高，来源显示「录入」） */
-  const [manualPrices, setManualPrices] = useState<Record<string, number>>({});
+  /** 手工录入价（优先级最高，来源显示「录入」；localStorage 持久化，切 Tab/刷新不丢） */
+  const docId = useDesignStore((st) => st.doc.id);
+  const [manualPrices, setManualPrices] = useState<Record<string, number>>(() => {
+    try { return JSON.parse(localStorage.getItem('cc_manual_price_' + docId) ?? '{}'); } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('cc_manual_price_' + docId, JSON.stringify(manualPrices)); } catch { /* 空间不足忽略 */ }
+  }, [manualPrices, docId]);
   const [editingMpn, setEditingMpn] = useState<string | null>(null);
   const manOf = (mpn: string): number | undefined => manualPrices[mpn];
   const total = bom.reduce((sum, l) => sum + (manOf(l.mpn) ?? dkOf(l.mpn)?.unitPrice ?? netOf(l.mpn)?.price ?? l.unitPrice?.amount ?? 0) * l.quantity, 0);

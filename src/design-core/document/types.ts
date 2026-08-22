@@ -170,6 +170,10 @@ export interface ReviewFinding {
 
 /* ---------- 顶层文档 ---------- */
 export interface CircuitCanvasDocument {
+  /** 导入工程的铜箔走线（真实线宽 mm，坐标相对板左上角） */
+  tracks?: { x1: number; y1: number; x2: number; y2: number; w: number; layer: 'top' | 'bottom' }[];
+  /** 导入工程的过孔 */
+  vias?: { x: number; y: number; size: number }[];
   /** 导入工程的电气网络表（网络号 → 网络名） */
   nets?: Record<string, string>;
   /** KiCad 工程导入的原理图原样视图（只读） */
@@ -180,6 +184,8 @@ export interface CircuitCanvasDocument {
     labels: { text: string; x: number; y: number; rot: number }[];
     noConnects: [number, number][];
     libSymbols: Record<string, string>;
+    /** 图框与标题栏（旧版工程 $Descr） */
+    frame?: { wMm: number; hMm: number; title?: string; date?: string; rev?: string; company?: string; comments?: string[] };
   };
   schemaVersion: string;
   id: string;

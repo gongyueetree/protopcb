@@ -172,6 +172,21 @@ export function BoardCanvas2D() {
           <text x={ORIGIN.x + bw / 2} y={ORIGIN.y - 8} textAnchor="middle" fontSize={10} fontFamily="monospace" fill="#6b7280">
             {doc.board.widthMm}mm × {doc.board.heightMm}mm
           </text>
+          {/* 导入工程的铜箔走线与过孔：按真实线宽渲染，置于器件之下（顶层铜色 / 底层蓝色） */}
+          {!!doc.tracks?.length && (
+            <g style={{ pointerEvents: 'none' }} opacity={0.55}>
+              {doc.tracks.map((t2, i) => (
+                <line key={'tk' + i} x1={t2.x1 * PX_PER_MM} y1={t2.y1 * PX_PER_MM} x2={t2.x2 * PX_PER_MM} y2={t2.y2 * PX_PER_MM}
+                  stroke={t2.layer === 'bottom' ? '#4a7fb5' : '#b87333'} strokeWidth={Math.max(0.6, t2.w * PX_PER_MM)} strokeLinecap="round" />
+              ))}
+              {(doc.vias ?? []).map((v, i) => (
+                <g key={'via' + i}>
+                  <circle cx={v.x * PX_PER_MM} cy={v.y * PX_PER_MM} r={(v.size / 2) * PX_PER_MM} fill="#c9a24b" />
+                  <circle cx={v.x * PX_PER_MM} cy={v.y * PX_PER_MM} r={(v.size / 4) * PX_PER_MM} fill="#fafaf6" />
+                </g>
+              ))}
+            </g>
+          )}
           {doc.components.map((c) => (
             <ComponentGlyph key={c.instanceId} comp={c}
               selected={selectedId === c.instanceId}

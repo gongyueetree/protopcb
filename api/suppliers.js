@@ -150,6 +150,7 @@ export default async function handler(req, res) {
               price: num(brk?.Price), currency: brk?.Currency,
               stock: num(p2.AvailabilityInStock),
               url: p2.ProductDetailUrl, datasheetUrl: p2.DataSheetUrl,
+              imageUrl: p2.ImagePath || p2.ImageURL || undefined,
             });
           }
         } else notes.push(`Mouser ${r.status}`);
@@ -185,6 +186,7 @@ export default async function handler(req, res) {
                 currency: 'CNY',
                 stock: num(p2.QuantityAvailable),
                 url: p2.ProductUrl, datasheetUrl: p2.DatasheetUrl,
+                imageUrl: p2.PhotoUrl || undefined,
               });
             }
           } else notes.push(`DigiKey ${r.status}`);

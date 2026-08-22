@@ -20,6 +20,7 @@ export interface SupplierPart {
   currency?: string;
   stock?: number;
   url?: string;
+  imageUrl?: string;
   vendor: string;
   datasheetUrl?: string;
 }
@@ -129,9 +130,10 @@ export function supplierPartToResult(p: SupplierPart): ComponentSearchResult {
     defaultFootprintName: p.footprintName ?? p.rawPackage ?? 'UNKNOWN',
     description: p.description,
     family: cat === 'passive' ? (/resistor|电阻/i.test(p.description ?? '') ? 'Resistor' : 'MLCC') : '分销商检索',
-    pins: pinsFromFootprint(p.footprintName, cat, p.description),
+    pins: pinsFromFootprint(p.footprintName, cat, `${p.description ?? ''} ${p.rawPackage ?? ''}`),
     unitPrice: p.price != null ? { amount: p.price, currency: p.currency ?? 'USD' } : undefined,
     datasheetUrl: p.datasheetUrl,
+    imageUrl: p.imageUrl,
   } as ComponentSearchResult;
 }
 

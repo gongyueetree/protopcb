@@ -35,6 +35,10 @@ export interface KicadImportedComp {
 export interface KicadImportResult {
   /** 网络表：网络号 → 网络名（导出时原样写回，保留电气连接） */
   nets: Record<number, string>;
+  /** 铜箔走线（原始线宽，坐标已归一化到板左上原点） */
+  tracks: { x1: number; y1: number; x2: number; y2: number; w: number; layer: 'top' | 'bottom' }[];
+  /** 过孔（外径） */
+  vias: { x: number; y: number; size: number }[];
   /** 板框左上角在 KiCad 图纸中的绝对坐标（器件坐标需减去它） */
   originXMm: number;
   originYMm: number;
@@ -143,6 +147,21 @@ export function parseKicadPcb(text: string): KicadImportResult {
       layer: layerRaw.startsWith('B') ? 'bottom' : 'top',
     });
   }
+  // ── 走线与过孔（真实线宽；随器件同一原点归一化）──
+  const tracks: { x1: number; y1: number; x2: number; y2: number; w: number; layer: 'top' | 'bottom' }[] = [];
+  for (const seg of findAll(pcb, 'segment')) {
+    const st = find(seg, 'start'), en = find(seg, 'end'), wd = find(seg, 'width');
+    const ly = String(find(seg, 'layer')?.[1] ?? '');
+    if (!st || !en) continue;
+    tracks.push({ x1: num(st, 1), y1: num(st, 2), x2: num(en, 1), y2: num(en, 2), w: wd ? num(wd, 1) : 0.25, layer: ly.startsWith('B') ? 'bottom' : 'top' });
+  }
+  const viasArr: { x: number; y: number; size: number }[] = [];
+  for (const v of findAll(pcb, 'via')) {
+    const at = find(v, 'at'), sz = find(v, 'size');
+    if (!at) continue;
+    viasArr.push({ x: num(at, 1), y: num(at, 2), size: sz ? num(sz, 1) : 0.6 });
+  }
+
   if (!comps.length) throw new Error('文件中没有可导入的器件');
 
   // ── 归一化：左上角 → (0,0)，无板框时按器件范围加边距 ──
@@ -150,8 +169,10 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const ox = (Number.isFinite(minX) ? minX : 0) - pad;
   const oy = (Number.isFinite(minY) ? minY : 0) - pad;
   for (const c of comps) { c.xMm -= ox; c.yMm -= oy; }
+  for (const t2 of tracks) { t2.x1 -= ox; t2.y1 -= oy; t2.x2 -= ox; t2.y2 -= oy; }
+  for (const v2 of viasArr) { v2.x -= ox; v2.y -= oy; }
   const widthMm = Math.max(20, Math.ceil((maxX - ox + pad)));
   const heightMm = Math.max(20, Math.ceil((maxY - oy + pad)));
 
-  return { nets, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs };
+  return { nets, tracks, vias: viasArr, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs };
 }

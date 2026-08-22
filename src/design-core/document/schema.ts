@@ -151,6 +151,8 @@ export const documentSchema = z.object({
   designIntent: z.object({ requirement: z.string(), rationale: z.string(), generatedAt: z.string() }).optional(),
   /** 导入工程的电气网络表（网络号 → 网络名），导出 PCB 时写回 */
   nets: z.record(z.string()).optional(),
+  tracks: z.array(z.object({ x1: z.number(), y1: z.number(), x2: z.number(), y2: z.number(), w: z.number(), layer: z.enum(['top', 'bottom']) })).optional(),
+  vias: z.array(z.object({ x: z.number(), y: z.number(), size: z.number() })).optional(),
   /** KiCad 工程导入的原理图原样视图（只读渲染：实例坐标/连线/结点/标签） */
   schematicSheet: z.object({
     instances: z.array(z.object({
@@ -164,6 +166,7 @@ export const documentSchema = z.object({
     noConnects: z.array(z.tuple([z.number(), z.number()])),
     /** libId → 符号定义原文（渲染用原始几何） */
     libSymbols: z.record(z.string()),
+    frame: z.object({ wMm: z.number(), hMm: z.number(), title: z.string().optional(), date: z.string().optional(), rev: z.string().optional(), company: z.string().optional(), comments: z.array(z.string()).optional() }).optional(),
   }).optional(),
   board: boardSchema,
   components: z.array(placedComponentSchema),

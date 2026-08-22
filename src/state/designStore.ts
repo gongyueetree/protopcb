@@ -195,7 +195,7 @@ export const useDesignStore = create<DesignState>()(
       set((s) => {
         const c = s.doc.components.find((x) => x.instanceId === instanceId);
         if (!c) return;
-        c.display = { ...(c.display ?? {}), zOffsetMm: Math.max(-2, Math.min(10, zMm)) };
+        c.display = { ...(c.display ?? {}), zOffsetMm: Math.max(-5, Math.min(30, zMm)) };
         s.doc = touchDocument(s.doc);
       }),
 
@@ -501,6 +501,8 @@ export const useDesignStore = create<DesignState>()(
           return placed;
         });
         s.doc.nets = Object.fromEntries(Object.entries(data.nets ?? {}).map(([k, v]) => [k, String(v)]));
+        s.doc.tracks = (data.tracks ?? []).slice(0, 4000);
+        s.doc.vias = (data.vias ?? []).slice(0, 1500);
         s.doc.board.widthMm = data.widthMm;
         s.doc.board.heightMm = data.heightMm;
         s.doc.board.shape = 'rect';

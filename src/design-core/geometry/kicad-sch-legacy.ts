@@ -27,7 +27,13 @@ export interface LegacySchComp {
   mirror?: 'x' | 'y';
 }
 
+export interface SheetInfo {
+  wMm: number; hMm: number;
+  title?: string; date?: string; rev?: string; company?: string; comments?: string[];
+}
+
 export interface LegacySchResult {
+  sheet?: SheetInfo;
   comps: LegacySchComp[];
   wires: [number, number][][];
   junctions: [number, number][];
@@ -58,12 +64,30 @@ export function parseLegacySch(text: string): LegacySchResult {
   const labels: { text: string; x: number; y: number; rot: number }[] = [];
   const noConnects: [number, number][] = [];
   const refToFootprint: Record<string, string> = {};
+  let sheet: SheetInfo | undefined;
 
   const lines = text.split(/\r?\n/);
   const mm = (mil: number) => +(mil * MIL_TO_MM).toFixed(3);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    // ── 图框与标题栏：$Descr A4 11693 8268 后跟 Title/Date/Rev/Comp/CommentN ──
+    if (line.startsWith('$Descr')) {
+      const md = line.match(/^\$Descr\s+\S+\s+(\d+)\s+(\d+)/);
+      sheet = { wMm: md ? mm(+md[1]) : 297, hMm: md ? mm(+md[2]) : 210, comments: [] };
+      for (i++; i < lines.length && !lines[i].startsWith('$EndDescr'); i++) {
+        const l = lines[i];
+        const tv = (k: string) => l.match(new RegExp(`^${k}\\s+"((?:[^"\\\\]|\\\\.)*)"`))?.[1];
+        const t2 = tv('Title'); if (t2) sheet.title = t2;
+        const d2 = tv('Date'); if (d2) sheet.date = d2;
+        const r2 = tv('Rev'); if (r2) sheet.rev = r2;
+        const c2 = tv('Comp'); if (c2) sheet.company = c2;
+        const cm = l.match(/^Comment\d+\s+"((?:[^"\\]|\\.)*)"/)?.[1];
+        if (cm) sheet.comments!.push(cm);
+      }
+      continue;
+    }
 
     // ── 器件实例 ──
     if (line.startsWith('$Comp')) {
@@ -137,7 +161,7 @@ export function parseLegacySch(text: string): LegacySchResult {
     }
   }
 
-  return { comps, wires, junctions, labels, noConnects, refToFootprint };
+  return { sheet, comps, wires, junctions, labels, noConnects, refToFootprint };
 }
 
 /** 是否为 KiCad 5 旧版原理图文本 */

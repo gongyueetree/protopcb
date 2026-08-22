@@ -288,6 +288,7 @@ export default function App() {
       labels: r.labels,
       noConnects: r.noConnects,
       libSymbols: {},   // 旧格式符号在 -cache.lib 内，非本视图必需
+      frame: r.sheet,
     });
     return { symbols: 0, linked: 0 };
   };
