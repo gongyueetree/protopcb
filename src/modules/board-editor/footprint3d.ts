@@ -212,7 +212,7 @@ export function buildComponent3D(comp: PlacedComponent): THREE.Group {
   if (stepUrl) {
     const real = stepModelFor(stepUrl);
     if (real) return real;
-    ensureStepModel(stepUrl);
+    ensureStepModel(stepUrl, comp.footprint.name);
   }
   const fp = comp.footprint.name;
   let group: THREE.Group;

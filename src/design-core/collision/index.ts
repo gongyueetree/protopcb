@@ -26,6 +26,8 @@ export function lshapeCut(board: BoardDefinition): { cutW: number; cutH: number 
 }
 
 export function mountingHoleCenters(board: BoardDefinition): { x: number; y: number }[] {
+  // 导入工程带来的真实孔位优先（此前一律按板四角推算，与原设计不符）
+  if (board.mountingHoles?.length) return board.mountingHoles.map((h) => ({ x: h.position.x, y: h.position.y }));
   if (!board.mountingHolesEnabled || board.shape === 'circle') return [];
   const m = HOLE_MARGIN_MM, W = board.widthMm, H = board.heightMm;
   if (board.shape === 'lshape') {
@@ -89,7 +91,11 @@ export function isPositionFree(
 /** 把器件中心点夹紧，使 courtyard 完整落在板框内。返回新的中心点。 */
 export function clampComponentToBoard(c: PlacedComponent, board: BoardDefinition): { x: number; y: number } {
   const r = componentRect(c);
-  const clamped = clampRectInside(r, boardRect(board), BOARD_MARGIN_MM);
+  // 连接器多为板边器件（USB/排针/天线座），常需贴边或外伸；沿用 2mm 内缩会导致"移动不到位"
+  const isEdgePart = c.category === 'connector'
+    || /CONN|USB|PINHEADER|PINSOCKET|RECEPTACLE|MMCX|SMA|TERMINAL|JACK|HEADER/i.test(c.footprint.name);
+  const margin = isEdgePart ? -Math.max(r.width, r.height) / 2 : BOARD_MARGIN_MM;
+  const clamped = clampRectInside(r, boardRect(board), margin);
   // clamped 是左上角，转回中心
   return { x: clamped.x + r.width / 2, y: clamped.y + r.height / 2 };
 }

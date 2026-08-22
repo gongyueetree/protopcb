@@ -290,7 +290,7 @@ export default function App() {
       if (g) registerSymbolOverride(`PRJSYM:${cp.ref}`, legacyToParsedSymbol(g));
     }
     setSchematicSheet({
-      instances: r.comps.map((c) => ({ ref: c.ref, libId: c.libId, value: c.value, x: c.x, y: c.y, rot: c.rot, mirror: c.mirror, unit: c.unit })),
+      instances: r.comps.map((c) => ({ ref: c.ref, libId: c.libId, value: c.value, x: c.x, y: c.y, rot: c.rot, mirror: c.mirror, unit: c.unit, mat: c.mat })),
       wires: r.wires,
       buses: r.buses,
       busEntries: r.busEntries,
@@ -327,6 +327,9 @@ export default function App() {
       labels: sch.labels,
       noConnects: sch.noConnects,
       libSymbols: sch.libSymbols,
+      buses: sch.buses,
+      busEntries: sch.busEntries,
+      frame: sch.frame,
     });
     return { symbols, linked };
   };

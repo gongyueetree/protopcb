@@ -77,14 +77,33 @@ export function ensureStepBytes(url: string | undefined) {
   }).catch(() => { /* 预取失败静默 */ });
 }
 
+/** 封装名 → 本体基色（STEP 未带有效原色时用，避免整板同一个深色） */
+export function bodyColorForFootprint(name = ''): number {
+  const K = name.toUpperCase();
+  if (/^C_\d{4}|CAPACITOR/.test(K)) return 0xc8a86a;      // MLCC 米色
+  if (/^R_\d{4}|RESISTOR/.test(K)) return 0x2b2b2b;       // 电阻 黑
+  if (/^LED_|LED/.test(K)) return 0xe8e8ea;                // LED 乳白
+  if (/^L_\d{4}|INDUCTOR|FERRITE|FB_/.test(K)) return 0x3a3a3f;
+  if (/^D_|DIODE|SOD-/.test(K)) return 0x1f1f24;
+  if (/PINHEADER|PINSOCKET|CONN|USB|MMCX|RECEPTACLE|TERMINAL/.test(K)) return 0x16171b;  // 连接器 纯黑塑料
+  if (/CRYSTAL|OSCILLATOR/.test(K)) return 0xb9bdc4;       // 晶振 金属
+  if (/QFN|DFN|SOIC|SOP|LQFP|TQFP|SOT|TSSOP|MSOP|DIP/.test(K)) return 0x25272c;  // IC 塑封
+  if (/FUSE/.test(K)) return 0x8a5a3c;
+  return 0x2a2d33;
+}
+
 export function stepModelFor(url: string | undefined): THREE.Group | undefined {
   if (!url) return undefined;
   const g = modelCache.get(url);
   return g ? (g.clone() as THREE.Group) : undefined;
 }
 
+/** url → 封装名，用于 STEP 无原色时按器件族着色 */
+const fpHints = new Map<string, string>();
+
 /** 按需拉取并转换 STEP（幂等）；完成后 bump 版本触发 3D 重建 */
-export function ensureStepModel(url: string | undefined) {
+export function ensureStepModel(url: string | undefined, footprintName?: string) {
+  if (footprintName) fpHints.set(url ?? '', footprintName);
   if (!url || modelCache.has(url) || inflight.has(url)) return;
   if (failed.has(url)) {
     if (!failExpired(url)) return;
@@ -137,6 +156,7 @@ export function ensureStepModel(url: string | undefined) {
         const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
         return { m, vol: Math.max(dx, 0.01) * Math.max(dy, 0.01) * Math.max(dz, 0.01), dz, maxZ, minZ };
       });
+      const fpHint = fpHints.get(url) ?? '';
       const maxVol = Math.max(...meshInfos.map((i) => i.vol), 0.001);
       const topZ = Math.max(...meshInfos.map((i) => i.maxZ));
       const botZ = Math.min(...meshInfos.map((i) => i.minZ));
@@ -169,7 +189,8 @@ export function ensureStepModel(url: string | undefined) {
         } else if (isLead) {
           mat = new THREE.MeshStandardMaterial({ color: 0xe6c66a, metalness: 0.95, roughness: 0.22, envMapIntensity: 1.6 }); // 金脚
         } else {
-          mat = new THREE.MeshStandardMaterial({ color: 0x22252b, metalness: 0.12, roughness: 0.6, envMapIntensity: 1.0 }); // 深色塑封（与参数化一致）
+          // 本体：按封装族取基色（否则所有 STEP 器件都是同一个深色）
+          mat = new THREE.MeshStandardMaterial({ color: bodyColorForFootprint(fpHint), metalness: 0.12, roughness: 0.6, envMapIntensity: 1.0 });
         }
         group.add(new THREE.Mesh(geo, mat));
       }

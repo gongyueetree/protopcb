@@ -13,7 +13,16 @@ const PXMM = 6; // px per mm
 
 type Pt = { x: number; y: number };
 
-function makeXform(inst: { x: number; y: number; rot: number; mirror?: string }) {
+function makeXform(inst: { x: number; y: number; rot: number; mirror?: string; mat?: [number, number, number, number] }) {
+  // KiCad5 原始矩阵优先：x' = a·x + b·y, y' = c·x + d·y（默认 [1,0,0,-1] 即 Y-up→Y-down）。
+  // 拆成 rot+mirror 再重组时，两者施加顺序不同会让电源符号等出现 180° 偏差。
+  if (inst.mat) {
+    const [a, b, c2, d] = inst.mat;
+    return (px: number, py: number): Pt => ({
+      x: (inst.x + (a * px + b * py)) * PXMM,
+      y: (inst.y + (c2 * px + d * py)) * PXMM,
+    });
+  }
   const rad = (inst.rot * Math.PI) / 180;
   const cos = Math.cos(rad), sin = Math.sin(rad);
   return (px: number, py: number): Pt => {

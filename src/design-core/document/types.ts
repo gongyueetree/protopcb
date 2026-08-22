@@ -178,7 +178,7 @@ export interface CircuitCanvasDocument {
   nets?: Record<string, string>;
   /** KiCad 工程导入的原理图原样视图（只读） */
   schematicSheet?: {
-    instances: { ref: string; libId: string; value?: string; x: number; y: number; rot: number; mirror?: string; unit?: number }[];
+    instances: { ref: string; libId: string; value?: string; x: number; y: number; rot: number; mirror?: string; unit?: number; mat?: [number, number, number, number] }[];
     wires: [number, number][][];
     buses?: [number, number][][];
     busEntries?: [number, number][][];

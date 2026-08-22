@@ -46,6 +46,8 @@ export interface KicadImportResult {
   heightMm: number;
   comps: KicadImportedComp[];
   hasMountingHoles: boolean;
+  /** 真实定位孔（板坐标，已归一化） */
+  mountingHoles: { x: number; y: number; d: number }[];
   skipped: string[];
   /** PCB 文件内嵌的完整封装定义（KiCad 文件自包含）：注册为覆盖后所有导入器件焊盘精确 */
   footprintDefs: Record<string, PadFootprint>;
@@ -108,10 +110,24 @@ export function parseKicadPcb(text: string): KicadImportResult {
     if (Number.isFinite(id)) nets[id] = String(n[2] ?? '').replace(/^"|"$/g, '');
   }
   let hasMountingHoles = false;
+  const mountingHoles: { x: number; y: number; d: number }[] = [];
   for (const fp of fps) {
     const lib = String(fp[1] ?? '');
     const fpName = lib.includes(':') ? lib.split(':').pop()! : lib;
-    if (/mountinghole/i.test(fpName)) { hasMountingHoles = true; continue; }
+    if (/mountinghole|^hole[_-]|_hole_/i.test(fpName)) {
+      hasMountingHoles = true;
+      const at2 = find(fp, 'at');
+      if (at2) {
+        // 孔径取该封装内最大钻孔
+        let d = 3;
+        for (const pd of findAll(fp, 'pad')) {
+          const dr = find(pd, 'drill');
+          if (dr) d = Math.max(d, num(dr, 1) || 3);
+        }
+        mountingHoles.push({ x: num(at2, 1), y: num(at2, 2), d });
+      }
+      continue;
+    }
     // 提取内嵌焊盘定义（首次出现为准；同名封装在 KiCad 内定义一致）
     if (!footprintDefs[fpName]) {
       const def = parseFootprintNode(fp);
@@ -171,8 +187,9 @@ export function parseKicadPcb(text: string): KicadImportResult {
   for (const c of comps) { c.xMm -= ox; c.yMm -= oy; }
   for (const t2 of tracks) { t2.x1 -= ox; t2.y1 -= oy; t2.x2 -= ox; t2.y2 -= oy; }
   for (const v2 of viasArr) { v2.x -= ox; v2.y -= oy; }
+  for (const h2 of mountingHoles) { h2.x -= ox; h2.y -= oy; }
   const widthMm = Math.max(20, Math.ceil((maxX - ox + pad)));
   const heightMm = Math.max(20, Math.ceil((maxY - oy + pad)));
 
-  return { nets, tracks, vias: viasArr, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs };
+  return { nets, tracks, vias: viasArr, mountingHoles, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs };
 }

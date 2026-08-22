@@ -513,6 +513,8 @@ export const useDesignStore = create<DesignState>()(
         s.doc.board.heightMm = data.heightMm;
         s.doc.board.shape = 'rect';
         s.doc.board.mountingHolesEnabled = data.hasMountingHoles;
+        // 真实定位孔坐标（此前一律按板四角推算，与原设计不符）
+        s.doc.board.mountingHoles = (data.mountingHoles ?? []).map((h) => ({ position: { x: h.x, y: h.y }, diameterMm: h.d }));
         s.selectedId = null;
         s.multiSel = [];
         s.doc = touchDocument(refreshDerived(s.doc));

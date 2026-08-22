@@ -9,7 +9,7 @@
  * 用平衡括号文本扫描而非全量 S 表达式解析：sch 文件可达数 MB，只取所需区块更稳更快。
  */
 
-export interface SchInstance { ref: string; libId: string; x: number; y: number; rot: number; mirror?: string; unit?: number }
+export interface SchInstance { ref: string; libId: string; value?: string; x: number; y: number; rot: number; mirror?: string; unit?: number }
 
 export interface KicadSchResult {
   /** libId → 符号定义块原文（顶层 (symbol "Lib:Name" …)） */
@@ -20,6 +20,11 @@ export interface KicadSchResult {
   instances: SchInstance[];
   /** 连线段（mm 坐标折线） */
   wires: [number, number][][];
+  /** 总线与总线入口 */
+  buses: [number, number][][];
+  busEntries: [number, number][][];
+  /** 图纸尺寸与标题栏 */
+  frame?: { wMm: number; hMm: number; title?: string; date?: string; rev?: string; company?: string; comments?: string[] };
   junctions: [number, number][];
   labels: { text: string; x: number; y: number; rot: number }[];
   noConnects: [number, number][];
@@ -40,6 +45,8 @@ export function parseKicadSch(text: string): KicadSchResult {
   const refToLibId: Record<string, string> = {};
   const instances: SchInstance[] = [];
   const wires: [number, number][][] = [];
+  const buses: [number, number][][] = [];
+  const busEntries: [number, number][][] = [];
   const junctions: [number, number][] = [];
   const labels: { text: string; x: number; y: number; rot: number }[] = [];
   const noConnects: [number, number][] = [];
@@ -81,7 +88,8 @@ export function parseKicadSch(text: string): KicadSchResult {
       const mirror = block.match(/\(mirror\s+([xy])\)/)?.[1];
       const unit = block.match(/\(unit\s+(\d+)\)/)?.[1];
       if (at) {
-        instances.push({ ref, libId: lid, x: parseFloat(at[1]), y: parseFloat(at[2]), rot: at[3] ? parseFloat(at[3]) : 0, mirror, unit: unit ? parseInt(unit, 10) : undefined });
+        const value = block.match(/\(property\s+"Value"\s+"((?:[^"\\]|\\.)*)"/)?.[1];
+        instances.push({ ref, libId: lid, value, x: parseFloat(at[1]), y: parseFloat(at[2]), rot: at[3] ? parseFloat(at[3]) : 0, mirror, unit: unit ? parseInt(unit, 10) : undefined });
       }
       if (!ref.startsWith('#') && !lid.startsWith('power:')) refToLibId[ref] = lid;
     }
@@ -93,13 +101,47 @@ export function parseKicadSch(text: string): KicadSchResult {
     const pts = [...m[1].matchAll(/\(xy\s+([-\d.]+)\s+([-\d.]+)\)/g)].map((q) => [parseFloat(q[1]), parseFloat(q[2])] as [number, number]);
     if (pts.length >= 2) wires.push(pts);
   }
+  // 总线（bus）与总线入口（bus_entry）：KiCad 6+ 与 wire 同构
+  for (const m of text.matchAll(/\(bus\s*\(pts\s*((?:\(xy\s+[-\d.]+\s+[-\d.]+\)\s*)+)\)/g)) {
+    const pts = [...m[1].matchAll(/\(xy\s+([-\d.]+)\s+([-\d.]+)\)/g)].map((q) => [parseFloat(q[1]), parseFloat(q[2])] as [number, number]);
+    if (pts.length >= 2) buses.push(pts);
+  }
+  for (const m of text.matchAll(/\(bus_entry\s*\(at\s+([-\d.]+)\s+([-\d.]+)\)\s*\(size\s+([-\d.]+)\s+([-\d.]+)\)/g)) {
+    const x = parseFloat(m[1]), y = parseFloat(m[2]);
+    busEntries.push([[x, y], [x + parseFloat(m[3]), y + parseFloat(m[4])]]);
+  }
   for (const m of text.matchAll(/\(junction\s*\(at\s+([-\d.]+)\s+([-\d.]+)\)/g)) junctions.push([parseFloat(m[1]), parseFloat(m[2])]);
   for (const m of text.matchAll(/\((?:global_)?label\s+"((?:[^"\\]|\\.)*)"\s*(?:\(shape[^)]*\)\s*)?\(at\s+([-\d.]+)\s+([-\d.]+)(?:\s+([-\d.]+))?\)/g)) {
     labels.push({ text: m[1], x: parseFloat(m[2]), y: parseFloat(m[3]), rot: m[4] ? parseFloat(m[4]) : 0 });
   }
   for (const m of text.matchAll(/\(no_connect\s*\(at\s+([-\d.]+)\s+([-\d.]+)\)/g)) noConnects.push([parseFloat(m[1]), parseFloat(m[2])]);
 
-  return { libSymbols, refToLibId, instances, wires, junctions, labels, noConnects };
+  // ── 图纸尺寸与标题栏 ──
+  const PAPER: Record<string, [number, number]> = {
+    A5: [210, 148], A4: [297, 210], A3: [420, 297], A2: [594, 420], A1: [841, 594], A0: [1189, 841],
+    A: [279.4, 215.9], B: [431.8, 279.4], C: [558.8, 431.8], D: [863.6, 558.8], E: [1117.6, 863.6],
+  };
+  const paperM = text.match(/\(paper\s+"([^"]+)"(?:\s+([-\d.]+)\s+([-\d.]+))?/);
+  let frame: KicadSchResult['frame'];
+  if (paperM) {
+    const named = PAPER[paperM[1].toUpperCase()];
+    const wMm = paperM[2] ? parseFloat(paperM[2]) : (named?.[0] ?? 297);
+    const hMm = paperM[3] ? parseFloat(paperM[3]) : (named?.[1] ?? 210);
+    const portrait = /portrait/i.test(paperM[0]);
+    frame = { wMm: portrait ? Math.min(wMm, hMm) : wMm, hMm: portrait ? Math.max(wMm, hMm) : hMm, comments: [] };
+    const tb = text.match(/\(title_block([\s\S]*?)\n\s*\)/);
+    if (tb) {
+      frame.title = tb[1].match(/\(title\s+"((?:[^"\\]|\\.)*)"/)?.[1];
+      frame.date = tb[1].match(/\(date\s+"((?:[^"\\]|\\.)*)"/)?.[1];
+      frame.rev = tb[1].match(/\(rev\s+"((?:[^"\\]|\\.)*)"/)?.[1];
+      frame.company = tb[1].match(/\(company\s+"((?:[^"\\]|\\.)*)"/)?.[1];
+      for (const cm of tb[1].matchAll(/\(comment\s+\d+\s+"((?:[^"\\]|\\.)*)"/g)) {
+        if (cm[1]) frame.comments!.push(cm[1]);
+      }
+    }
+  }
+
+  return { libSymbols, refToLibId, instances, wires, buses, busEntries, frame, junctions, labels, noConnects };
 }
 
 /** 符号定义块 → 原始 mm 几何（原点保持，供原理图原样渲染做实例变换） */

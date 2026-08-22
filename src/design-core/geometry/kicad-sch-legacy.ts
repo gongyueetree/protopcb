@@ -25,6 +25,8 @@ export interface LegacySchComp {
   /** 方向矩阵（KiCad 5 用 2x2 矩阵表示旋转/镜像）→ 归一化角度 */
   rot: number;
   mirror?: 'x' | 'y';
+  /** KiCad5 原始 2x2 方向矩阵：渲染时直接用，避免拆成 rot+mirror 后顺序不同导致 180° 偏差 */
+  mat?: [number, number, number, number];
 }
 
 export interface SheetInfo {
@@ -99,6 +101,7 @@ export function parseLegacySch(text: string): LegacySchResult {
       let ref = '', value = '', libId = '', footprint = '';
       let x = 0, y = 0, unit = 1, rot = 0;
       let mirror: 'x' | 'y' | undefined;
+      let mat: [number, number, number, number] | undefined;
       for (i++; i < lines.length && !lines[i].startsWith('$EndComp'); i++) {
         const l = lines[i];
         // L 库:符号名 位号
@@ -123,14 +126,17 @@ export function parseLegacySch(text: string): LegacySchResult {
         // 方向矩阵行：以 tab 开头的四个整数
         const mM = l.match(/^\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s*$/);
         if (mM) {
-          const t = matrixToTransform(+mM[1], +mM[2], +mM[3], +mM[4]);
+          mat = [+mM[1], +mM[2], +mM[3], +mM[4]];
+          const t = matrixToTransform(mat[0], mat[1], mat[2], mat[3]);
           rot = t.rot; mirror = t.mirror;
           continue;
         }
       }
-      if (ref && !ref.startsWith('#')) {
-        comps.push({ ref, value, libId, footprint: footprint || undefined, x, y, unit, rot, mirror });
-        if (footprint) refToFootprint[ref] = footprint;
+      if (ref) {
+        // 电源/接地符号（#PWR…）也要渲染——它们是原理图的一部分；
+        // 只是不进 BOM，故不写入 refToFootprint。
+        comps.push({ ref, value, libId, footprint: footprint || undefined, x, y, unit, rot, mirror, mat });
+        if (footprint && !ref.startsWith('#')) refToFootprint[ref] = footprint;
       }
       continue;
     }

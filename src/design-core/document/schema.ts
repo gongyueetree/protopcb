@@ -159,6 +159,7 @@ export const documentSchema = z.object({
       ref: z.string(), libId: z.string(), value: z.string().optional(),
       x: z.number(), y: z.number(), rot: z.number(),
       mirror: z.string().optional(), unit: z.number().optional(),
+      mat: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional(),
     })),
     wires: z.array(z.array(z.tuple([z.number(), z.number()]))),
     buses: z.array(z.array(z.tuple([z.number(), z.number()]))).optional(),
