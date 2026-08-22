@@ -104,3 +104,51 @@ export function parseLegacyLib(text: string): Record<string, LegacySymGeom> {
 export function isLegacyLib(text: string): boolean {
   return /^EESchema-LIBRARY/m.test(text.slice(0, 300));
 }
+
+/**
+ * 旧库几何 → ParsedSymbol（详情面板/原理图渲染用的统一结构）。
+ * 坐标以符号中心为原点，转成左上原点的正数坐标系并留出管脚名空间。
+ */
+export function legacyToParsedSymbol(g: LegacySymGeom): {
+  w: number; h: number;
+  rects: { x: number; y: number; w: number; h: number }[];
+  polys: string[];
+  circles: { x: number; y: number; r: number }[];
+  pins: { tipX: number; tipY: number; endX: number; endY: number; name: string; number: string; nameX: number; nameY: number; numX: number; numY: number }[];
+} {
+  const xs: number[] = [], ys: number[] = [];
+  const eat = (x: number, y: number) => { xs.push(x); ys.push(y); };
+  g.rects.forEach((r) => { eat(r.x1, r.y1); eat(r.x2, r.y2); });
+  g.polys.forEach((pl) => pl.forEach((p) => eat(p.x, p.y)));
+  g.circles.forEach((c) => { eat(c.cx - c.r, c.cy - c.r); eat(c.cx + c.r, c.cy + c.r); });
+  g.pins.forEach((p) => { eat(p.x, p.y); eat(p.ex, p.ey); });
+  if (!xs.length) { xs.push(0, 10); ys.push(0, 10); }
+
+  const pad = 6;   // 给管脚名/脚号留白
+  const minX = Math.min(...xs), minY = Math.min(...ys);
+  const TX = (x: number) => (x - minX) + pad;
+  const TY = (y: number) => (y - minY) + pad;
+  const w = (Math.max(...xs) - minX) + pad * 2;
+  const h = (Math.max(...ys) - minY) + pad * 2;
+
+  return {
+    w, h,
+    rects: g.rects.map((r) => ({
+      x: TX(Math.min(r.x1, r.x2)), y: TY(Math.min(r.y1, r.y2)),
+      w: Math.abs(r.x2 - r.x1), h: Math.abs(r.y2 - r.y1),
+    })),
+    polys: g.polys.map((pl) => pl.map((p, i) => `${i ? 'L' : 'M'}${TX(p.x).toFixed(2)},${TY(p.y).toFixed(2)}`).join(' ')),
+    circles: g.circles.map((c) => ({ x: TX(c.cx), y: TY(c.cy), r: c.r })),
+    pins: g.pins.map((p) => {
+      const tipX = TX(p.x), tipY = TY(p.y), endX = TX(p.ex), endY = TY(p.ey);
+      const vertical = Math.abs(endX - tipX) < 0.3;
+      return {
+        tipX, tipY, endX, endY, name: p.name, number: p.number,
+        // 管脚名放本体一侧、沿管脚方向内移；竖直管脚放端点上/下方避免压轮廓
+        nameX: vertical ? endX + 1.2 : endX + (endX >= tipX ? -2 : 2),
+        nameY: vertical ? endY + (endY >= tipY ? -2.5 : 3.5) : endY + 1,
+        numX: (tipX + endX) / 2, numY: (tipY + endY) / 2 - 1,
+      };
+    }),
+  };
+}

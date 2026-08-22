@@ -20,6 +20,8 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   const [dkPrices, setDkPrices] = useState<Record<string, DigikeyOffer>>({});
   /** DigiKey 无结果时的其他渠道报价（Mouser/Arrow/element14） */
   const [netPrices, setNetPrices] = useState<Record<string, { vendor: string; price: number; currency?: string; stock?: number }>>({});
+  /** 已查询完成的型号（无论有无结果）—— 用于把"查询中…"落定为"无报价" */
+  const [queried, setQueried] = useState<Record<string, true>>({});
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -32,12 +34,13 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
         if (dkPrices[l.mpn] || netPrices[l.mpn]) continue;
         const o = await fetchDigikeyOffer(l.mpn);
         if (!alive) return;
-        if (o?.found && o.unitPrice != null) { setDkPrices((prev) => ({ ...prev, [l.mpn]: o })); continue; }
+        if (o?.found && o.unitPrice != null) { setDkPrices((prev) => ({ ...prev, [l.mpn]: o })); setQueried((prev) => ({ ...prev, [l.mpn]: true })); continue; }
         // DigiKey 未收录 → 回落其他供应商 API，真正落实"网络估价"
         const offers = await fetchSupplierOffers(l.mpn);
         if (!alive) return;
         const best = offers.filter((x) => x.found && x.price != null).sort((a, b) => (a.price ?? 0) - (b.price ?? 0))[0];
         if (best) setNetPrices((prev) => ({ ...prev, [l.mpn]: { vendor: best.vendor, price: best.price!, currency: best.currency, stock: best.stock } }));
+        setQueried((prev) => ({ ...prev, [l.mpn]: true }));
       }
     })();
     return () => { alive = false; };
@@ -112,6 +115,8 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
                       const why = whyNotPriceable(l.mpn, l.reference, l.footprint);
                       return why
                         ? <span style={{ fontSize: 9.5, color: '#94a3b8' }} title={CLASS_LABEL[classifyByRefDes(l.reference, l.footprint, l.mpn)]}>{tr(why)}</span>
+                        : queried[l.mpn]
+                        ? <span style={{ fontSize: 9.5, color: '#94a3b8' }} title={tr('各分销商均无该型号的精确匹配')}>{tr('无报价')}</span>
                         : <span style={{ fontSize: 10, color: '#cbd5e1' }}>{tr('查询中…')}</span>;
                     })()}
                 </td>

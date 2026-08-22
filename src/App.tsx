@@ -24,7 +24,7 @@ import { loadCustomParts, deleteCustomPart, customPartToResult, bootCustomLib, t
 import { parseKicadPcb } from './design-core/geometry/kicad-pcb-import';
 import { parseKicadSch } from './design-core/geometry/kicad-sch-import';
 import { parseLegacySch, isLegacySch } from './design-core/geometry/kicad-sch-legacy';
-import { parseLegacyLib } from './design-core/geometry/kicad-lib-legacy';
+import { parseLegacyLib, legacyToParsedSymbol } from './design-core/geometry/kicad-lib-legacy';
 import { parseKicadMod } from './design-core/geometry/kicad-file-parser';
 import { recommendSubCircuit, type SubCircuitItem } from './modules/component-search/sub-circuit';
 import { autoKicadFootprint } from './design-core/geometry/auto-kicad-footprint';
@@ -284,6 +284,11 @@ export default function App() {
     const r = parseLegacySch(text);
     // 旧工程的符号图形在 -cache.lib 中；不解析它原理图就只有连线没有器件
     const legacySymbols = libText ? parseLegacyLib(libText) : {};
+    // 工程自带符号按位号注册：库中找不到型号符号时，右侧详情回落显示"工程原图里的那个符号"
+    for (const cp of r.comps) {
+      const g = legacySymbols[cp.libId.replace(':', '_')] ?? legacySymbols[cp.libId];
+      if (g) registerSymbolOverride(`PRJSYM:${cp.ref}`, legacyToParsedSymbol(g));
+    }
     setSchematicSheet({
       instances: r.comps.map((c) => ({ ref: c.ref, libId: c.libId, value: c.value, x: c.x, y: c.y, rot: c.rot, mirror: c.mirror, unit: c.unit })),
       wires: r.wires,

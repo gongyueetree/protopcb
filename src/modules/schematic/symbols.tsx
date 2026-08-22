@@ -230,10 +230,15 @@ export function symbolFor(c: PlacedComponent): SymbolDef {
   ensureKicadSymbol(symKey); // KICADSYM: 前缀且内存缺失时自动重拉（刷新/导入后自愈）
   // 封装占位器件：没有真实管脚定义，画电阻/IC 都是误导 —— 显式空态，引导去关联
   if (c.display?.family === 'Footprint' && !c.customSymbolSvg && !symbolOverrideFor(symKey)) {
+    const prj = symbolOverrideFor(`PRJSYM:${c.reference}`);
+    if (prj) return parsedSymbol(prj);   // 导入工程有原始符号就用它，别显示空态
     return unlinkedSymbol();
   }
   const parsed = symbolOverrideFor(symKey);
   if (parsed) return parsedSymbol(parsed);
+  // 库中无对应符号 → 用导入工程原理图里的该位号符号（与原工程完全一致）
+  const fromProject = symbolOverrideFor(`PRJSYM:${c.reference}`);
+  if (fromProject) return parsedSymbol(fromProject);
   // ezPLM 实时物料：族/引脚名未知，按真实引脚数生成编号符号（不套内置模板）
   if (c.componentId.startsWith('ez_') && c.category !== 'passive') {
     const pinCount = c.display?.pins ?? padFootprintForSym(c.footprint.name)?.pads.length ?? 6;

@@ -52,14 +52,14 @@ function makeChip(bodyW: number, bodyH: number, bodyT: number, opts: { gull?: bo
 }
 
 /** 片式元件（电容/电阻/电感） */
-function makeChipComponent(w: number, h: number, t: number, mat: THREE.Material): THREE.Group {
+function makeChipComponent(w: number, h: number, t: number, mat: THREE.Material, capMat: THREE.Material = MAT.tin): THREE.Group {
   const g = new THREE.Group();
   const body = new THREE.Mesh(new THREE.BoxGeometry(w, t, h), mat);
   body.position.y = t / 2 + 0.02;
   g.add(body);
   // 两端电极
   for (const sx of [-1, 1]) {
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(w * 0.18, t * 1.05, h * 1.02), MAT.tin);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(w * 0.18, t * 1.05, h * 1.02), capMat);
     cap.position.set(sx * (w / 2 - w * 0.09), t / 2 + 0.02, 0);
     g.add(cap);
   }
@@ -174,10 +174,12 @@ function makeFromPads(fp: import('../../design-core/geometry/footprint-pads').Pa
       ball.position.set(p.x, p.w / 2 * 0.7, p.y);
       g.add(ball);
     } else if (p.round) {
-      // 通孔引脚
-      const pinH = Math.max(4, bodyT + 1.5);
-      const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, pinH, 10), MAT.gold);
-      pin.position.set(p.x, pinH / 2, p.y);
+      // 通孔引脚：向上穿过本体、向下穿出板底（板厚 1.6mm），背面能看到管脚
+      const above = Math.max(2.5, bodyT + 0.8);
+      const below = 2.4;
+      const pinH = above + below;
+      const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.28, pinH, 10), MAT.gold);
+      pin.position.set(p.x, above - pinH / 2, p.y);
       g.add(pin);
     } else {
       // SMD 引脚片：按焊盘尺寸/位置
@@ -214,6 +216,38 @@ export function buildComponent3D(comp: PlacedComponent): THREE.Group {
   }
   const fp = comp.footprint.name;
   let group: THREE.Group;
+
+  // 导入的 KiCad 封装名：按器件族给形状与配色，避免整板一个颜色
+  const K = fp.toUpperCase();
+  const chipSize = (): [number, number, number] | null => {
+    const m = K.match(/_(\d{4})_/);
+    const map: Record<string, [number, number, number]> = {
+      '0201': [0.6, 0.3, 0.3], '0402': [1.0, 0.5, 0.5], '0603': [1.6, 0.8, 0.8],
+      '0805': [2.0, 1.25, 1.1], '1206': [3.2, 1.6, 1.1], '1210': [3.2, 2.5, 1.3],
+    };
+    return m && map[m[1]] ? map[m[1]] : null;
+  };
+  const cs = chipSize();
+  if (cs) {
+    if (/^R_/.test(K)) return makeChipComponent(cs[0], cs[1], cs[2], MAT.blackBody, MAT.tin);   // 电阻：黑体银端
+    if (/^C_/.test(K)) return makeChipComponent(cs[0], cs[1], cs[2], MAT.capBeige, MAT.tin);    // MLCC：米色
+    if (/^L_|^FB_/.test(K)) return makeChipComponent(cs[0], cs[1], cs[2], MAT.darkBody, MAT.tin); // 电感/磁珠
+    if (/^LED_/.test(K)) return makeChipComponent(cs[0], cs[1], cs[2], MAT.white, MAT.tin);      // LED：白色透亮
+    if (/^D_/.test(K)) return makeChipComponent(cs[0], cs[1], cs[2], MAT.darkBody, MAT.tin);
+    if (/^FUSE_/.test(K)) return makeChipComponent(cs[0], cs[1], cs[2], MAT.capBrown, MAT.tin);
+  }
+  // 2.54mm 排针/排母：按名字里的 1xNN / 2xNN 建真实排数（原来固定 2x5，与实际不符）
+  const hdr = K.match(/PINHEADER_(\d)X(\d{1,2})|PINSOCKET_(\d)X(\d{1,2})/);
+  if (hdr) {
+    const rows = Number(hdr[1] ?? hdr[3] ?? 1);
+    const cols = Number(hdr[2] ?? hdr[4] ?? 2);
+    return makeHeader(cols, rows);
+  }
+  if (/^USB_C_/.test(K)) return makeUsbC();
+  if (/CRYSTAL|OSCILLATOR/.test(K)) {
+    const pf = padFootprintFor(comp.footprint.name);
+    return makeCan(pf ? Math.max(pf.bodyW, pf.bodyH) : 3.2, 1.0);
+  }
 
   switch (fp) {
     case '0402': group = makeChipComponent(1.0, 0.5, 0.5, comp.display?.family === 'MLCC' ? MAT.capBeige : MAT.darkBody); break;

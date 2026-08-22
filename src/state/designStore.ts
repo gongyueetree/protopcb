@@ -41,6 +41,8 @@ interface DesignState {
   moveComponent: (instanceId: string, xMm: number, yMm: number) => void;
   /** 3D 高度偏移（mm） */
   setZOffset: (instanceId: string, zMm: number) => void;
+  /** 拖动/连续操作开始前存快照（供撤回回到操作前的位置） */
+  beginInteraction: () => void;
   /** 子电路一键上画布：辅件锚定核心器件、按管脚顺序围核心排布（不重叠，间距≥3mm） */
   placeSubCircuit: (coreInstanceId: string, items: { role: string; value: string; mpn?: string; category: ComponentCategory; footprint: string; connectsTo: string; qty: number }[]) => number;
   rotateComponent: (instanceId: string) => void;
@@ -190,6 +192,8 @@ export const useDesignStore = create<DesignState>()(
       });
       return placedCount;
     },
+
+    beginInteraction: () => set((s) => { snapshot(s); }),
 
     setZOffset: (instanceId, zMm) =>
       set((s) => {

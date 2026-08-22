@@ -18,6 +18,14 @@ import type { CircuitCanvasDocument } from '../../design-core/document/types';
 export function BoardView3D() {
   const doc = useDesignStore((s) => s.doc);
   const [bannerHidden, setBannerHidden] = useState(false);
+  // 加载结束后自动隐去提示（404 兜底属正常情况，不该常驻占屏）
+  const stepTick = useLibFileStore((s2) => s2.version);
+  useEffect(() => {
+    const st2 = stepStats();
+    if (st2.loading) { setBannerHidden(false); return; }
+    const t = setTimeout(() => setBannerHidden(true), 6000);
+    return () => clearTimeout(t);
+  }, [stepTick, doc.components.length]);
   const selectedId = useDesignStore((s) => s.selectedId);
   const moveComponent = useDesignStore((s) => s.moveComponent);
   const rotateComponent = useDesignStore((s) => s.rotateComponent);

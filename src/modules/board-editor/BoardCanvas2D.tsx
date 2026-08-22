@@ -29,6 +29,7 @@ export function BoardCanvas2D() {
   const select = useDesignStore((s) => s.select);
   const toggleMulti = useDesignStore((s) => s.toggleMulti);
   const move = useDesignStore((s) => s.moveComponent);
+  const beginInteraction = useDesignStore((s) => s.beginInteraction);
   const moveRefDes = useDesignStore((s) => s.moveRefDes);
 
   const [zoom, setZoomRaw] = useState(viewMemory.zoom);
@@ -116,6 +117,7 @@ export function BoardCanvas2D() {
   const onCompDown = useCallback((e: React.MouseEvent, c: PlacedComponent) => {
     e.stopPropagation();
     if (e.ctrlKey || e.metaKey || e.shiftKey) { toggleMulti(c.instanceId); return; }
+    beginInteraction();   // 整段拖动只存一次快照 → Ctrl+Z 一次即回到拖动前
     const { multiSel: sel, doc: d } = useDesignStore.getState();
     if (sel.includes(c.instanceId) && sel.length > 1) {
       // 拖动多选组：整组移动
@@ -128,12 +130,13 @@ export function BoardCanvas2D() {
     }
     select(c.instanceId);
     dragRef.current = { active: true, id: c.instanceId, sx: e.clientX, sy: e.clientY, startX: c.placement.xMm, startY: c.placement.yMm, mode: 'comp' };
-  }, [select, toggleMulti]);
+  }, [select, toggleMulti, beginInteraction]);
     const [refHot, setRefHot] = useState(false);
 
   const onRefDesDown = useCallback((e: React.MouseEvent, c: PlacedComponent) => {
     e.stopPropagation();
     const cur = c.refDesDisplay ?? { dx: 0, dy: 0, rotation: 0, hidden: false };
+    beginInteraction();
     dragRef.current = { active: true, id: c.instanceId, sx: e.clientX, sy: e.clientY, startX: cur.dx, startY: cur.dy, mode: 'refdes' };
   }, []);
 
