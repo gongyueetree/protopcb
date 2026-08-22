@@ -24,6 +24,7 @@ import { loadCustomParts, deleteCustomPart, customPartToResult, bootCustomLib, t
 import { parseKicadPcb } from './design-core/geometry/kicad-pcb-import';
 import { parseKicadSch } from './design-core/geometry/kicad-sch-import';
 import { parseLegacySch, isLegacySch } from './design-core/geometry/kicad-sch-legacy';
+import { parseLegacyLib } from './design-core/geometry/kicad-lib-legacy';
 import { parseKicadMod } from './design-core/geometry/kicad-file-parser';
 import { recommendSubCircuit, type SubCircuitItem } from './modules/component-search/sub-circuit';
 import { autoKicadFootprint } from './design-core/geometry/auto-kicad-footprint';
@@ -279,8 +280,10 @@ export default function App() {
   };
 
   /** KiCad 5 旧版 .sch：无内嵌符号定义，仅提取实例/连线/标签用于原样视图 */
-  const applyLegacySch = (text: string): { symbols: number; linked: number } => {
+  const applyLegacySch = (text: string, libText?: string): { symbols: number; linked: number } => {
     const r = parseLegacySch(text);
+    // 旧工程的符号图形在 -cache.lib 中；不解析它原理图就只有连线没有器件
+    const legacySymbols = libText ? parseLegacyLib(libText) : {};
     setSchematicSheet({
       instances: r.comps.map((c) => ({ ref: c.ref, libId: c.libId, value: c.value, x: c.x, y: c.y, rot: c.rot, mirror: c.mirror, unit: c.unit })),
       wires: r.wires,
@@ -289,10 +292,11 @@ export default function App() {
       junctions: r.junctions,
       labels: r.labels,
       noConnects: r.noConnects,
-      libSymbols: {},   // 旧格式符号在 -cache.lib 内，非本视图必需
+      libSymbols: {},
+      legacySymbols,
       frame: r.sheet,
     });
-    return { symbols: 0, linked: 0 };
+    return { symbols: Object.keys(legacySymbols).length, linked: 0 };
   };
 
   /** 从 .kicad_sch 文本提取内嵌符号并按位号挂到已导入器件（原理图区随即显示真符号） */
@@ -347,7 +351,10 @@ export default function App() {
             .map((n) => ({ n, txt: strFromU8(entries[n]) }))
             .filter((x) => isLegacySch(x.txt))
             .sort((a, b) => (b.txt.match(/^\$Comp/gm)?.length ?? 0) - (a.txt.match(/^\$Comp/gm)?.length ?? 0))[0];
-          if (best) applyLegacySch(best.txt);
+          if (best) {
+            const libName = names.find((n) => /-cache\.lib$/i.test(n)) ?? names.find((n) => /\.lib$/i.test(n));
+            applyLegacySch(best.txt, libName ? strFromU8(entries[libName]) : undefined);
+          }
         }
         alert(`${t('工程导入完成')}：PCB ${r.comps} ${t('个器件')}${r.skipped ? `（${r.skipped} ${t('个跳过')}）` : ''}${schNames.length ? ` · ${t('原理图')} ${schNames.length} ${t('张')}，${symTotal} ${t('个符号')}，${linkTotal} ${t('个器件已挂真符号')}` : ` · ${t('包内无原理图，符号用名字解析')}`}`);
       } else if (/\.kicad_pcb$/i.test(f.name)) {

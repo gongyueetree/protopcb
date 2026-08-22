@@ -12,7 +12,7 @@ import type { ComponentSearchResult } from '../providers/types';
 import { searchResultToPlaced, nextReference, buildBom, runDesignReview } from '../design-core/document/services';
 import { resolveAffinity, signalFlowRank, isCore } from '../design-core/placement/affinity';
 import { solvePlacement, DEFAULT_PLACEMENT_RULES, autoPlaceAll } from '../design-core/placement';
-import { clampComponentToBoard, hasOverlap, findOverlaps, isPositionFree } from '../design-core/collision';
+import { clampComponentToBoard, hasOverlap, findOverlaps } from '../design-core/collision';
 import { appConfig } from '../config';
 
 const HISTORY_LIMIT = 60;
@@ -206,8 +206,7 @@ export const useDesignStore = create<DesignState>()(
         // 先夹紧到板内
         const trial = { ...c, placement: { ...c.placement, xMm, yMm } };
         const clamped = clampComponentToBoard(trial, s.doc.board);
-        // 与其它同层器件保持 0.5mm 间距、避开定位孔；不满足则拒绝本次移动（停在障碍前）
-        if (!isPositionFree(c, clamped.x, clamped.y, s.doc.components, s.doc.board)) return;
+        // 允许自由移动（密集板上处处违反间距会导致完全拖不动）；重叠以红色高亮提示而非阻止
         c.placement.xMm = clamped.x;
         c.placement.yMm = clamped.y;
         s.overlaps = findOverlaps(s.doc.components);

@@ -168,6 +168,13 @@ export const documentSchema = z.object({
     noConnects: z.array(z.tuple([z.number(), z.number()])),
     /** libId → 符号定义原文（渲染用原始几何） */
     libSymbols: z.record(z.string()),
+    legacySymbols: z.record(z.object({
+      rects: z.array(z.object({ x1: z.number(), y1: z.number(), x2: z.number(), y2: z.number() })),
+      polys: z.array(z.array(z.object({ x: z.number(), y: z.number() }))),
+      circles: z.array(z.object({ cx: z.number(), cy: z.number(), r: z.number() })),
+      arcs: z.array(z.object({ x1: z.number(), y1: z.number(), xm: z.number(), ym: z.number(), x2: z.number(), y2: z.number() })),
+      pins: z.array(z.object({ x: z.number(), y: z.number(), ex: z.number(), ey: z.number(), number: z.string(), name: z.string() })),
+    })).optional(),
     frame: z.object({ wMm: z.number(), hMm: z.number(), title: z.string().optional(), date: z.string().optional(), rev: z.string().optional(), company: z.string().optional(), comments: z.array(z.string()).optional() }).optional(),
   }).optional(),
   board: boardSchema,

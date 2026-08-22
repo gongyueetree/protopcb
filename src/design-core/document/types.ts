@@ -186,6 +186,14 @@ export interface CircuitCanvasDocument {
     labels: { text: string; x: number; y: number; rot: number }[];
     noConnects: [number, number][];
     libSymbols: Record<string, string>;
+    /** KiCad 5 旧库符号几何（.lib 解析结果；新格式走 libSymbols 文本） */
+    legacySymbols?: Record<string, {
+      rects: { x1: number; y1: number; x2: number; y2: number }[];
+      polys: { x: number; y: number }[][];
+      circles: { cx: number; cy: number; r: number }[];
+      arcs: { x1: number; y1: number; xm: number; ym: number; x2: number; y2: number }[];
+      pins: { x: number; y: number; ex: number; ey: number; number: string; name: string }[];
+    }>;
     /** 图框与标题栏（旧版工程 $Descr） */
     frame?: { wMm: number; hMm: number; title?: string; date?: string; rev?: string; company?: string; comments?: string[] };
   };

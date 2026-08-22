@@ -199,7 +199,7 @@ function ResultCard({ r, expanded, onToggle, onAdd, placedN }: {
         <div style={{ padding: '0 12px 12px', borderTop: '1px solid #e5e7eb', fontSize: 11, color: '#475569' }}>
           <p style={{ margin: '8px 0' }}>{r.description}</p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 12px' }}>
-            <div>封装：{r.defaultFootprintName}</div><div>引脚：{r.pins}</div>
+            <div>封装：{r.defaultFootprintName}</div><div>引脚：{r.pins ?? '—'}</div>
             <div>族：{r.family}</div><div>厂商：{r.manufacturer}</div>
           </div>
           {r.org && <div style={{ marginTop: 6, padding: '6px 8px', borderRadius: 6, background: '#f0f9f4', fontSize: 10 }}>

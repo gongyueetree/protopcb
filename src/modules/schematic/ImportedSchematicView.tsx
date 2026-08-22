@@ -73,9 +73,15 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
     });
     // 器件实例
     sheet.instances.forEach((inst, ii) => {
+      // 新格式：内嵌 lib_symbols 文本；旧格式（KiCad5）：-cache.lib 解析出的几何
       const block = sheet.libSymbols[inst.libId];
-      if (!block) return;
-      const g = rawSymbolGeom(block);
+      const legKey = inst.libId.replace(':', '_');
+      const legacy = sheet.legacySymbols?.[legKey] ?? sheet.legacySymbols?.[inst.libId];
+      if (!block && !legacy) return;
+      const g = block ? rawSymbolGeom(block) : {
+        rects: legacy!.rects, polys: legacy!.polys, circles: legacy!.circles, arcs: legacy!.arcs,
+        pins: legacy!.pins.map((pn) => ({ x: pn.x, y: pn.y, ex: pn.ex, ey: pn.ey, number: pn.number })),
+      };
       const T = makeXform(inst);
       const kids: JSX.Element[] = [];
       g.rects.forEach((r, i) => {

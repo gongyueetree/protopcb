@@ -267,7 +267,7 @@ function ComponentGlyph({ comp, selected, multi, overlap, inactive, hideRefDes, 
     const halfW = Math.max(Math.abs(exMinX), Math.abs(exMaxX));
     const halfH = Math.max(Math.abs(exMinY), Math.abs(exMaxY));
     return (
-      <g transform={`translate(${cx},${cy}) rotate(${rot})${isBottom ? ' scale(-1,1)' : ''}`} opacity={inactive ? 0.35 : 1}
+      <g transform={`translate(${cx},${cy}) rotate(${-rot})${isBottom ? ' scale(-1,1)' : ''}`} opacity={inactive ? 0.35 : 1}
         onMouseDown={onMouseDown} onClick={(e) => e.stopPropagation()} style={{ cursor: 'grab' }}>
         {(selected || multi) && <rect x={exMinX - 4} y={exMinY - 4} width={exMaxX - exMinX + 8} height={exMaxY - exMinY + 8} rx={3} fill="none" stroke={multi ? '#f59e0b' : '#2563eb'} strokeWidth={1.5} strokeDasharray="5 3" />}
         <rect x={bcx - pads.bodyW * PX_PER_MM / 2} y={bcy - pads.bodyH * PX_PER_MM / 2} width={pads.bodyW * PX_PER_MM} height={pads.bodyH * PX_PER_MM} rx={2}
@@ -279,7 +279,7 @@ function ComponentGlyph({ comp, selected, multi, overlap, inactive, hideRefDes, 
         {pads.pin1 && <circle cx={pads.pin1.x * PX_PER_MM} cy={pads.pin1.y * PX_PER_MM} r={1.6} fill="#dc2626" />}
         {/* 位号：可拖动、可隐藏；拖离本体时用虚线连回器件中心 */}
         {!hideRefDes && (
-          <g transform={`${isBottom ? 'scale(-1,1) ' : ''}rotate(${-rot})`}>
+          <g transform={`${isBottom ? 'scale(-1,1) ' : ''}rotate(${rot})`}>
             {(() => {
               const lx = rd.dx * PX_PER_MM, ly = -halfH - 6 + rd.dy * PX_PER_MM;
               const far = Math.hypot(lx, ly) > Math.max(halfW, halfH) + 10;

@@ -107,7 +107,7 @@ export function mapToKicadFootprint(rawPackage: string, description: string, mpn
 }
 
 /** 从 KiCad 封装名推断管脚数（SOIC-16 → 16；R_0402 → 2；推断不出按类别兜底） */
-export function pinsFromFootprint(fp: string | undefined, cat: ComponentCategory, description?: string): number {
+export function pinsFromFootprint(fp: string | undefined, cat: ComponentCategory, description?: string): number | undefined {
   const m = (fp ?? '').match(/(?:SOIC|TSSOP|SSOP|MSOP|LQFP|TQFP|QFN|DFN|DIP|SOT-23)-(\d{1,3})/i);
   if (m) return parseInt(m[1], 10);
   if (/SOT-23(?!-)/i.test(fp ?? '')) return 3;
@@ -117,7 +117,11 @@ export function pinsFromFootprint(fp: string | undefined, cat: ComponentCategory
     ?? d.match(/(?:LQFP|TQFP|QFN|DFN|SOIC|SSOP|TSSOP|MSOP|DIP|VQFN|WQFN|VSSOP|SOP)\s*-?\s*(\d{1,3})\b/i)
     ?? d.match(/\b(\d{1,3})\s*-?\s*(?:Pin|pin|Lead|lead|PIN)\b/);
   if (dm) return parseInt(dm[1], 10);
-  return cat === 'passive' ? 2 : 2;
+  // 无源件（电阻/电容/电感/LED）确定是 2 脚；其余推断不出时返回 undefined，
+  // 由 UI 显示"—"。分销商关键词检索常不返回封装字段，硬填 2 是错误信息。
+  if (cat === 'passive') return 2;
+  if (/^(R|C|L|LED|D|Fuse)_\d{4}_/.test(fp ?? '')) return 2;
+  return undefined;
 }
 
 /** 是否为"模块/开发板"类（要求元器件优先，模块沉底） */
