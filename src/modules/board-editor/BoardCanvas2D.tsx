@@ -176,13 +176,13 @@ export function BoardCanvas2D() {
           {!!doc.tracks?.length && (
             <g style={{ pointerEvents: 'none' }} opacity={0.55}>
               {doc.tracks.map((t2, i) => (
-                <line key={'tk' + i} x1={t2.x1 * PX_PER_MM} y1={t2.y1 * PX_PER_MM} x2={t2.x2 * PX_PER_MM} y2={t2.y2 * PX_PER_MM}
+                <line key={'tk' + i} x1={ORIGIN.x + t2.x1 * PX_PER_MM} y1={ORIGIN.y + t2.y1 * PX_PER_MM} x2={ORIGIN.x + t2.x2 * PX_PER_MM} y2={ORIGIN.y + t2.y2 * PX_PER_MM}
                   stroke={t2.layer === 'bottom' ? '#4a7fb5' : '#b87333'} strokeWidth={Math.max(0.6, t2.w * PX_PER_MM)} strokeLinecap="round" />
               ))}
               {(doc.vias ?? []).map((v, i) => (
                 <g key={'via' + i}>
-                  <circle cx={v.x * PX_PER_MM} cy={v.y * PX_PER_MM} r={(v.size / 2) * PX_PER_MM} fill="#c9a24b" />
-                  <circle cx={v.x * PX_PER_MM} cy={v.y * PX_PER_MM} r={(v.size / 4) * PX_PER_MM} fill="#fafaf6" />
+                  <circle cx={ORIGIN.x + v.x * PX_PER_MM} cy={ORIGIN.y + v.y * PX_PER_MM} r={(v.size / 2) * PX_PER_MM} fill="#c9a24b" />
+                  <circle cx={ORIGIN.x + v.x * PX_PER_MM} cy={ORIGIN.y + v.y * PX_PER_MM} r={(v.size / 4) * PX_PER_MM} fill="#fafaf6" />
                 </g>
               ))}
             </g>

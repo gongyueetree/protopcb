@@ -69,7 +69,12 @@ export function mapToKicadFootprint(rawPackage: string, description: string, mpn
   }
 
   // ── 有源件封装族 ──
-  const pins = Number(pkg.match(/(\d{1,3})\s*(?:pin|lead|-pin)/i)?.[1] ?? pkg.match(/-(\d{1,3})\b/)?.[1] ?? '') || null;
+  // 兼容三种写法：SOIC-8 / 48-LQFP / 20 Pin
+  const pins = Number(
+    pkg.match(/(?:SOIC|SOP|SSOP|TSSOP|MSOP|LQFP|TQFP|QFP|QFN|DFN|DIP|VQFN|WQFN|VSSOP)\s*-?\s*(\d{1,3})\b/i)?.[1]
+    ?? pkg.match(/\b(\d{1,3})\s*-?\s*(?:SOIC|SOP|SSOP|TSSOP|MSOP|LQFP|TQFP|QFP|QFN|DFN|DIP|VQFN|WQFN|VSSOP)\b/i)?.[1]
+    ?? pkg.match(/(\d{1,3})\s*(?:pin|lead)/i)?.[1]
+    ?? '') || null;
   const FAMILY: [RegExp, (n: number | null) => string | undefined][] = [
     [/sot-?23-?5|sot23-5/i, () => 'SOT-23-5'],
     [/sot-?23-?6|sot23-6/i, () => 'SOT-23-6'],
@@ -108,8 +113,9 @@ export function pinsFromFootprint(fp: string | undefined, cat: ComponentCategory
   if (/SOT-23(?!-)/i.test(fp ?? '')) return 3;
   // 描述里的 "48-LQFP" / "SOIC-16" / "20-Pin" 口径
   const d = description ?? '';
-  const dm = d.match(/(\d{1,3})-(?:LQFP|TQFP|QFN|DFN|SOIC|SSOP|TSSOP|MSOP|DIP|VQFN|WQFN|Pin|pin)/)
-    ?? d.match(/(?:LQFP|TQFP|QFN|DFN|SOIC|SSOP|TSSOP|MSOP|DIP)-(\d{1,3})/i);
+  const dm = d.match(/(\d{1,3})\s*-?\s*(?:LQFP|TQFP|QFN|DFN|SOIC|SSOP|TSSOP|MSOP|DIP|VQFN|WQFN|VSSOP|SOP)\b/i)
+    ?? d.match(/(?:LQFP|TQFP|QFN|DFN|SOIC|SSOP|TSSOP|MSOP|DIP|VQFN|WQFN|VSSOP|SOP)\s*-?\s*(\d{1,3})\b/i)
+    ?? d.match(/\b(\d{1,3})\s*-?\s*(?:Pin|pin|Lead|lead|PIN)\b/);
   if (dm) return parseInt(dm[1], 10);
   return cat === 'passive' ? 2 : 2;
 }

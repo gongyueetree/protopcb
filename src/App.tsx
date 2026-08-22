@@ -282,8 +282,10 @@ export default function App() {
   const applyLegacySch = (text: string): { symbols: number; linked: number } => {
     const r = parseLegacySch(text);
     setSchematicSheet({
-      instances: r.comps.map((c) => ({ ref: c.ref, libId: c.libId, x: c.x, y: c.y, rot: c.rot, mirror: c.mirror, unit: c.unit })),
+      instances: r.comps.map((c) => ({ ref: c.ref, libId: c.libId, value: c.value, x: c.x, y: c.y, rot: c.rot, mirror: c.mirror, unit: c.unit })),
       wires: r.wires,
+      buses: r.buses,
+      busEntries: r.busEntries,
       junctions: r.junctions,
       labels: r.labels,
       noConnects: r.noConnects,

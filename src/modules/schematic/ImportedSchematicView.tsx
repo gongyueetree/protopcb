@@ -106,11 +106,37 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
       });
       // 位号（电源符号不标）
       if (!inst.ref.startsWith('#')) {
-        kids.push(<text key="ref" x={T(0, 0).x} y={T(0, 0).y - 18} fontSize={8.5} fontWeight={700} fill="#0e7490" textAnchor="middle" fontFamily="monospace"
+        // 位号紧贴本体上沿、值贴下沿：本体范围取图元包围盒（原来固定 -18 会离小符号很远）
+        const ys: number[] = [];
+        g.rects.forEach((r2) => { ys.push(T(r2.x1, r2.y1).y, T(r2.x2, r2.y2).y); });
+        g.polys.forEach((pl) => pl.forEach((pt) => ys.push(T(pt.x, pt.y).y)));
+        g.circles.forEach((ci) => { ys.push(T(ci.cx, ci.cy - ci.r).y, T(ci.cx, ci.cy + ci.r).y); });
+        g.pins.forEach((pn) => ys.push(T(pn.x, pn.y).y));
+        const cy0 = T(0, 0).y;
+        const bodyTop = ys.length ? Math.min(...ys) : cy0 - 8;
+        const bodyBot = ys.length ? Math.max(...ys) : cy0 + 8;
+        const cxp = T(0, 0).x;
+        kids.push(<text key="ref" x={cxp} y={bodyTop - 3} fontSize={8.5} fontWeight={700} fill="#0e7490" textAnchor="middle" fontFamily="monospace"
           style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={3}>{inst.ref}</text>);
+        if (inst.value && inst.value !== inst.ref) {
+          kids.push(<text key="val" x={cxp} y={bodyBot + 9} fontSize={8} fill="#7c2d12" textAnchor="middle" fontFamily="monospace"
+            style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={3}>{inst.value}</text>);
+        }
       }
       els.push(<g key={'inst' + ii}>{kids}</g>);
     });
+    // 总线（粗）与总线入口（斜线）
+    (sheet.buses ?? []).forEach((b, i) => {
+      const [a, c2] = b;
+      els.push(<line key={'bus' + i} x1={a[0] * PXMM} y1={a[1] * PXMM} x2={c2[0] * PXMM} y2={c2[1] * PXMM}
+        stroke="#1d4ed8" strokeWidth={3.2} strokeLinecap="round" />);
+    });
+    (sheet.busEntries ?? []).forEach((b, i) => {
+      const [a, c2] = b;
+      els.push(<line key={'be' + i} x1={a[0] * PXMM} y1={a[1] * PXMM} x2={c2[0] * PXMM} y2={c2[1] * PXMM}
+        stroke="#1d4ed8" strokeWidth={1.6} />);
+    });
+
     // 图框与标题栏
     if (sheet.frame) {
       const F = sheet.frame;

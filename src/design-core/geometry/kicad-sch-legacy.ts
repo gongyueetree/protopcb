@@ -36,6 +36,9 @@ export interface LegacySchResult {
   sheet?: SheetInfo;
   comps: LegacySchComp[];
   wires: [number, number][][];
+  /** 总线（Wire Bus Line）与总线入口（Entry Wire Bus） */
+  buses: [number, number][][];
+  busEntries: [number, number][][];
   junctions: [number, number][];
   labels: { text: string; x: number; y: number; rot: number }[];
   noConnects: [number, number][];
@@ -60,6 +63,8 @@ function matrixToTransform(a: number, b: number, c: number, d: number): { rot: n
 export function parseLegacySch(text: string): LegacySchResult {
   const comps: LegacySchComp[] = [];
   const wires: [number, number][][] = [];
+  const buses: [number, number][][] = [];
+  const busEntries: [number, number][][] = [];
   const junctions: [number, number][] = [];
   const labels: { text: string; x: number; y: number; rot: number }[] = [];
   const noConnects: [number, number][] = [];
@@ -130,6 +135,18 @@ export function parseLegacySch(text: string): LegacySchResult {
       continue;
     }
 
+    // ── 总线：Wire Bus Line / Entry Wire Bus，格式同连线（下一行四坐标）──
+    if (/^Wire\s+Bus\s+Line/.test(line) || /^Entry\s+Wire\s+Bus/.test(line) || /^Entry\s+Bus\s+Bus/.test(line)) {
+      const nb = lines[i + 1] ?? '';
+      const mb = nb.match(/(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)/);
+      if (mb) {
+        const seg: [number, number][] = [[mm(+mb[1]), mm(+mb[2])], [mm(+mb[3]), mm(+mb[4])]];
+        if (/^Entry/.test(line)) busEntries.push(seg); else buses.push(seg);
+        i++;
+      }
+      continue;
+    }
+
     // ── 连线：Wire Wire Line 后跟坐标行 ──
     if (/^Wire\s+Wire\s+Line/.test(line)) {
       const nxt = lines[i + 1] ?? '';
@@ -161,7 +178,7 @@ export function parseLegacySch(text: string): LegacySchResult {
     }
   }
 
-  return { sheet, comps, wires, junctions, labels, noConnects, refToFootprint };
+  return { sheet, comps, wires, buses, busEntries, junctions, labels, noConnects, refToFootprint };
 }
 
 /** 是否为 KiCad 5 旧版原理图文本 */

@@ -161,6 +161,8 @@ export const documentSchema = z.object({
       mirror: z.string().optional(), unit: z.number().optional(),
     })),
     wires: z.array(z.array(z.tuple([z.number(), z.number()]))),
+    buses: z.array(z.array(z.tuple([z.number(), z.number()]))).optional(),
+    busEntries: z.array(z.array(z.tuple([z.number(), z.number()]))).optional(),
     junctions: z.array(z.tuple([z.number(), z.number()])),
     labels: z.array(z.object({ text: z.string(), x: z.number(), y: z.number(), rot: z.number() })),
     noConnects: z.array(z.tuple([z.number(), z.number()])),
