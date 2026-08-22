@@ -30,6 +30,9 @@ export const useLangStore = create<LangState>((set) => ({
 
 /* ───────────── 固定文案词典（key = 中文原文） ───────────── */
 const DICT: Record<string, string> = {
+  '缺少明确型号': 'No specific MPN', '这是元件值不是型号': 'Value, not an MPN',
+  '型号不完整，无法精确匹配': 'MPN incomplete — no exact match', '结构件无需采购': 'Mechanical — not purchased',
+  '点击手工录入': 'Click to enter manually', '查询中…': 'Querying…',
   '（个别封装官方库无 3D 模型属正常，已用参数化模型兜底）': '(Some footprints have no official 3D model — parametric fallback used)',
   '左右拖动可移中线 · 双击可改网络标签 · 手工新增连线开发中': 'Drag to shift midline · double-click to edit net label · manual wiring in development',
   'PDF 超过 3MB，请压缩或改用 URL 方式': 'PDF exceeds 3MB — compress it or use a URL',

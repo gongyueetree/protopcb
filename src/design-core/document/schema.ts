@@ -156,7 +156,7 @@ export const documentSchema = z.object({
   /** KiCad 工程导入的原理图原样视图（只读渲染：实例坐标/连线/结点/标签） */
   schematicSheet: z.object({
     instances: z.array(z.object({
-      ref: z.string(), libId: z.string(),
+      ref: z.string(), libId: z.string(), value: z.string().optional(),
       x: z.number(), y: z.number(), rot: z.number(),
       mirror: z.string().optional(), unit: z.number().optional(),
     })),

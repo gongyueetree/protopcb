@@ -7,6 +7,7 @@ import { useDesignStore } from '../../state/designStore';
 import { bomTotal } from '../../design-core/document/services';
 import { fmtMoney, COLORS } from '../../shared/theme';
 import { useEffect, useState } from 'react';
+import { isPriceable, whyNotPriceable, classifyByRefDes, pricingPriority, CLASS_LABEL } from './part-class';
 import { fetchDigikeyOffer, type DigikeyOffer } from '../../providers/digikey';
 import { fetchSupplierOffers } from '../../providers/suppliers';
 
@@ -22,7 +23,12 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   useEffect(() => {
     let alive = true;
     (async () => {
-      for (const l of bom) {
+      // 先 IC/模块，再晶体管/二极管，最后无源件；结构件与"值不是型号"的行根本不查
+      const queue = bom
+        .filter((l) => isPriceable(l.mpn, l.reference, l.footprint))
+        .sort((a, b) => pricingPriority(classifyByRefDes(a.reference, a.footprint, a.mpn))
+          - pricingPriority(classifyByRefDes(b.reference, b.footprint, b.mpn)));
+      for (const l of queue) {
         if (dkPrices[l.mpn] || netPrices[l.mpn]) continue;
         const o = await fetchDigikeyOffer(l.mpn);
         if (!alive) return;
@@ -102,7 +108,12 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
                     ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#e0f2fe', color: '#0369a1', fontWeight: 700 }}>{tr('网络价格')}{dkOf(l.mpn) ? '·DK' : '·' + netOf(l.mpn)!.vendor.slice(0, 4)}</span>
                     : srcOf(l.reference) === 'EZPLM'
                     ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#f1f5f9', color: '#64748b', fontWeight: 700 }}>ezPLM</span>
-                    : <span style={{ fontSize: 10, color: '#cbd5e1' }}>—</span>}
+                    : (() => {
+                      const why = whyNotPriceable(l.mpn, l.reference, l.footprint);
+                      return why
+                        ? <span style={{ fontSize: 9.5, color: '#94a3b8' }} title={CLASS_LABEL[classifyByRefDes(l.reference, l.footprint, l.mpn)]}>{tr(why)}</span>
+                        : <span style={{ fontSize: 10, color: '#cbd5e1' }}>{tr('查询中…')}</span>;
+                    })()}
                 </td>
                 <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600 }}>
                   {editingMpn === l.mpn ? (
@@ -118,7 +129,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
                         ? <span title={`DigiKey 实时 · 库存 ${dkOf(l.mpn)!.stock?.toLocaleString() ?? '—'}`} style={{ color: '#0369a1' }}>¥{dkOf(l.mpn)!.unitPrice!.toFixed(2)}</span>
                         : netOf(l.mpn)
                         ? <span title={`${netOf(l.mpn)!.vendor} 实时`} style={{ color: '#7c3aed' }}>{netOf(l.mpn)!.currency === 'USD' ? '$' : '¥'}{netOf(l.mpn)!.price.toFixed(2)}</span>
-                        : <span style={{ color: '#94a3b8' }}>{l.unitPrice?.amount != null ? fmtMoney(l.unitPrice.amount) : '—'}</span>}
+                        : <span style={{ color: '#94a3b8' }} title={whyNotPriceable(l.mpn, l.reference, l.footprint) ?? tr('点击手工录入')}>—</span>}
                     </span>
                   )}
                 </td>
