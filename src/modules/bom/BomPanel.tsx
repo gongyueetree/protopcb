@@ -114,7 +114,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
     const rows = bom.map((l, i) => [
       i + 1, l.reference, l.mpn, l.manufacturer, l.footprint,
       manOf(l.mpn) ?? dkOf(l.mpn)?.unitPrice ?? netOf(l.mpn)?.price ?? l.unitPrice?.amount ?? '',
-      manOf(l.mpn) != null ? '录入' : dkOf(l.mpn) ? '网络价格(DigiKey)' : netOf(l.mpn) ? `网络价格(${netOf(l.mpn)!.vendor})` : '',
+      manOf(l.mpn) != null ? tr('录入') : dkOf(l.mpn) ? '网络价格(DigiKey)' : netOf(l.mpn) ? `网络价格(${netOf(l.mpn)!.vendor})` : '',
       l.quantity,
     ].map(csvField).join(','));
     const csv = '\uFEFF' + [header, ...rows].join('\r\n');
@@ -135,7 +135,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
           <span style={{ marginLeft: 6, color: '#b45309' }}>{tr('模糊匹配结果需人工确认后作为录入价')}</span>
         </div>
         {fuzzy.busy && <div style={{ fontSize: 11.5, color: '#64748b' }}>{tr('检索中…')}</div>}
-        {!fuzzy.busy && !fuzzy.items.length && <div style={{ fontSize: 11.5, color: '#92400e' }}>{fuzzy.msg ?? tr('未找到相近器件')}</div>}
+        {!fuzzy.busy && !fuzzy.items.length && <div style={{ fontSize: 11.5, color: '#92400e' }}>{tr(fuzzy.msg || '未找到相近器件')}</div>}
         {fuzzy.items.map((it, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', marginBottom: 5, borderRadius: 7, border: '1px solid #e2e8f0' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -158,7 +158,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
               {market?.busy ? '⟳ ' + tr('查询中…') : tr('查市场价')}
             </button>
           </div>
-          {market?.msg && <div style={{ fontSize: 10, color: '#92400e', marginTop: 4 }}>{market.msg}</div>}
+          {market?.msg && <div style={{ fontSize: 10, color: '#92400e', marginTop: 4 }}>{tr(market.msg)}</div>}
           {market?.typical != null && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, padding: '7px 9px', borderRadius: 7, border: '1px solid #fde68a', background: '#fffbeb' }}>
               <div style={{ flex: 1 }}>
@@ -189,13 +189,13 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
         <span style={{ fontSize: 15, fontWeight: 700 }}>🧾 {tr('BOM清单')} <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400 }}>{tr('共')} {bom.length} {tr('项')}</span></span>
         <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={exportCsv} style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #c6e2d0', background: COLORS.greenBg, color: COLORS.green, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{tr('导出 CSV')}</button>
-          {onToggleFullscreen && <button onClick={onToggleFullscreen} style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{isFullscreen ? '↙ 退出全屏' : '⛶ 全屏'}</button>}
+          {onToggleFullscreen && <button onClick={onToggleFullscreen} style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{isFullscreen ? tr('↙ 退出全屏') : tr('⛶ 全屏')}</button>}
         </div>
       </div>
       {bom.length === 0 ? <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>{tr('暂无器件')}</div> : (
         <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
           <thead><tr style={{ background: '#f8fafc' }}>
-            {['#', '位号', '型号', '厂商', '封装', '来源', '单价', '数量'].map((h) => <th key={h} style={{ textAlign: h === '单价' || h === '数量' ? 'right' : 'left', padding: '8px 10px', fontWeight: 600, color: '#64748b', fontSize: 11, borderBottom: '2px solid #e2e8f0' }}>{h}</th>)}
+            {['#', tr('位号'), tr('型号'), tr('厂商'), tr('封装'), tr('来源'), tr('单价'), tr('数量')].map((h) => <th key={h} style={{ textAlign: h === tr('单价') || h === tr('数量') ? 'right' : 'left', padding: '8px 10px', fontWeight: 600, color: '#64748b', fontSize: 11, borderBottom: '2px solid #e2e8f0' }}>{h}</th>)}
           </tr></thead>
           <tbody>
             {bom.map((l, i) => (

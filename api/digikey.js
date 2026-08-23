@@ -1,3 +1,4 @@
+import { acquire, checkBodySize, deny } from './_lib/guard.js';
 /**
  * api/digikey.js — Vercel Serverless Function：DigiKey ProductInformation V4 代理
  *
@@ -48,6 +49,12 @@ function mapProduct(p) {
 
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  // 配额防护：这些接口消耗自有 API 额度，需限制频率/并发/体积
+  const sizeCheck = checkBodySize(req);
+  if (!sizeCheck.ok) return deny(res, sizeCheck);
+  const lease = acquire(req, 'digikey');
+  if (!lease.ok) return deny(res, lease);
+  try {
   const { path, mpn } = req.query ?? {};
   const clientId = (process.env.DIGIKEY_CLIENT_ID ?? '').trim() || undefined;
   const clientSecret = (process.env.DIGIKEY_CLIENT_SECRET ?? '').trim() || undefined;
@@ -96,5 +103,8 @@ export default async function handler(req, res) {
     return res.status(200).send(JSON.stringify(out));
   } catch (err) {
     return res.status(502).send(JSON.stringify({ error: 'digikey request failed', detail: String(err).slice(0, 300) }));
+  }
+  } finally {
+    lease.release();
   }
 }

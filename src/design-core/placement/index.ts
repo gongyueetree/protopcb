@@ -18,7 +18,7 @@ interface PlaceContext {
 }
 
 /** 为单个器件求解放置位置（中心点 mm）。 */
-export function solvePlacement(comp: PlacedComponent, ctx: PlaceContext): Point {
+function solvePlacementRaw(comp: PlacedComponent, ctx: PlaceContext): Point {
   const rule = pickRule(comp, ctx.rules);
   const rect = componentRect(comp);
   const w = rect.width, h = rect.height;
@@ -54,6 +54,75 @@ export function solvePlacement(comp: PlacedComponent, ctx: PlaceContext): Point 
 
   const free = spiralFree(anchor, w, h, occupied);
   return clampCenter(free, w, h, board);
+}
+
+export interface PlacementViolation {
+  kind: 'overlap' | 'off_board' | 'mounting_hole' | 'keepout';
+  detail: string;
+}
+
+export interface PlacementOutcome {
+  /** 是否找到完全合法的位置 */
+  success: boolean;
+  /** 最终位置：即便 success=false 也会给出"最不坏"的位置，由调用方决定是否采用 */
+  position: Point;
+  violations: PlacementViolation[];
+}
+
+/**
+ * 带失败语义的放置求解。
+ *
+ * 原 solvePlacement 无论如何都返回一个坐标，调用方无法区分「放好了」和
+ * 「板子满了硬塞的」。这里在夹紧之后**再做一次**碰撞与边界检查，
+ * 把违规明确报告出去，让 UI 能提示用户而不是静默产生重叠板。
+ */
+export function solvePlacementDetailed(comp: PlacedComponent, ctx: PlaceContext): PlacementOutcome {
+  const position = solvePlacementRaw(comp, ctx);
+  const violations: PlacementViolation[] = [];
+
+  const size = componentRect(comp);   // 已计入旋转
+  const rect: Rect = { x: position.x - size.width / 2, y: position.y - size.height / 2, width: size.width, height: size.height };
+
+  // 1) 与已放置器件的重叠
+  for (const other of ctx.existing) {
+    if (other.instanceId === comp.instanceId) continue;
+    if (rectsOverlap(rect, componentRect(other), DEFAULT_GAP_MM)) {
+      violations.push({ kind: 'overlap', detail: `与 ${other.reference} 间距不足 ${DEFAULT_GAP_MM}mm` });
+    }
+  }
+  // 2) 定位孔
+  for (const hr of mountingHoleRects(ctx.board)) {
+    if (rectsOverlap(rect, hr, 0.5)) {
+      violations.push({ kind: 'mounting_hole', detail: '压住定位孔' });
+      break;
+    }
+  }
+  // 3) 板框（矩形外接近似；异形板的精确判定见下方说明）
+  const b = boardRect(ctx.board);
+  if (rect.x < b.x || rect.y < b.y || rect.x + rect.width > b.x + b.width || rect.y + rect.height > b.y + b.height) {
+    violations.push({ kind: 'off_board', detail: '超出板框范围' });
+  }
+  // 4) keepout 区
+  for (const kz of ctx.board.keepoutZones ?? []) {
+    const pts = kz.polygon ?? [];
+    if (pts.length < 3) continue;
+    // 禁布区是多边形，这里用其外接矩形近似判定（保守：宁可多报不可漏报）
+    const xs = pts.map((q) => q.x), ys = pts.map((q) => q.y);
+    const kr: Rect = {
+      x: Math.min(...xs), y: Math.min(...ys),
+      width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys),
+    };
+    if (kr.width > 0 && kr.height > 0 && rectsOverlap(rect, kr, 0)) {
+      violations.push({ kind: 'keepout', detail: `落入禁布区 ${kz.label || kz.id}`.trim() });
+    }
+  }
+
+  return { success: violations.length === 0, position, violations };
+}
+
+/** 兼容既有调用点：只要坐标。需要知道是否放置成功请用 solvePlacementDetailed。 */
+export function solvePlacement(comp: PlacedComponent, ctx: PlaceContext): Point {
+  return solvePlacementRaw(comp, ctx);
 }
 
 /** 批量放置：依次为列表中的器件求解，后放的避开先放的。 */

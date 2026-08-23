@@ -129,7 +129,7 @@ export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscr
     powers.forEach((p) => [...mcus, ...ics].forEach((t) => out.push({ id: nid(), from: p.instanceId, to: t.instanceId, label: '3V3', color: '#dc2626' })));
     conns.forEach((cn) => (mcus.length ? mcus : ics).forEach((m) => out.push({ id: nid(), from: cn.instanceId, to: m.instanceId, label: cn.display?.family?.includes('USB') ? 'USB' : 'IO', color: '#2563eb' })));
     mcus.forEach((m) => ics.forEach((i) => out.push({ id: nid(), from: m.instanceId, to: i.instanceId, label: i.display?.family?.includes('Flash') ? 'SPI' : 'I2C', color: '#059669' })));
-    passives.forEach((pv) => { const t = [...mcus, ...ics][0]; if (t) out.push({ id: nid(), from: pv.instanceId, to: t.instanceId, label: '去耦', color: '#a16207' }); });
+    passives.forEach((pv) => { const t = [...mcus, ...ics][0]; if (t) out.push({ id: nid(), from: pv.instanceId, to: t.instanceId, label: tr('去耦'), color: '#a16207' }); });
     return out;
   }, [items]);
 
@@ -274,7 +274,7 @@ export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscr
         )}
         <span style={{ fontSize: 10, color: '#94a3b8' }}>{tr('拖动符号 · R旋转 · 双击位号/型号编辑 · 滚轮缩放')}</span>
         <div style={{ flex: 1 }} />
-        {onToggleFullscreen && <button onClick={onToggleFullscreen} style={tb}>{isFullscreen ? '↙ 退出全屏' : '⛶ 全屏'}</button>}
+        {onToggleFullscreen && <button onClick={onToggleFullscreen} style={tb}>{isFullscreen ? tr('↙ 退出全屏') : tr('⛶ 全屏')}</button>}
       </div>
       {sheet && schView === 'imported' ? <ImportedSchematicView doc={useDesignStore.getState().doc} /> : (<>
       <div ref={wrapRef} style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#fffef9', borderRadius: 8, border: '1px solid #e7e0c9' }}

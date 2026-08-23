@@ -144,7 +144,9 @@ export function parseKicadPcb(text: string): KicadImportResult {
     const value = fpProperty(fp, 'Value');
     if (!at) { skipped.push(fpName); continue; }
     // 器件包围盒也参与板框推断（无 Edge.Cuts 时兜底）
-    grow(num(at, 1), num(at, 2));
+    // 板框以 Edge.Cuts 为准：器件坐标只在"没有有效 Edge.Cuts"时才用于兜底推断。
+    // 否则 USB-C/HDMI 这类外伸连接器会把板框撑大，与原工程不符。
+    if (!hasOutline) grow(num(at, 1), num(at, 2));
     // 焊盘网络：pad 内嵌 (net id "name")
     const padNets: Record<string, number> = {};
     for (const pd of findAll(fp, 'pad')) {
@@ -188,8 +190,12 @@ export function parseKicadPcb(text: string): KicadImportResult {
   for (const t2 of tracks) { t2.x1 -= ox; t2.y1 -= oy; t2.x2 -= ox; t2.y2 -= oy; }
   for (const v2 of viasArr) { v2.x -= ox; v2.y -= oy; }
   for (const h2 of mountingHoles) { h2.x -= ox; h2.y -= oy; }
-  const widthMm = Math.max(20, Math.ceil((maxX - ox + pad)));
-  const heightMm = Math.max(20, Math.ceil((maxY - oy + pad)));
+  // 有 Edge.Cuts 时严格按板框（真实小板可以只有几毫米）；
+  // 只有兜底推断模式才套用 20mm 最小值，避免生成过小的画布。
+  const rawW = Math.ceil(maxX - ox + pad);
+  const rawH = Math.ceil(maxY - oy + pad);
+  const widthMm = hasOutline ? Math.max(1, rawW) : Math.max(20, rawW);
+  const heightMm = hasOutline ? Math.max(1, rawH) : Math.max(20, rawH);
 
   return { nets, tracks, vias: viasArr, mountingHoles, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs };
 }

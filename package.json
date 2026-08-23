@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "echo \"lint 未配置：仓库尚未引入 eslint 依赖与配置文件，CI 以 typecheck + test 为准\" && exit 0",
+    "scan:secrets": "node scripts/scan-secrets.mjs",
+    "verify": "npm run scan:secrets && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
     "fflate": "^0.8.3",

@@ -197,7 +197,7 @@ function ResultCard({ r, expanded, onToggle, onAdd, placedN }: {
       </div>
       {expanded && (
         <div style={{ padding: '0 12px 12px', borderTop: '1px solid #e5e7eb', fontSize: 11, color: '#475569' }}>
-          <p style={{ margin: '8px 0' }}>{r.description}</p>
+          <TrText text={r.description ?? ''} style={{ margin: '8px 0' }} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 12px' }}>
             <div>{tr('封装：')}{r.defaultFootprintName}</div><div>{tr('引脚：')}{r.pins ?? '—'}</div>
             <div>{tr('族：')}{r.family}</div><div>{tr('厂商：')}{r.manufacturer}</div>

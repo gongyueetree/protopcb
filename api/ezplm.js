@@ -1,3 +1,4 @@
+import { acquire, checkBodySize, deny } from './_lib/guard.js';
 /**
  * api/ezplm.js — Vercel Serverless Function：ezPLM API Key 签名代理
  *
@@ -38,6 +39,12 @@ export function buildSignature({ apiKey, method, path, params, timestamp, nonce 
 
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  // 配额防护：这些接口消耗自有 API 额度，需限制频率/并发/体积
+  const sizeCheck = checkBodySize(req);
+  if (!sizeCheck.ok) return deny(res, sizeCheck);
+  const lease = acquire(req, 'ezplm');
+  if (!lease.ok) return deny(res, lease);
+  try {
   const { path, ...params } = req.query ?? {};
   const apiKey = (process.env.EZPLM_API_KEY ?? '').trim() || undefined;
 
@@ -92,5 +99,8 @@ export default async function handler(req, res) {
     try { JSON.parse(text); res.send(text); } catch { res.send(JSON.stringify({ raw: text })); }
   } catch (err) {
     res.status(502).send(JSON.stringify({ error: 'upstream fetch failed', detail: String(err) }));
+  }
+  } finally {
+    lease.release();
   }
 }

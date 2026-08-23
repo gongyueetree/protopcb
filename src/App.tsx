@@ -25,8 +25,10 @@ import { parseKicadPcb } from './design-core/geometry/kicad-pcb-import';
 import { parseKicadSch } from './design-core/geometry/kicad-sch-import';
 import { parseLegacySch, isLegacySch } from './design-core/geometry/kicad-sch-legacy';
 import { parseLegacyLib, legacyToParsedSymbol } from './design-core/geometry/kicad-lib-legacy';
+import { safeUnzip, ZipSafetyError } from './design-core/geometry/safe-unzip';
 import { parseKicadMod } from './design-core/geometry/kicad-file-parser';
 import { recommendSubCircuit, type SubCircuitItem } from './modules/component-search/sub-circuit';
+import { TRUST_META } from './providers/ai-schema';
 import { autoKicadFootprint } from './design-core/geometry/auto-kicad-footprint';
 import { useT, useLangStore, useTranslated, tr, syncDocumentLang } from './shared/i18n';
 import { registerFootprintOverride, registerSymbolOverride, symbolOverrideFor, footprintOverrideFor } from './design-core/geometry/lib-file-registry';
@@ -46,10 +48,10 @@ const providers = getProviders();
 const ctx = { userId: 'demo-user', organizationId: 'org-demo' };
 
 const SHAPES: { id: BoardShapeKind; icon: string; name: string }[] = [
-  { id: 'rect', icon: '▭', name: '矩形' },
-  { id: 'rounded', icon: '▢', name: '圆角' },
-  { id: 'circle', icon: '○', name: '圆形' },
-  { id: 'lshape', icon: '⌐', name: 'L形' },
+  { id: 'rect', icon: '▭', name: tr('矩形') },
+  { id: 'rounded', icon: '▢', name: tr('圆角') },
+  { id: 'circle', icon: '○', name: tr('圆形') },
+  { id: 'lshape', icon: '⌐', name: tr('L形') },
 ];
 
 declare const __BUILD_STAMP__: string;
@@ -179,7 +181,7 @@ export default function App() {
   const lang = useLangStore((st) => st.lang);
   const toggleLang = useLangStore((st) => st.toggle);
   useEffect(() => { syncDocumentLang(lang); }, [lang]);
-  useEffect(() => { document.title = lang === 'en' ? 'Tindie Proto' : '硬件原型工坊'; }, [lang]);
+  useEffect(() => { document.title = lang === 'en' ? 'Tindie Proto' : tr('硬件原型工坊'); }, [lang]);
 
   const selObj = doc.components.find((c) => c.instanceId === selectedId);
 
@@ -223,12 +225,12 @@ export default function App() {
       // Mock 链路：componentIds → 目录映射
       const mapped = await Promise.all(result.componentIds.map(async (id) => {
         const d = await providers.components.getComponentDetail(id, ctx);
-        if (d) return { ...d, mapSource: d.org ? ('本组织' as const) : ('ezPLM云端' as const) };
+        if (d) return { ...d, mapSource: d.org ? tr('本组织') : tr('ezPLM云端') };
         // 未命中：按 id 猜封装做占位（真实链路中由 LLM 返回封装建议）
         return {
           componentId: `fp_${id}_${Date.now()}`, mpn: id, manufacturer: '—',
           category: 'passive' as const, defaultFootprintName: '0402', family: 'Footprint',
-          description: `未映射到 ezPLM 器件，以封装占位`, pins: 2, mapSource: '封装占位' as const,
+          description: `未映射到 ezPLM 器件，以封装占位`, pins: 2, mapSource: tr('封装占位'),
         };
       }));
       setAiProposal({ rationale: result.rationale, source: result.source, fallbackReason: result.fallbackReason, details: mapped });
@@ -266,7 +268,7 @@ export default function App() {
   /** 导出前确保工程有名字：未命名时弹框询问，命名后显示在导航栏并作为文件名 */
   const ensureProjectName = (): boolean => {
     const cur = useDesignStore.getState().doc.name;
-    if (cur && cur !== '未命名设计' && cur !== 'Untitled Design') return true;
+    if (cur && cur !== tr('未命名设计') && cur !== 'Untitled Design') return true;
     const n = window.prompt(t('请为该工程命名（将作为导出文件名）'), t('我的硬件方案'));
     if (!n?.trim()) return false;
     renameDocument(n.trim());
@@ -341,8 +343,9 @@ export default function App() {
     try {
       if (/\.zip$/i.test(f.name)) {
         // KiCad 工程压缩包：解压 → PCB 上画布 + 原理图符号逐器件挂载
-        const { unzipSync, strFromU8 } = await import('fflate');
-        const entries = unzipSync(new Uint8Array(await f.arrayBuffer()));
+        const { strFromU8 } = await import('fflate');
+        // 安全解压：限额 + zip-slip + 压缩比检查（防 ZIP 炸弹把标签页 OOM）
+        const entries = await safeUnzip(new Uint8Array(await f.arrayBuffer()));
         const names = Object.keys(entries).filter((n) => !n.startsWith('__MACOSX') && !n.endsWith('/'));
         const pcbName = names.filter((n) => /\.kicad_pcb$/i.test(n)).sort((a, b) => entries[b].length - entries[a].length)[0];
         const schNames = names.filter((n) => /\.kicad_sch$/i.test(n));
@@ -381,7 +384,11 @@ export default function App() {
       } else {
         loadDocument(await importDocumentFromFile(f));
       }
-    } catch (err) { alert('导入失败：' + (err as Error).message); }
+    } catch (err) {
+      // ZIP 安全限额的报错文案已面向用户，直接展示；其余带上原始信息便于排查
+      const msg = err instanceof ZipSafetyError ? err.message : (err as Error).message;
+      alert(tr('导入失败：') + msg);
+    }
     e.target.value = '';
   };
 
@@ -397,13 +404,13 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <span onClick={() => { const n = window.prompt(t('项目名称'), doc.name); if (n?.trim()) renameDocument(n.trim()); }}
+          <span onClick={() => { const n = window.prompt(t('项目名称'), tr(doc.name)); if (n?.trim()) renameDocument(n.trim()); }}
             title={t('点击修改项目名称')}
-            style={{ fontSize: 12, color: '#475569', background: '#f1f5f9', padding: '3px 10px', borderRadius: 6, cursor: 'pointer', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📁 {doc.name}</span>
+            style={{ fontSize: 12, color: '#475569', background: '#f1f5f9', padding: '3px 10px', borderRadius: 6, cursor: 'pointer', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📁 {tr(doc.name)}</span>
           {savedAt && <span title={t('设计已自动保存在本浏览器（localStorage），导出设计可得到可分享的 JSON 文件')}
             style={{ fontSize: 10, color: '#94a3b8', alignSelf: 'center', marginRight: 4 }}>✓ {t('已自动保存')} {savedAt}</span>}
-          <button onClick={toggleLang} title={lang === 'zh' ? 'Switch to English' : '切换为中文'}
-            style={{ ...hbtn, fontWeight: 800 }}>{lang === 'zh' ? '中 | EN' : 'EN | 中'}</button>
+          <button onClick={toggleLang} title={lang === 'zh' ? 'Switch to English' : tr('切换为中文')}
+            style={{ ...hbtn, fontWeight: 800 }}>{lang === 'zh' ? tr('中 | EN') : tr('EN | 中')}</button>
           <button onClick={() => { if (ensureProjectName()) setPcbExportOpen(true); }} style={hbtn}>🏭 {t('导出PCB')}</button>
           <button onClick={() => exportMarkdownReport(doc)} style={hbtn}>📄 {t('方案报告')}</button>
           <button onClick={() => { if (ensureProjectName()) exportDocument(useDesignStore.getState().doc); }} style={hbtn}>⬇ {t('导出设计')}</button>
@@ -482,7 +489,7 @@ export default function App() {
                   <span style={{ color: '#64748b' }}>{selObj.footprint.name}</span>
                   <button onClick={() => rotate(selObj.instanceId)} style={smbtn}>{tr('旋转')}</button>
                   <button onClick={() => flipLayer(selObj.instanceId)} style={{ ...smbtn, color: selObj.placement.side === 'TOP' ? '#c08a2d' : '#3b82c4' }}>{selObj.placement.side === 'TOP' ? '→Bottom' : '→Top'}</button>
-                  <button onClick={() => toggleRefDesHidden(selObj.instanceId)} style={smbtn}>{selObj.refDesDisplay?.hidden ? '显位号' : '隐位号'}</button>
+                  <button onClick={() => toggleRefDesHidden(selObj.instanceId)} style={smbtn}>{selObj.refDesDisplay?.hidden ? tr('显位号') : tr('隐位号')}</button>
                   <button onClick={() => remove(selObj.instanceId)} style={{ ...smbtn, borderColor: '#fecaca', background: '#fef2f2', color: '#dc2626' }}>{tr('移除')}</button>
                 </div>
               </div>
@@ -555,11 +562,31 @@ export default function App() {
             <div style={{ fontSize: 15, fontWeight: 700, color: COLORS.green, marginBottom: 4 }}>{tr('🏭 导出 PCB 布局文件')}</div>
             <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>{tr('含板框（Edge.Cuts）、定位孔（非金属化孔）、全部器件真实焊盘与 Top/Bottom 层信息')}</div>
 
+            {/* 未验证器件告警：AI 建议的型号不能不加提示地流入生产文件 */}
+            {(() => {
+              const unverified = doc.components.filter((x) => (x.trust?.level ?? 'PLACEHOLDER') === 'PLACEHOLDER');
+              if (!unverified.length) return null;
+              return (
+                <div style={{ padding: '10px 12px', borderRadius: 10, border: '1.5px solid #fecaca', background: '#fef2f2', marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c' }}>
+                    ⚠ {unverified.length} {tr('个器件未经数据库验证')}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: '#991b1b', marginTop: 3 }}>
+                    {tr('以下器件的型号来自 AI 建议或占位，未在 ezPLM/分销商库中核实，投产前必须人工确认：')}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: '#7f1d1d', marginTop: 3, fontFamily: 'monospace' }}>
+                    {unverified.slice(0, 12).map((x) => `${x.reference}(${x.mpn})`).join('  ')}
+                    {unverified.length > 12 ? `  …+${unverified.length - 12}` : ''}
+                  </div>
+                </div>
+              );
+            })()}
+
             <div style={{ padding: 12, borderRadius: 10, border: '1.5px solid #c6e2d0', background: '#f7fcf9', marginBottom: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 700 }}>{tr('KiCad（.kicad_pcb）· 兼容嘉立创EDA专业版')}</div>
-                  <div style={{ fontSize: 11, color: '#64748b' }}>{tr('KiCad 7+ 直接打开；嘉立创EDA专业版「文件 → 导入 → KiCad」同一文件即可（两平台使用同一格式，无需分别下载）。注意：当前导出')}<b>{tr('不含电气网络')}</b>{tr('（焊盘无 net），布线需按原理图自行连接')}</div>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>{tr('KiCad 7+ 直接打开；嘉立创EDA专业版「文件 → 导入 → KiCad」同一文件即可。')}<b>{tr('导出为可继续编辑的初始工程，而非原工程的无损往返')}</b>{tr('：板框、器件位置、真实焊盘、网络表与导入工程的铜箔走线/过孔会保留；丝印、敷铜与规则设置不导出。画布上新建的设计没有走线，需在 KiCad 中布线。')}</div>
                 </div>
                 <button onClick={() => { downloadKicadPcb(doc); setPcbExportOpen(false); }} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: COLORS.green, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{tr('⬇ 下载')}</button>
               </div>
@@ -593,10 +620,10 @@ export default function App() {
                 <div key={d.componentId} style={{ padding: '7px 10px', borderBottom: '1px solid #f1f5f9', fontSize: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontFamily: 'monospace', fontWeight: 700, flex: 1 }}>{d.mpn}</span>
-                    {d.mapSource && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, fontWeight: 700, background: d.mapSource === '本组织' ? '#dcfce7' : d.mapSource === 'ezPLM云端' ? '#e0f2fe' : '#fef3c7', color: d.mapSource === '本组织' ? '#166534' : d.mapSource === 'ezPLM云端' ? '#0369a1' : '#92400e' }}>{tr(d.mapSource ?? '')}</span>}
+                    {d.mapSource && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, fontWeight: 700, background: d.mapSource === tr('本组织') ? '#dcfce7' : d.mapSource === tr('ezPLM云端') ? '#e0f2fe' : '#fef3c7', color: d.mapSource === tr('本组织') ? '#166534' : d.mapSource === tr('ezPLM云端') ? '#0369a1' : '#92400e' }}>{tr(d.mapSource ?? '')}</span>}
                     <span style={{ color: '#64748b' }}>{d.defaultFootprintName}</span>
                     <span style={{ color: '#059669', fontWeight: 600 }}>{fmtMoney(d.unitPrice?.amount)}</span>
-                    {d.mapSource === '封装占位' && (
+                    {d.mapSource === tr('封装占位') && (
                       <button onClick={() => {
                         const open = linkRow === d.componentId;
                         setLinkRow(open ? null : d.componentId);
@@ -605,7 +632,7 @@ export default function App() {
                         title={tr('在 ezPLM 库中搜索并关联到真实器件')}
                         style={{ border: '1px solid #bae6fd', background: '#f0f9ff', color: '#0369a1', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>🔗 {tr('关联库器件')}</button>
                     )}
-                    {d.mapSource === '封装占位' && (
+                    {d.mapSource === tr('封装占位') && (
                       <button onClick={() => setWizard({ open: true, mpn: d.mpn })} title={tr('用构建向导创建该器件（AI 提取或手工填写）')}
                         style={{ border: '1px solid #ddd6fe', background: '#f5f3ff', color: '#6d28d9', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>🛠 {tr('创建')}</button>
                     )}
@@ -625,7 +652,7 @@ export default function App() {
                       {!linkBusy && (linkKw.trim() || linkIsRec) && !linkResults.length && <div style={{ fontSize: 10, color: '#b45309', marginTop: 4 }}>{tr('ezPLM 库中无匹配 —— 可点「🛠 创建」自行构建该器件')}</div>}
                       {linkResults.map((r) => (
                         <div key={r.componentId} onClick={() => {
-                          setAiProposal({ ...aiProposal, details: aiProposal.details.map((x) => x.componentId === d.componentId ? ({ ...r, mapSource: 'ezPLM云端' } as unknown as typeof x) : x) });
+                          setAiProposal({ ...aiProposal, details: aiProposal.details.map((x) => x.componentId === d.componentId ? ({ ...r, mapSource: tr('ezPLM云端') } as unknown as typeof x) : x) });
                           setLinkRow(null); setLinkKw(''); setLinkResults([]);
                         }} style={{ padding: '5px 8px', marginTop: 4, borderRadius: 5, background: '#fff', border: '1px solid #e0f2fe', cursor: 'pointer', fontSize: 11 }}>
                           <b style={{ fontFamily: 'monospace' }}>{r.mpn}</b> <span style={{ color: '#94a3b8' }}>{r.manufacturer} · {r.defaultFootprintName}</span>
@@ -726,6 +753,17 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
           <div style={{ fontSize: 14, fontFamily: 'monospace', color: COLORS.green, fontWeight: 600, wordBreak: 'break-all' }}>{c.mpn}</div>
           <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{c.display?.classification ?? disp.name} · {c.manufacturer} · {c.footprint.name}</div>
           {c.display?.classification && <span style={{ display: 'inline-block', marginTop: 4, fontSize: 9.5, padding: '1px 7px', borderRadius: 4, background: '#f1f5f9', color: '#475569', fontWeight: 600 }}>{t('分类：')}<TrSpan text={c.display.classification} /></span>}
+          {/* 可信等级：让"数据库事实"与"模型猜测"在界面上可区分 */}
+          {(() => {
+            const lv = c.trust?.level ?? 'PLACEHOLDER';
+            const m = TRUST_META[lv];
+            return (
+              <span title={c.trust?.evidence ?? tr('来源未知，需人工核对 datasheet')}
+                style={{ display: 'inline-block', marginTop: 4, marginLeft: 4, fontSize: 9.5, padding: '1px 7px', borderRadius: 4, background: m.bg, color: m.color, fontWeight: 700, cursor: 'help' }}>
+                {lv === 'VERIFIED' ? '✓ ' : lv === 'CANDIDATE' ? '? ' : '⚠ '}{tr(m.label)}
+              </span>
+            );
+          })()}
         </div>
         <ComponentImage c={c} imageUrl={detail?.imageUrl ?? c.display?.imageUrl ?? dkOffer?.photoUrl} />
       </div>
@@ -791,7 +829,7 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
             <span style={{ fontSize: 10, color: '#94a3b8' }}>{tr('跳转 ↗')}</span>
           </a>
         ) : (
-          <div style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>DigiKey：{dkOffer === null ? '查询中… / 未配置' : '未收录该型号'}</div>
+          <div style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>DigiKey：{dkOffer === null ? tr('查询中… / 未配置') : tr('未收录该型号')}</div>
         )}
         {/* Mouser/Arrow/element14：配置了 Key → 实时数据；未配置 → 演示数据占位 */}
         {['Mouser', 'Arrow', 'element14'].map((vendor) => {
@@ -809,7 +847,7 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
             );
           }
           if (real?.configured && !real.found) {
-            return <div key={vendor} style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>{vendor}：未收录该型号</div>;
+            return <div key={vendor} style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>{vendor}：{tr('未收录该型号')}</div>;
           }
           const mock = mockOffers(c.mpn, vendor);
           return (
@@ -989,7 +1027,7 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
       try {
         const j = await fetch('/api/kicadlib?path=libs').then((r) => r.json());
         if (Array.isArray(j.libs) && j.libs.length) { setKfLibs(j.libs); setKfMsg(''); }
-        else setKfMsg(String(j.error ?? '空列表'));
+        else setKfMsg(String(j.error ?? tr('空列表')));
       } catch (e) { setKfMsg(tr('网络错误，无法访问 KiCad 官方库') + '：' + (e as Error).message); }
     }
   };
@@ -1075,7 +1113,7 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
   const [ksDiag, setKsDiag] = useState('');
   const runKsDiag = async () => {
     const key = c.display?.symbolFromMpn ?? '';
-    const L: string[] = [`key=${key || '（未关联）'}`, `family=${c.display?.family}`];
+    const L: string[] = [`key=${key || tr('（未关联）')}`, `family=${c.display?.family}`];
     try {
       if (key.startsWith('KICADSYM:')) {
         const parts = key.split(':');
@@ -1089,7 +1127,7 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
         }
       }
       L.push(`override 在库=${symbolOverrideFor(key) ? '✓' : '✗'}`);
-    } catch (e) { L.push('异常：' + (e as Error).message); }
+    } catch (e) { L.push(tr('异常：') + (e as Error).message); }
     setKsDiag(L.join(' | '));
   };
 
@@ -1126,7 +1164,7 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
       <div style={{ marginTop: 8, padding: 8, borderRadius: 6, background: '#fff', border: '1px solid #f0abfc' }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: '#86198f', marginBottom: 5 }}>{tr('🔗 从 ezPLM 库关联')}</div>
         <div style={{ display: 'flex', gap: 5 }}>
-          {([['full', tr('📦 匹配型号'), '型号+符号+封装全部替换'], ['symbol', tr('📐 仅符号'), '只借用该器件的原理图符号，型号与封装不变'], ['footprint', tr('🔲 仅封装'), '只借用该器件的 PCB 封装与 3D，型号与符号不变']] as const).map(([m, label, tip]) => (
+          {([['full', tr('📦 匹配型号'), tr('型号+符号+封装全部替换')], ['symbol', tr('📐 仅符号'), tr('只借用该器件的原理图符号，型号与封装不变')], ['footprint', tr('🔲 仅封装'), tr('只借用该器件的 PCB 封装与 3D，型号与符号不变')]] as const).map(([m, label, tip]) => (
             <button key={m} onClick={() => openMode(m)} title={tip}
               style={{ flex: 1, padding: '5px 4px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer',
                 border: `1px solid ${mode === m ? '#a21caf' : '#e9d5ff'}`, background: mode === m ? '#fae8ff' : '#fff', color: mode === m ? '#86198f' : '#a855f7' }}>{label}</button>
@@ -1135,7 +1173,7 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
         {mode && (
           <div style={{ marginTop: 6 }}>
             <input autoFocus value={kw} onChange={(e) => { setKw(e.target.value); doSearch(e.target.value); }}
-              placeholder={mode === 'symbol' ? '搜索型号，借用其原理图符号…' : mode === 'footprint' ? '搜索型号，借用其封装…' : '搜索 ezPLM 型号…'}
+              placeholder={mode === 'symbol' ? tr('搜索型号，借用其原理图符号…') : mode === 'footprint' ? tr('搜索型号，借用其封装…') : tr('搜索 ezPLM 型号…')}
               style={{ width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid #e9d5ff', fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
             {busy && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>{tr('搜索中…')}</div>}
             {!busy && kw.trim() && !results.length && <div style={{ fontSize: 10, color: '#b45309', marginTop: 4 }}>{tr('无匹配结果')}</div>}
@@ -1145,7 +1183,7 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
                 <b style={{ fontFamily: 'monospace' }}>{r.mpn}</b>
                 <span style={{ color: '#94a3b8' }}> · {r.manufacturer}</span>
                 <div style={{ color: '#a855f7', fontSize: 9.5, marginTop: 1 }}>
-                  {mode === 'symbol' ? `借用符号${r.symbolFileUrl ? '（含 KiCad 符号文件）' : '（按引脚数生成）'}` : mode === 'footprint' ? `借用封装 ${r.defaultFootprintName}` : `${r.defaultFootprintName}`}
+                  {mode === 'symbol' ? `借用符号${r.symbolFileUrl ? '（含 KiCad 符号文件）' : tr('（按引脚数生成）')}` : mode === 'footprint' ? `借用封装 ${r.defaultFootprintName}` : `${r.defaultFootprintName}`}
                 </div>
               </div>
             ))}

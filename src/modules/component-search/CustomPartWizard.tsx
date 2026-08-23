@@ -17,10 +17,10 @@ import {
 import type { ComponentCategory } from '../../design-core/document/types';
 
 const FAMILIES: [CustomPkg['family'], string][] = [
-  ['dual', '双列贴片 (SOP/TSSOP)'], ['quad', '四边鸥翼 (QFP)'], ['qfn', '四边无脚 (QFN)'], ['header', '单排针 (2.54)'], ['chip', '两端贴片 (阻容)'],
-  ['manual', '异形·手动焊盘坐标（继电器/模块等）'],
+  ['dual', tr('双列贴片 (SOP/TSSOP)')], ['quad', tr('四边鸥翼 (QFP)')], ['qfn', tr('四边无脚 (QFN)')], ['header', tr('单排针 (2.54)')], ['chip', tr('两端贴片 (阻容)')],
+  ['manual', tr('异形·手动焊盘坐标（继电器/模块等）')],
 ];
-const CATS: [ComponentCategory, string][] = [['ic', '集成电路'], ['mcu', '微控制器'], ['power', '电源'], ['connector', '连接器'], ['passive', '无源'], ['electromech', '机电(继电器/开关)'], ['sensor', '传感器'], ['rf', '射频无线']];
+const CATS: [ComponentCategory, string][] = [['ic', tr('集成电路')], ['mcu', tr('微控制器')], ['power', tr('电源')], ['connector', tr('连接器')], ['passive', tr('无源')], ['electromech', tr('机电(继电器/开关)')], ['sensor', tr('传感器')], ['rf', tr('射频无线')]];
 
 export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { initialMpn?: string; editPart?: CustomPart; onSaved: (p: CustomPart) => void; onClose: () => void }) {
   // editPart 存在 = 编辑既有自建器件（保留 id/createdAt，保存即覆盖）
@@ -67,7 +67,7 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
       const b64 = await new Promise<string>((res, rej) => {
         const rd = new FileReader();
         rd.onload = () => res(String(rd.result).split(',')[1] ?? '');
-        rd.onerror = () => rej(new Error('读取失败'));
+        rd.onerror = () => rej(new Error(tr('读取失败')));
         rd.readAsDataURL(f);
       });
       const r = await fetch('/api/gemini', {
@@ -156,11 +156,11 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
     setAiBusy(true); setAiMsg('');
     try {
       // 优先 ds2kicad 引擎（确定性 PDF 解析 + 按需 AI）：适用于 PDF 上传与 PDF 链接
-      let usedEngine = '内置 Gemini';
+      let usedEngine = tr('内置 Gemini');
       if (payload.fileBase64 || payload.url) {
         const st = await fetch('/api/ds2kicad').then((r) => r.json()).catch(() => ({ configured: false }));
         if (!st.configured) {
-          setAiMsg('⚠ 未配置 DS2KICAD_URL（提取引擎），本次使用内置 Gemini——PDF 提取精度建议配置 ds2kicad');
+          setAiMsg(tr('⚠ 未配置 DS2KICAD_URL（提取引擎），本次使用内置 Gemini——PDF 提取精度建议配置 ds2kicad'));
         }
         if (st.configured) {
           usedEngine = 'ds2kicad';
@@ -173,7 +173,7 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
           setAiMsg(`ds2kicad 提取失败（${(err as { error?: string }).error ?? r.status}），回退内置 Gemini…`);
         }
       }
-      if (!(await geminiAvailable())) { setAiMsg('未配置 GEMINI_API_KEY（或配置 DS2KICAD_URL 使用提取引擎）'); setAiBusy(false); return; }
+      if (!(await geminiAvailable())) { setAiMsg(tr('未配置 GEMINI_API_KEY（或配置 DS2KICAD_URL 使用提取引擎）')); setAiBusy(false); return; }
       let text: string;
       if (payload.text) {
         text = await geminiComplete(`以下是器件资料文本：\n${payload.text.slice(0, 60000)}\n\n${EXTRACT_PROMPT}`);
@@ -188,7 +188,7 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
       applyExtract(extractJson(text));
       setAiMsg(`✓ 已提取（${usedEngine}），请核对下方表单后保存`);
     } catch (e) {
-      setAiMsg('提取失败：' + (e as Error).message);
+      setAiMsg(tr('提取失败：') + (e as Error).message);
     }
     setAiBusy(false);
   };
@@ -203,7 +203,7 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
       const b64 = await new Promise<string>((res, rej) => {
         const rd = new FileReader();
         rd.onload = () => res(String(rd.result).split(',')[1] ?? '');
-        rd.onerror = () => rej(new Error('读取失败'));
+        rd.onerror = () => rej(new Error(tr('读取失败')));
         rd.readAsDataURL(f);
       });
       let text = '';
@@ -239,7 +239,7 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
   };
 
   const save = () => {
-    if (!mpn.trim() || !pins.length) { setAiMsg('型号与管脚不能为空'); return; }
+    if (!mpn.trim() || !pins.length) { setAiMsg(tr('型号与管脚不能为空')); return; }
     const part: CustomPart = {
       // 编辑模式保留原 id/创建时间（保存即覆盖同一条，不产生重复器件）
       id: editPart?.id ?? Math.random().toString(36).slice(2, 10), mpn: mpn.trim(), description: desc.trim() || undefined,

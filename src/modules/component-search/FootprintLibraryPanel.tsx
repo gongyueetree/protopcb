@@ -45,7 +45,7 @@ export function FootprintLibraryPanel() {
     setKlBusy('libs'); setKlErr('');
     try {
       const j = await fetch('/api/kicadlib?path=libs').then((r) => r.json());
-      if (j.libs) setKlLibs(j.libs); else setKlErr(j.error ?? '加载失败');
+      if (j.libs) setKlLibs(j.libs); else setKlErr(j.error ?? tr('加载失败'));
     } catch { setKlErr(tr('网络错误，无法访问 KiCad 官方库')); }
     setKlBusy('');
   };
@@ -55,7 +55,7 @@ export function FootprintLibraryPanel() {
     setKlBusy('items'); setKlErr('');
     try {
       const j = await fetch(`/api/kicadlib?path=list&lib=${encodeURIComponent(lib)}`).then((r) => r.json());
-      if (j.items) setKlItems(j.items); else setKlErr(j.error ?? '加载失败');
+      if (j.items) setKlItems(j.items); else setKlErr(j.error ?? tr('加载失败'));
     } catch { setKlErr(tr('网络错误，无法访问 KiCad 官方库')); }
     setKlBusy('');
   };

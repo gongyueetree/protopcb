@@ -26,6 +26,9 @@ export function createBoard(widthMm = 100, heightMm = 80): BoardDefinition {
   };
 }
 
+/** 未命名文档的占位名。存储层统一用它，展示层经 i18n 翻译。 */
+export const UNTITLED_DOC_NAME = '未命名设计';
+
 export function createDocument(opts?: {
   name?: string;
   source?: RunMode;
@@ -36,7 +39,7 @@ export function createDocument(opts?: {
   return {
     schemaVersion: SCHEMA_VERSION,
     id: nanoid(12),
-    name: opts?.name ?? '未命名设计',
+    name: opts?.name ?? UNTITLED_DOC_NAME,
     context: { source: opts?.source ?? 'demo' },
     board: opts?.board ?? createBoard(),
     components: [],

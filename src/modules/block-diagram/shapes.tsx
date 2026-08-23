@@ -3,19 +3,21 @@
  * 框图形状定义与渲染（draw.io 风格基础形状）。
  */
 import type { JSX } from 'react';
+import { tr } from '../../shared/i18n';
 
 export const BD_COLORS = ['#1a6b3c', '#b45309', '#0e7490', '#6d28d9', '#be185d', '#4b5563', '#0369a1', '#a16207'];
 
-export const BD_SHAPES: { id: string; name: string; icon: string }[] = [
-  { id: 'rounded', name: '圆角矩形', icon: '▢' },
-  { id: 'rect', name: '矩形', icon: '□' },
-  { id: 'diamond', name: '菱形', icon: '◇' },
-  { id: 'ellipse', name: '椭圆', icon: '○' },
-  { id: 'hexagon', name: '六边形', icon: '⬡' },
-  { id: 'parallelogram', name: '平行四边形', icon: '▱' },
-  { id: 'cylinder', name: '圆柱', icon: '⌸' },
-  { id: 'triangle', name: '三角形', icon: '△' },
-];
+/** 形状清单：名称需随语言变化，故用函数而非模块级常量（常量只在加载时求值一次） */
+export const bdShapes = (): { id: string; name: string; icon: string }[] => ([
+  { id: 'rounded', name: tr('圆角矩形'), icon: '▢' },
+  { id: 'rect', name: tr('矩形'), icon: '□' },
+  { id: 'diamond', name: tr('菱形'), icon: '◇' },
+  { id: 'ellipse', name: tr('椭圆'), icon: '○' },
+  { id: 'hexagon', name: tr('六边形'), icon: '⬡' },
+  { id: 'parallelogram', name: tr('平行四边形'), icon: '▱' },
+  { id: 'cylinder', name: tr('圆柱'), icon: '⌸' },
+  { id: 'triangle', name: tr('三角形'), icon: '△' },
+]);
 
 interface ShapeProps {
   shape: string;

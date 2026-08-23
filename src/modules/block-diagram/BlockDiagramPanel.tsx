@@ -8,7 +8,7 @@ import { analyzeArchitecture, layoutArchBlocks, colorForKind } from './arch-anal
 import type { ConnectionStyle } from '../../design-core/document/types';
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useDesignStore } from '../../state/designStore';
-import { BD_SHAPES, BdShape } from './shapes';
+import { bdShapes, BdShape } from './shapes';
 import type { FunctionalBlock, LogicalConnection } from '../../design-core/document/types';
 import { COLORS } from '../../shared/theme';
 
@@ -54,7 +54,7 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
       })));
       setArchMsg(r.summary);
     } catch (e) {
-      setArchMsg('分析失败：' + (e as Error).message);
+      setArchMsg(tr('分析失败：') + (e as Error).message);
     }
     setArchBusy(false);
   };
@@ -233,7 +233,7 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
         {sel?.type === 'node' && (
           <>
             <span style={{ fontSize: 11, color: '#94a3b8' }}>{tr('形状:')}</span>
-            {BD_SHAPES.map((s) => (
+            {bdShapes().map((s) => (
               <button key={s.id} title={s.name} onClick={() => changeShape(s.id)} style={{ width: 24, height: 22, borderRadius: 4, border: '1px solid #E8F3EE', background: '#fff', cursor: 'pointer', fontSize: 12 }}>{s.icon}</button>
             ))}
           </>
@@ -245,8 +245,8 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
           // 方向与线型解耦：总线也可设单向/反向/双向
           const effDir = a.dir ?? (a.style === 'single' ? 'forward' : a.style === 'double' ? 'both' : a.style === 'back' ? 'back' : 'none');
           const isBus = a.style === 'bus';
-          const lineTypes: [boolean, string][] = [[false, '—普通'], [true, '≡总线']];
-          const dirs: [string, string][] = [['forward', '→单向'], ['back', '←反向'], ['both', '↔双向'], ['none', '·无']];
+          const lineTypes: [boolean, string][] = [[false, tr('—普通')], [true, tr('≡总线')]];
+          const dirs: [string, string][] = [['forward', tr('→单向')], ['back', tr('←反向')], ['both', tr('↔双向')], ['none', tr('·无')]];
           const applyLine = (bus: boolean) => setConns(conns.map((c) => c.id === sel.id ? { ...c, style: bus ? 'bus' as const : (effDir === 'forward' ? 'single' : effDir === 'both' ? 'double' : effDir === 'back' ? 'back' : 'none') as typeof c.style, dir: effDir as NonNullable<typeof c.dir> } : c));
           const applyDir = (d: string) => setConns(conns.map((c) => c.id === sel.id ? { ...c, dir: d as NonNullable<typeof c.dir>, style: isBus ? 'bus' as const : (d === 'forward' ? 'single' : d === 'both' ? 'double' : d === 'back' ? 'back' : 'none') as typeof c.style } : c));
           return (
@@ -267,7 +267,7 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
           );
         })()}
         <div style={{ flex: 1 }} />
-        {onToggleFullscreen && <button onClick={onToggleFullscreen} style={tb}>{isFullscreen ? '↙ 退出全屏' : '⛶ 全屏'}</button>}
+        {onToggleFullscreen && <button onClick={onToggleFullscreen} style={tb}>{isFullscreen ? tr('↙ 退出全屏') : tr('⛶ 全屏')}</button>}
       </div>
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fafbfc' }}>
         <svg ref={svgRef} width="100%" height="100%"
@@ -314,7 +314,7 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
           <button onClick={() => setZoom((z) => Math.min(4, z * 1.25))} style={zb}>+</button>
         </div>
         {archMsg && (
-          <div style={{ position: 'absolute', top: 8, left: 8, right: 8, zIndex: 5, fontSize: 11, padding: '6px 26px 6px 10px', borderRadius: 8, background: archMsg.startsWith('分析失败') ? '#fef2f2' : '#f0fdf4', border: '1px solid ' + (archMsg.startsWith('分析失败') ? '#fecaca' : '#bbf7d0'), color: archMsg.startsWith('分析失败') ? '#b91c1c' : '#166534' }}>
+          <div style={{ position: 'absolute', top: 8, left: 8, right: 8, zIndex: 5, fontSize: 11, padding: '6px 26px 6px 10px', borderRadius: 8, background: archMsg.startsWith(tr('分析失败')) ? '#fef2f2' : '#f0fdf4', border: '1px solid ' + (archMsg.startsWith(tr('分析失败')) ? '#fecaca' : '#bbf7d0'), color: archMsg.startsWith(tr('分析失败')) ? '#b91c1c' : '#166534' }}>
             {archMsg}
             <span onClick={() => setArchMsg('')} style={{ position: 'absolute', top: 4, right: 8, cursor: 'pointer', fontWeight: 700 }}>×</span>
           </div>

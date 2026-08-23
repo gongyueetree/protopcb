@@ -3,6 +3,7 @@
  * 共享设计令牌与显示常量。
  */
 import type { ComponentCategory } from '../design-core/document/types';
+import { currencySym } from './i18n';
 
 export const COLORS = {
   green: '#1f5c3b',
@@ -28,5 +29,6 @@ export const CATEGORY_DISPLAY: Record<ComponentCategory, { name: string; icon: s
 export const CATEGORY_LIST: ComponentCategory[] = ['mcu', 'power', 'passive', 'connector', 'ic', 'electromech', 'sensor', 'rf'];
 
 export function fmtMoney(amount?: number): string {
-  return amount == null ? '—' : `¥${amount.toFixed(2)}`;
+  // 币种符号跟随界面语言（只切显示符号，不做汇率换算）
+  return amount == null ? '—' : `${currencySym()}${amount.toFixed(2)}`;
 }

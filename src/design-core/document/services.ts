@@ -49,6 +49,28 @@ export function nextReference(r: { category: ComponentCategory; mpn?: string; de
 }
 
 /** 搜索结果 → 已放置器件（位置暂置 0，由放置引擎求解）。 */
+/** 依据器件来源判定可信等级（数据事实 vs 模型猜测） */
+function trustForResult(r: ComponentSearchResult): PlacedComponent['trust'] {
+  const id = r.componentId ?? '';
+  const now = new Date().toISOString();
+  if (id.startsWith('ez_') || r.org) {
+    return { level: 'VERIFIED', evidence: 'ezPLM 库内器件', verifiedAt: now, source: 'ezPLM' };
+  }
+  if (id.startsWith('sup_')) {
+    return { level: 'VERIFIED', evidence: '分销商 API 精确匹配', verifiedAt: now, source: '分销商' };
+  }
+  if (id.startsWith('kicadlib_')) {
+    return { level: 'CANDIDATE', evidence: 'KiCad 官方封装，型号需自行指定', source: 'KiCad 库' };
+  }
+  if (id.startsWith('sub_') || id.startsWith('ai_')) {
+    return { level: 'PLACEHOLDER', evidence: 'AI 建议的通用件，未经数据库验证', source: 'AI' };
+  }
+  if (id.startsWith('custom_') || id.startsWith('fp_')) {
+    return { level: 'CANDIDATE', evidence: '自建器件，参数由用户提供', source: '自建' };
+  }
+  return { level: 'PLACEHOLDER', evidence: '来源未知，需人工核对 datasheet' };
+}
+
 export function searchResultToPlaced(r: ComponentSearchResult, reference: string): PlacedComponent {
   const fpName = r.defaultFootprintName;
   // KiCad 名解析命中 → 用真实焊盘范围推导几何（本体 + courtyard），碰撞/避让随之精确
@@ -70,6 +92,9 @@ export function searchResultToPlaced(r: ComponentSearchResult, reference: string
     quantity: 1,
     unitPrice: r.unitPrice,
     source: r.org || r.componentId.startsWith('ez_') ? 'EZPLM' : 'MOCK',
+    // 可信等级：来自 ezPLM/分销商检索的器件是库内命中；
+    // 子电路/AI 建议（sub_ 前缀）与占位器件只能算未验证，导出时要显式提示。
+    trust: trustForResult(r),
     display: { description: r.description, family: r.family, attributes: r.attributes, pins: r.pins, datasheetUrl: r.datasheetUrl, imageUrl: r.imageUrl, stepUrl: r.stepUrl, officialUrl: r.productUrl, footprintFileUrl: r.footprintFileUrl, symbolFileUrl: r.symbolFileUrl, classification: r.classification },
   };
 }

@@ -1,3 +1,6 @@
+import { acquire, checkBodySize, checkAiPayload, deny, LIMITS } from './_lib/guard.js';
+import { safeFetch } from './_lib/safe-fetch.js';
+
 /**
  * api/gemini.js — Vercel Serverless Function：Gemini 代理
  * Key 存服务端环境变量 GEMINI_API_KEY（不带 VITE_ 前缀，不进前端 bundle）。
@@ -70,8 +73,16 @@ export default async function handler(req, res) {
     return res.status(501).send(JSON.stringify({ error: 'GEMINI_API_KEY not configured' }));
   }
 
+  // ── 配额防护：体积 → 频率/并发 → AI 入参 ──
+  const sizeCheck = checkBodySize(req);
+  if (!sizeCheck.ok) return deny(res, sizeCheck);
+  const lease = acquire(req, 'gemini');
+  if (!lease.ok) return deny(res, lease);
+
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body ?? {});
+    const aiCheck = checkAiPayload(body);
+    if (!aiCheck.ok) return deny(res, aiCheck);
     let prompt = String(body.prompt ?? '');
     if (!prompt) return res.status(400).send(JSON.stringify({ error: 'prompt required' }));
     // PDF 上传直读：不经 ds2kicad 时的兜底提取链路
@@ -91,20 +102,25 @@ export default async function handler(req, res) {
     let urlInline = null;
     if (body.url) {
       try {
-        const page = await fetch(String(body.url), { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        const ct = page.headers.get('content-type') ?? '';
-        const isPdf = /pdf/i.test(ct) || /\.pdf(\?|#|$)/i.test(String(body.url));
+        // safeFetch：协议白名单 + DNS 解析后 IP 判定 + 逐跳重定向校验 + 大小/超时限制
+        const { buffer, contentType } = await safeFetch(String(body.url), {
+          allowHttp: process.env.ALLOW_HTTP_FETCH === '1',
+          maxBytes: LIMITS.fileBytes,
+          timeoutMs: 20000,
+        });
+        const isPdf = /pdf/i.test(contentType) || buffer.slice(0, 5).toString() === '%PDF-';
         if (isPdf) {
-          const buf = Buffer.from(await page.arrayBuffer());
-          if (buf.length > 4 * 1024 * 1024) return res.status(413).send(JSON.stringify({ error: 'PDF 超过 4MB，请下载后裁剪关键页再上传' }));
-          if (buf.slice(0, 5).toString() !== '%PDF-') return res.status(422).send(JSON.stringify({ error: '链接内容不是 PDF' }));
-          urlInline = { mime_type: 'application/pdf', data: buf.toString('base64') };
+          if (buffer.slice(0, 5).toString() !== '%PDF-') {
+            return res.status(422).send(JSON.stringify({ error: '链接内容不是有效的 PDF' }));
+          }
+          urlInline = { mime_type: 'application/pdf', data: buffer.toString('base64') };
+        } else if (/^text\/|application\/(xhtml|json)/i.test(contentType)) {
+          prompt = `以下是网页 ${body.url} 的正文内容：\n${buf2text(buffer.toString('utf8'))}\n\n${prompt}`;
         } else {
-          const html = buf2text(await page.text());
-          prompt = `以下是网页 ${body.url} 的正文内容：\n${html}\n\n${prompt}`;
+          return res.status(415).send(JSON.stringify({ error: `不支持的链接内容类型：${contentType.split(';')[0] || '未知'}` }));
         }
       } catch (e) {
-        return res.status(400).send(JSON.stringify({ error: 'URL 抓取失败: ' + String(e).slice(0, 120) }));
+        return res.status(400).send(JSON.stringify({ error: 'URL 抓取失败: ' + String(e.message ?? e).slice(0, 160) }));
       }
     }
     function buf2text(html) {
@@ -116,5 +132,7 @@ export default async function handler(req, res) {
     return res.status(200).send(JSON.stringify({ text: out.text, model: out.model }));
   } catch (err) {
     return res.status(502).send(JSON.stringify({ error: 'gemini request failed', detail: String(err).slice(0, 300) }));
+  } finally {
+    lease.release();
   }
 }

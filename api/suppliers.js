@@ -1,3 +1,4 @@
+import { acquire, checkBodySize, deny } from './_lib/guard.js';
 /**
  * api/suppliers.js — 供应商价格/库存聚合代理（Mouser / Arrow / element14）
  *
@@ -77,7 +78,7 @@ async function queryArrow(login, key, mpn) {
   const pd = src.flatMap((sc) => sc?.sourceParts ?? [])[0];
   const price = pd?.Prices?.resaleList?.[0]?.price ?? pd?.prices?.[0]?.price;
   const stock = pd?.Availability?.[0]?.fohQuantity;
-  const arrowMpn = String(p?.partNum ?? p?.mpn ?? p?.partNumber ?? '').toUpperCase();
+  const arrowMpn = String(part?.partNum ?? part?.partNumber ?? part?.itemId ?? '').toUpperCase();
   if (arrowMpn && arrowMpn !== mpn.toUpperCase()) return { found: false, note: 'no exact match' };
   return {
     found: true,
@@ -110,6 +111,12 @@ async function queryElement14(key, mpn) {
 
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  // 配额防护：这些接口消耗自有 API 额度，需限制频率/并发/体积
+  const sizeCheck = checkBodySize(req);
+  if (!sizeCheck.ok) return deny(res, sizeCheck);
+  const lease = acquire(req, 'suppliers');
+  if (!lease.ok) return deny(res, lease);
+  try {
   const { path, mpn } = req.query ?? {};
   const t = (v) => (v ?? '').trim() || undefined;
   const mouserKey = t(process.env.MOUSER_API_KEY);
@@ -264,4 +271,7 @@ export default async function handler(req, res) {
   }));
   res.setHeader('Cache-Control', 'public, max-age=600');
   return res.status(200).send(JSON.stringify({ offers }));
+  } finally {
+    lease.release();
+  }
 }

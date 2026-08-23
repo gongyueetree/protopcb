@@ -85,6 +85,19 @@ export interface PlacedComponent {
   unitPrice?: Money;
   source: ComponentSource;
 
+  /**
+   * 型号可信等级：数据事实与模型猜测必须可区分。
+   *  VERIFIED    数据库/分销商精确命中
+   *  CANDIDATE   仅近似匹配，需人工确认
+   *  PLACEHOLDER 模型建议，数据库未收录
+   * 缺省视为 PLACEHOLDER（保守）。
+   */
+  trust?: {
+    level: 'VERIFIED' | 'CANDIDATE' | 'PLACEHOLDER';
+    evidence: string;
+    verifiedAt?: string;
+    source?: string;
+  };
   /** 位号显示状态（可移动/旋转/隐藏） */
   refDesDisplay?: { dx: number; dy: number; rotation: number; hidden: boolean };
   /** 用户上传的自定义原理图符号（SVG 文本，封装占位器件用） */

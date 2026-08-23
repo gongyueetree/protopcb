@@ -19,10 +19,16 @@ function makeXform(inst: { x: number; y: number; rot: number; mirror?: string; m
   // 拆成 rot+mirror 再重组时，两者施加顺序不同会让电源符号等出现 180° 偏差。
   if (inst.mat) {
     const [a, b, c2, d] = inst.mat;
-    return (px: number, py: number): Pt => ({
-      x: (inst.x + (a * px + b * py)) * PXMM,
-      y: (inst.y + (c2 * px + d * py)) * PXMM,
-    });
+    return (px: number, py: number): Pt => {
+      // 矩阵按 KiCad 库坐标（Y 向上）定义，而 kicad-lib-legacy 解析时已把几何翻成
+      // Y 向下。若直接套用矩阵等于翻转两次 —— 这正是电源/GND 符号相对管脚
+      // 反转 180° 的根因。这里先翻回库坐标系再施加矩阵。
+      const ly = -py;
+      return {
+        x: (inst.x + (a * px + b * ly)) * PXMM,
+        y: (inst.y + (c2 * px + d * ly)) * PXMM,
+      };
+    };
   }
   const rad = (inst.rot * Math.PI) / 180;
   const cos = Math.cos(rad), sin = Math.sin(rad);
@@ -142,12 +148,17 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
         );
         // 管脚名：画在本体一侧（从端点朝本体内缩），KiCad 的标准画法
         if (pn.name) {
-          const ux = horizontal ? (end.x >= tip.x ? -1 : 1) : 0;
-          const uy = horizontal ? 0 : (end.y >= tip.y ? -1 : 1);
+          // 管脚线由 tip（对外连接端）指向 end（贴本体端），管脚名应沿同方向**继续深入本体内部**。
+          // 原来取的是反方向，名字被甩到方框外面。
+          const sx = Math.sign(end.x - tip.x) || 0;
+          const sy = Math.sign(end.y - tip.y) || 0;
+          const off = 2.5;
           kids.push(
-            <text key={'pname' + i} x={end.x + ux * 3} y={end.y + uy * 3 + (horizontal ? 2.5 : 0)}
+            <text key={'pname' + i}
+              x={end.x + (horizontal ? sx * off : 0)}
+              y={end.y + (horizontal ? 2.5 : sy * off + (sy > 0 ? 5 : -1.5))}
               fontSize={7} fill="#334155" fontFamily="monospace"
-              textAnchor={horizontal ? (end.x >= tip.x ? 'end' : 'start') : 'middle'}
+              textAnchor={horizontal ? (sx > 0 ? 'start' : 'end') : 'middle'}
               style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={2.5}>{pn.name}</text>,
           );
         }

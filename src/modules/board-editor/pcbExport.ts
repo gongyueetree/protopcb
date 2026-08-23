@@ -169,6 +169,22 @@ export function buildKicadPcb(doc: CircuitCanvasDocument): string {
   mountingHoleCenters(doc.board).forEach((c, i) => { L.push(holeBlock(c.x, c.y, i + 1)); L.push(``); });
   // 器件
   for (const c of doc.components) { L.push(footprintBlock(c, doc.nets)); L.push(``); }
+
+  // 铜箔走线与过孔：导入工程带来的布线原样写回（画布上新建的设计没有走线，此段为空）
+  if (doc.tracks?.length) {
+    for (const t of doc.tracks) {
+      const layer = t.layer === 'bottom' ? 'B.Cu' : 'F.Cu';
+      L.push(`  (segment (start ${F(t.x1)} ${F(t.y1)}) (end ${F(t.x2)} ${F(t.y2)}) (width ${F(t.w)}) (layer "${layer}") (net 0))`);
+    }
+    L.push(``);
+  }
+  if (doc.vias?.length) {
+    for (const v of doc.vias) {
+      const drill = Math.max(0.2, v.size * 0.5);
+      L.push(`  (via (at ${F(v.x)} ${F(v.y)}) (size ${F(v.size)}) (drill ${F(drill)}) (layers "F.Cu" "B.Cu") (net 0))`);
+    }
+    L.push(``);
+  }
   L.push(`)`);
   return L.join('\n');
 }

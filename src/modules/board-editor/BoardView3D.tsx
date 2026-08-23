@@ -58,7 +58,7 @@ export function BoardView3D() {
       // WebGL 不可用：显示降级提示，避免白屏
       const msg = document.createElement('div');
       msg.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#86efac;font-size:13px;background:#0c1520';
-      msg.textContent = '当前环境不支持 WebGL，无法显示 3D 视图';
+      msg.textContent = tr('当前环境不支持 WebGL，无法显示 3D 视图');
       mount.appendChild(msg);
       return;
     }

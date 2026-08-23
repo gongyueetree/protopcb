@@ -48,6 +48,12 @@ const placedComponentSchema = z.object({
   unitPrice: moneySchema.optional(),
   source: z.enum(['EZPLM', 'LOCAL', 'CUSTOM', 'MOCK']),
   refDesDisplay: z.object({ dx: z.number(), dy: z.number(), rotation: z.number(), hidden: z.boolean() }).optional(),
+  trust: z.object({
+    level: z.enum(['VERIFIED', 'CANDIDATE', 'PLACEHOLDER']),
+    evidence: z.string(),
+    verifiedAt: z.string().optional(),
+    source: z.string().optional(),
+  }).optional(),
   customSymbolSvg: z.string().optional(),
   display: z
     .object({
