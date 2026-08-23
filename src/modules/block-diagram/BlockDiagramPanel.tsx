@@ -344,7 +344,7 @@ function BlockNode({ node, selected, connecting, isSource, onDown, onResize, edi
             style={{ width: '100%', fontSize: 12, fontWeight: 700, textAlign: 'center', border: '1px solid #93c5fd', borderRadius: 4, outline: 'none', boxSizing: 'border-box' }} />
         </foreignObject>
       ) : (
-        <text x={node.w / 2} y={node.h / 2} textAnchor="middle" dominantBaseline="middle" fontSize={12} fontWeight={700} fill={node.color} style={{ pointerEvents: 'none' }}>{node.label}</text>
+        <text x={node.w / 2} y={node.h / 2} textAnchor="middle" dominantBaseline="middle" fontSize={12} fontWeight={700} fill={node.color} style={{ pointerEvents: 'none' }}>{tr(node.label)}</text>
       )}
       {node.sublabel && !editing && <text x={node.w / 2} y={node.h / 2 + 16} textAnchor="middle" fontSize={8} fill="#94a3b8" style={{ pointerEvents: 'none' }}>{node.sublabel}</text>}
       {selected && handles.map((hd) => (

@@ -57,3 +57,28 @@ describe('服务端配额防护', () => {
     expect(checkAiPayload({ prompt: 'ok', imageBase64: 'AAAA', imageMime: 'image/png' }).ok).toBe(true);
   });
 });
+
+describe('请求体解析（Buffer 曾导致「一上传就 400」）', () => {
+  it('对象 / 字符串 / Buffer / Uint8Array 都能读到字段', async () => {
+    const { readJsonBody } = await import('../_lib/guard.js');
+    const payload = { prompt: 'extract', pdfBase64: 'JVBERi0xLjQK' };
+    const text = JSON.stringify(payload);
+    expect(readJsonBody({ body: payload })).toEqual(payload);
+    expect(readJsonBody({ body: text })).toEqual(payload);
+    expect(readJsonBody({ body: Buffer.from(text) })).toEqual(payload);
+    expect(readJsonBody({ body: new Uint8Array(Buffer.from(text)) })).toEqual(payload);
+  });
+
+  it('空 / 损坏的 body 安全回落为空对象，不抛异常', async () => {
+    const { readJsonBody } = await import('../_lib/guard.js');
+    expect(readJsonBody({})).toEqual({});
+    expect(readJsonBody({ body: null })).toEqual({});
+    expect(readJsonBody({ body: '' })).toEqual({});
+    expect(readJsonBody({ body: Buffer.from('not json') })).toEqual({});
+  });
+
+  it('旧字段 fileBase64 也计入附件大小上限', async () => {
+    const { checkAiPayload, LIMITS } = await import('../_lib/guard.js');
+    expect(checkAiPayload({ prompt: 'x', fileBase64: 'A'.repeat(LIMITS.fileBytes * 2) }).status).toBe(413);
+  });
+});

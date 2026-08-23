@@ -1,4 +1,4 @@
-import { acquire, checkBodySize, checkAiPayload, deny, LIMITS } from './_lib/guard.js';
+import { acquire, checkBodySize, checkAiPayload, deny, LIMITS, readJsonBody } from './_lib/guard.js';
 import { safeFetch } from './_lib/safe-fetch.js';
 
 /**
@@ -80,7 +80,7 @@ export default async function handler(req, res) {
   if (!lease.ok) return deny(res, lease);
 
   try {
-    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body ?? {});
+    const body = readJsonBody(req);
     const aiCheck = checkAiPayload(body);
     if (!aiCheck.ok) return deny(res, aiCheck);
     let prompt = String(body.prompt ?? '');

@@ -98,7 +98,7 @@ export function checkAiPayload(body) {
   }
   const b64Len = (v) => (typeof v === 'string' ? Math.floor(v.length * 0.75) : 0);
   const imgBytes = b64Len(body?.imageBase64);
-  const pdfBytes = b64Len(body?.pdfBase64);
+  const pdfBytes = Math.max(b64Len(body?.pdfBase64), b64Len(body?.fileBase64));
   if (Math.max(imgBytes, pdfBytes) > LIMITS.fileBytes) {
     return { ok: false, status: 413, error: `附件超过 ${Math.round(LIMITS.fileBytes / 1024 / 1024)}MB 上限` };
   }
@@ -120,3 +120,25 @@ export function deny(res, r) {
 
 /** 供测试用：重置内部计数 */
 export function __resetGuard() { buckets.clear(); }
+
+/**
+ * 稳健读取请求体。
+ *
+ * Vercel/Node 在不同情形下会把 body 交成对象、字符串或 Buffer
+ * （大 base64 负载尤其容易拿到 Buffer）。此前只处理前两种，
+ * 拿到 Buffer 时字段全部读不到 → 立刻回 400「prompt required」，
+ * 表现为「一上传就失败」。
+ */
+export function readJsonBody(req) {
+  const b = req?.body;
+  if (b == null) return {};
+  if (typeof b === 'object' && !Buffer.isBuffer(b) && !(b instanceof Uint8Array)) return b;
+  try {
+    const text = Buffer.isBuffer(b) || b instanceof Uint8Array
+      ? Buffer.from(b).toString('utf8')
+      : String(b);
+    return text.trim() ? JSON.parse(text) : {};
+  } catch {
+    return {};
+  }
+}

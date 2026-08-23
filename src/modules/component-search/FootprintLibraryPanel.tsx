@@ -5,7 +5,7 @@
  */
 import { tr } from '../../shared/i18n';
 import { parseKicadMod } from '../../design-core/geometry/kicad-file-parser';
-import { registerFootprintOverride } from '../../design-core/geometry/lib-file-registry';
+import { registerFootprintOverride, registerSymbolOverride, parseKicadSym } from '../../design-core/geometry/lib-file-registry';
 import { useState, useEffect } from 'react';
 import { useDesignStore } from '../../state/designStore';
 import { COLORS } from '../../shared/theme';
@@ -78,6 +78,25 @@ export function FootprintLibraryPanel() {
         : /Resistor|Capacitor|Inductor|LED|Diode|Crystal|Fuse/i.test(useLib) ? 'passive'
         : /Relay|Button|Switch|Buzzer|Motor/i.test(useLib) ? 'electromech'
         : /RF|Antenna/i.test(useLib) ? 'rf' : 'ic';
+      // 从官方符号库找同名符号：仅注册封装时，原理图只能按管脚数生成通用矩形，
+      // 与 KiCad 库中的真实符号对不上。这里按封装名尝试匹配符号并注册。
+      const symKey = name;   // symbolFor 以 c.mpn 为键，这里 mpn 即封装名
+      try {
+        const sr = await fetch(`/api/kicadlib?path=symsearch&q=${encodeURIComponent(name)}&limit=1`);
+        if (sr.ok) {
+          const hits = (await sr.json())?.hits ?? [];
+          const top = hits[0];
+          // 仅接受名字完全一致的符号，避免"看起来像"的错误符号混进设计
+          if (top && String(top.name).toUpperCase() === name.toUpperCase()) {
+            const st = await fetch(`/api/kicadlib?path=sym&lib=${encodeURIComponent(top.lib)}&name=${encodeURIComponent(top.name)}`);
+            if (st.ok) {
+              const ps = parseKicadSym(await st.text());
+              if (ps && ps.pins.length) registerSymbolOverride(symKey, ps);
+            }
+          }
+        }
+      } catch { /* 符号可选：拿不到就走参数化生成，不阻断添加封装 */ }
+
       addComponent({
         componentId: `kicadlib_${name}_${Date.now()}`,
         mpn: name, manufacturer: 'KiCad库', category: cat2,

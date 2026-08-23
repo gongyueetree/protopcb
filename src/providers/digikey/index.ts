@@ -2,6 +2,7 @@
  * providers/digikey/index.ts — DigiKey 价格/库存（经 /api/digikey 服务端代理）
  * 需 Vercel 配置 DIGIKEY_CLIENT_ID / DIGIKEY_CLIENT_SECRET。未配置时静默隐藏。
  */
+import { curLang } from '../../shared/i18n';
 
 export interface DigikeyOffer {
   found: boolean;
@@ -44,7 +45,9 @@ export async function fetchDigikeyOffer(mpn: string): Promise<DigikeyOffer | nul
   if (cached === 'loading') return null;
   offerCache.set(mpn, 'loading');
   try {
-    const r = await fetch(`/api/digikey?path=price&mpn=${encodeURIComponent(mpn)}`);
+    // 按界面语言请求对应币种的**真实报价**（不是把人民币数值换个符号显示）
+    const cur = curLang() === 'en' ? 'USD' : 'CNY';
+    const r = await fetch(`/api/digikey?path=price&mpn=${encodeURIComponent(mpn)}&currency=${cur}`);
     if (!r.ok) { offerCache.delete(mpn); return null; }
     const j = (await r.json()) as DigikeyOffer;
     offerCache.set(mpn, j);

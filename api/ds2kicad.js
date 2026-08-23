@@ -1,4 +1,4 @@
-import { acquire, checkBodySize, deny } from './_lib/guard.js';
+import { acquire, checkBodySize, deny, readJsonBody } from './_lib/guard.js';
 /**
  * api/ds2kicad.js — DS2KiCad 提取引擎代理（BFF）
  *
@@ -43,7 +43,7 @@ export default async function handler(req, res) {
     return res.status(501).send(JSON.stringify({ error: 'DS2KICAD_URL 未配置' }));
   }
   try {
-    const body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {});
+    const body = JSON.stringify(readJsonBody(req));
     const headers = { 'Content-Type': 'application/json' };
     if (secret) headers.Authorization = `Bearer ${signJwt(secret)}`;
     const r = await fetch(`${base}/api/extract`, { method: 'POST', headers, body });

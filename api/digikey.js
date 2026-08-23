@@ -71,9 +71,12 @@ export default async function handler(req, res) {
 
   try {
     const token = await getToken(clientId, clientSecret);
-    const site = process.env.DIGIKEY_LOCALE_SITE ?? 'CN';
-    const currency = process.env.DIGIKEY_LOCALE_CURRENCY ?? 'CNY';
-    const language = process.env.DIGIKEY_LOCALE_LANGUAGE ?? 'zhs';
+    // 币种由调用方指定（界面语言决定），未指定则用环境变量/CNY。
+    // 关键：这是向 DigiKey **请求对应币种的真实报价**，不是把人民币数值换个符号。
+    const reqCur = String(req.query?.currency ?? '').toUpperCase();
+    const currency = /^[A-Z]{3}$/.test(reqCur) ? reqCur : (process.env.DIGIKEY_LOCALE_CURRENCY ?? 'CNY');
+    const site = currency === 'USD' ? 'US' : (process.env.DIGIKEY_LOCALE_SITE ?? 'CN');
+    const language = currency === 'USD' ? 'en' : (process.env.DIGIKEY_LOCALE_LANGUAGE ?? 'zhs');
     const r = await fetch(SEARCH_URL, {
       method: 'POST',
       headers: {
