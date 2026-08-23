@@ -9,6 +9,16 @@
 </head>
 <body>
   <div id="root"></div>
+  <script>
+    // 在 React 挂载前按已保存的语言定标题，避免刷新瞬间先显示中文再切英文
+    (function () {
+      try {
+        var l = localStorage.getItem('cc_lang');
+        document.documentElement.lang = l === 'en' ? 'en' : 'zh-CN';
+        document.title = l === 'en' ? 'Hardware Prototype Workshop · Tindie Proto' : '硬件原型工坊 · Tindie Proto';
+      } catch (e) { /* 隐私模式下 localStorage 不可用，用默认标题 */ }
+    })();
+  </script>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

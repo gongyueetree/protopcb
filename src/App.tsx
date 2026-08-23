@@ -28,7 +28,7 @@ import { parseLegacyLib, legacyToParsedSymbol } from './design-core/geometry/kic
 import { parseKicadMod } from './design-core/geometry/kicad-file-parser';
 import { recommendSubCircuit, type SubCircuitItem } from './modules/component-search/sub-circuit';
 import { autoKicadFootprint } from './design-core/geometry/auto-kicad-footprint';
-import { useT, useLangStore, useTranslated, tr } from './shared/i18n';
+import { useT, useLangStore, useTranslated, tr, syncDocumentLang } from './shared/i18n';
 import { registerFootprintOverride, registerSymbolOverride, symbolOverrideFor, footprintOverrideFor } from './design-core/geometry/lib-file-registry';
 import { parseKicadSym } from './design-core/geometry/lib-file-registry';
 import type { PlacedComponent as PlacedComponentT } from './design-core/document/types';
@@ -178,6 +178,7 @@ export default function App() {
   const t = useT();
   const lang = useLangStore((st) => st.lang);
   const toggleLang = useLangStore((st) => st.toggle);
+  useEffect(() => { syncDocumentLang(lang); }, [lang]);
   useEffect(() => { document.title = lang === 'en' ? 'Tindie Proto' : '硬件原型工坊'; }, [lang]);
 
   const selObj = doc.components.find((c) => c.instanceId === selectedId);
@@ -453,13 +454,13 @@ export default function App() {
               ))}
             </div>
             {view === '2d' && (
-              <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #E8F3EE' }} title="当前放置层（选中器件按 L 换层）">
+              <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #E8F3EE' }} title={tr('当前放置层（选中器件按 L 换层）')}>
                 {(['TOP', 'BOTTOM'] as const).map((l) => (
                   <button key={l} onClick={() => setActiveLayer(l)} style={{ padding: '7px 12px', border: 'none', background: activeLayer === l ? (l === 'TOP' ? '#c08a2d' : '#3b82c4') : '#fff', color: activeLayer === l ? '#fff' : '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{l === 'TOP' ? t('Top层') : t('Bottom层')}</button>
                 ))}
               </div>
             )}
-            <div onClick={toggleAllRefDes} title="显示/隐藏全部位号" style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}>
+            <div onClick={toggleAllRefDes} title={tr('显示/隐藏全部位号')} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>{t('位号')}</span>
               <div style={{ width: 34, height: 18, borderRadius: 9, background: hideAllRefDes ? '#cbd5e1' : COLORS.green, position: 'relative', transition: 'background .15s' }}>
                 <div style={{ position: 'absolute', top: 2, left: hideAllRefDes ? 2 : 18, width: 14, height: 14, borderRadius: 7, background: '#fff', transition: 'left .15s', boxShadow: '0 1px 3px rgba(0,0,0,.25)' }} />
@@ -479,10 +480,10 @@ export default function App() {
                   <span style={{ fontWeight: 700, color: COLORS.green }}>{selObj.reference}</span>
                   <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{selObj.mpn}</span>
                   <span style={{ color: '#64748b' }}>{selObj.footprint.name}</span>
-                  <button onClick={() => rotate(selObj.instanceId)} style={smbtn}>旋转</button>
+                  <button onClick={() => rotate(selObj.instanceId)} style={smbtn}>{tr('旋转')}</button>
                   <button onClick={() => flipLayer(selObj.instanceId)} style={{ ...smbtn, color: selObj.placement.side === 'TOP' ? '#c08a2d' : '#3b82c4' }}>{selObj.placement.side === 'TOP' ? '→Bottom' : '→Top'}</button>
                   <button onClick={() => toggleRefDesHidden(selObj.instanceId)} style={smbtn}>{selObj.refDesDisplay?.hidden ? '显位号' : '隐位号'}</button>
-                  <button onClick={() => remove(selObj.instanceId)} style={{ ...smbtn, borderColor: '#fecaca', background: '#fef2f2', color: '#dc2626' }}>移除</button>
+                  <button onClick={() => remove(selObj.instanceId)} style={{ ...smbtn, borderColor: '#fecaca', background: '#fef2f2', color: '#dc2626' }}>{tr('移除')}</button>
                 </div>
               </div>
             )}
@@ -501,11 +502,11 @@ export default function App() {
                   style={{ width: 26, height: 22, borderRadius: 4, border: `1.5px solid ${doc.board.shape === s.id ? COLORS.green : '#E8F3EE'}`, background: doc.board.shape === s.id ? COLORS.greenBg : '#fff', color: doc.board.shape === s.id ? COLORS.green : '#94a3b8', fontSize: 12, cursor: 'pointer' }}>{s.icon}</button>
               ))}
               <div style={{ width: 1, height: 16, background: '#E8F3EE', margin: '0 2px' }} />
-              <button title="四角定位孔（开启后器件自动避让）" onClick={toggleMountingHoles}
+              <button title={tr('四角定位孔（开启后器件自动避让）')} onClick={toggleMountingHoles}
                 style={{ padding: '0 8px', height: 22, borderRadius: 4, border: `1.5px solid ${doc.board.mountingHolesEnabled ? COLORS.green : '#E8F3EE'}`, background: doc.board.mountingHolesEnabled ? COLORS.greenBg : '#fff', color: doc.board.mountingHolesEnabled ? COLORS.green : '#94a3b8', fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>⊙ {t('定位孔')}</button>
               {doc.board.shape === 'lshape' && (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6, fontSize: 10.5, color: '#64748b' }}>
-                  切角
+                  {tr('切角')}
                   <input type="number" value={Math.round(doc.board.cutWidthMm ?? doc.board.widthMm * 0.45)} min={5} max={doc.board.widthMm * 0.9}
                     onChange={(e) => setBoardCut(Number(e.target.value), doc.board.cutHeightMm ?? doc.board.heightMm * 0.4, doc.board.cornerRadiusMm ?? 0)}
                     style={{ width: 42, padding: '2px 4px', borderRadius: 4, border: '1px solid #E8F3EE', fontSize: 11, textAlign: 'center' }} />
@@ -513,7 +514,7 @@ export default function App() {
                   <input type="number" value={Math.round(doc.board.cutHeightMm ?? doc.board.heightMm * 0.4)} min={5} max={doc.board.heightMm * 0.9}
                     onChange={(e) => setBoardCut(doc.board.cutWidthMm ?? doc.board.widthMm * 0.45, Number(e.target.value), doc.board.cornerRadiusMm ?? 0)}
                     style={{ width: 42, padding: '2px 4px', borderRadius: 4, border: '1px solid #E8F3EE', fontSize: 11, textAlign: 'center' }} />
-                  mm · 圆角
+                  {tr('mm · 圆角')}
                   <input type="number" value={doc.board.cornerRadiusMm ?? 0} min={0} max={15}
                     onChange={(e) => setBoardCut(doc.board.cutWidthMm ?? doc.board.widthMm * 0.45, doc.board.cutHeightMm ?? doc.board.heightMm * 0.4, Number(e.target.value))}
                     style={{ width: 36, padding: '2px 4px', borderRadius: 4, border: '1px solid #E8F3EE', fontSize: 11, textAlign: 'center' }} />
@@ -551,26 +552,26 @@ export default function App() {
       {pcbExportOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }} onClick={() => setPcbExportOpen(false)}>
           <div style={{ width: '100%', maxWidth: 560, background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 24px 80px rgba(0,0,0,.25)' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: COLORS.green, marginBottom: 4 }}>🏭 导出 PCB 布局文件</div>
-            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>含板框（Edge.Cuts）、定位孔（非金属化孔）、全部器件真实焊盘与 Top/Bottom 层信息</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: COLORS.green, marginBottom: 4 }}>{tr('🏭 导出 PCB 布局文件')}</div>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>{tr('含板框（Edge.Cuts）、定位孔（非金属化孔）、全部器件真实焊盘与 Top/Bottom 层信息')}</div>
 
             <div style={{ padding: 12, borderRadius: 10, border: '1.5px solid #c6e2d0', background: '#f7fcf9', marginBottom: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>KiCad（.kicad_pcb）· 兼容嘉立创EDA专业版</div>
-                  <div style={{ fontSize: 11, color: '#64748b' }}>KiCad 7+ 直接打开；嘉立创EDA专业版「文件 → 导入 → KiCad」同一文件即可（两平台使用同一格式，无需分别下载）。注意：当前导出<b>不含电气网络</b>（焊盘无 net），布线需按原理图自行连接</div>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{tr('KiCad（.kicad_pcb）· 兼容嘉立创EDA专业版')}</div>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>{tr('KiCad 7+ 直接打开；嘉立创EDA专业版「文件 → 导入 → KiCad」同一文件即可（两平台使用同一格式，无需分别下载）。注意：当前导出')}<b>{tr('不含电气网络')}</b>{tr('（焊盘无 net），布线需按原理图自行连接')}</div>
                 </div>
-                <button onClick={() => { downloadKicadPcb(doc); setPcbExportOpen(false); }} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: COLORS.green, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>⬇ 下载</button>
+                <button onClick={() => { downloadKicadPcb(doc); setPcbExportOpen(false); }} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: COLORS.green, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{tr('⬇ 下载')}</button>
               </div>
             </div>
 
             <div style={{ padding: 12, borderRadius: 10, border: '1px solid #e2e8f0', background: '#f8fafc', marginBottom: 12 }}>
               <div style={{ fontSize: 13, fontWeight: 700 }}>Altium Designer</div>
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>.PcbDoc 为专有二进制格式，浏览器端无法直接生成。可行路径：较新版本 AD 的 <b>File → Import Wizard</b> 支持导入 KiCad 工程（若版本不支持，可先用 KiCad 打开再经转换工具迁移）。因此同样下载上方 KiCad 文件即可。</div>
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{tr('.PcbDoc 为专有二进制格式，浏览器端无法直接生成。可行路径：较新版本 AD 的')} <b>File → Import Wizard</b> {tr('支持导入 KiCad 工程（若版本不支持，可先用 KiCad 打开再经转换工具迁移）。因此同样下载上方 KiCad 文件即可。')}</div>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={() => setPcbExportOpen(false)} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', fontSize: 13, cursor: 'pointer' }}>关闭</button>
+              <button onClick={() => setPcbExportOpen(false)} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', fontSize: 13, cursor: 'pointer' }}>{tr('关闭')}</button>
             </div>
           </div>
         </div>
@@ -601,11 +602,11 @@ export default function App() {
                         setLinkRow(open ? null : d.componentId);
                         if (!open) { setLinkKw(''); setLinkResults([]); autoRecommend(d.mpn, (d as { footprintName?: string; defaultFootprintName?: string }).footprintName ?? (d as { defaultFootprintName?: string }).defaultFootprintName); }
                       }}
-                        title="在 ezPLM 库中搜索并关联到真实器件"
+                        title={tr('在 ezPLM 库中搜索并关联到真实器件')}
                         style={{ border: '1px solid #bae6fd', background: '#f0f9ff', color: '#0369a1', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>🔗 {tr('关联库器件')}</button>
                     )}
                     {d.mapSource === '封装占位' && (
-                      <button onClick={() => setWizard({ open: true, mpn: d.mpn })} title="用构建向导创建该器件（AI 提取或手工填写）"
+                      <button onClick={() => setWizard({ open: true, mpn: d.mpn })} title={tr('用构建向导创建该器件（AI 提取或手工填写）')}
                         style={{ border: '1px solid #ddd6fe', background: '#f5f3ff', color: '#6d28d9', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>🛠 {tr('创建')}</button>
                     )}
                     <button onClick={() => setAiProposal({ ...aiProposal, details: aiProposal.details.filter((x) => x.componentId !== d.componentId) })}
@@ -621,7 +622,7 @@ export default function App() {
                       {!linkBusy && linkResults.length > 0 && linkIsRec && !linkKw.trim() && (
                         <div style={{ fontSize: 10, color: '#0369a1', marginTop: 4, fontWeight: 700 }}>💡 {tr('按型号词干与封装找到的近似料，点击选用：')}</div>
                       )}
-                      {!linkBusy && (linkKw.trim() || linkIsRec) && !linkResults.length && <div style={{ fontSize: 10, color: '#b45309', marginTop: 4 }}>ezPLM 库中无匹配 —— 可点「🛠 创建」自行构建该器件</div>}
+                      {!linkBusy && (linkKw.trim() || linkIsRec) && !linkResults.length && <div style={{ fontSize: 10, color: '#b45309', marginTop: 4 }}>{tr('ezPLM 库中无匹配 —— 可点「🛠 创建」自行构建该器件')}</div>}
                       {linkResults.map((r) => (
                         <div key={r.componentId} onClick={() => {
                           setAiProposal({ ...aiProposal, details: aiProposal.details.map((x) => x.componentId === d.componentId ? ({ ...r, mapSource: 'ezPLM云端' } as unknown as typeof x) : x) });
@@ -868,7 +869,7 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
       {/* 替代料（本组织映射） */}
       {alts.length > 0 && (
         <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#b45309', marginBottom: 6 }}>💡 替代料（本组织映射）</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#b45309', marginBottom: 6 }}>{tr('💡 替代料（本组织映射）')}</div>
           {alts.map((a, i) => (
             <div key={i} style={{ padding: '6px 8px', marginBottom: 4, borderRadius: 6, background: '#fff', border: '1px solid #fef3c7' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1254,11 +1255,11 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
       </div>
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
-        <button onClick={() => onBuild?.(mpnText.trim() || c.mpn)} title="打开构建向导：上传 PDF / 输入 URL 由 AI 提取管脚与封装，或手工填写"
+        <button onClick={() => onBuild?.(mpnText.trim() || c.mpn)} title={tr('打开构建向导：上传 PDF / 输入 URL 由 AI 提取管脚与封装，或手工填写')}
           style={{ padding: '5px 10px', borderRadius: 6, border: 'none', background: '#6d28d9', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{tr('🤖 从 URL / PDF 提取生成')}</button>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: '#86198f', cursor: 'pointer' }}>
           <span style={{ padding: '5px 10px', borderRadius: 6, border: '1px dashed #d8b4fe', background: '#fff', fontWeight: 700 }}>{tr('⬆ 上传符号 (SVG)')}</span>
-          {c.customSymbolSvg && <span style={{ color: '#16a34a', fontWeight: 700 }}>✓ 已上传</span>}
+          {c.customSymbolSvg && <span style={{ color: '#16a34a', fontWeight: 700 }}>{tr('✓ 已上传')}</span>}
           <input type="file" accept=".svg,image/svg+xml" onChange={onFile} style={{ display: 'none' }} />
         </label>
       </div>

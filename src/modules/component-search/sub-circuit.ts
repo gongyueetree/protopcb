@@ -6,6 +6,7 @@
  *   - 每项标注连接的核心管脚（如 VDD、XTAL1），一键上画布时按管脚顺序围核心排布
  */
 import { geminiComplete, extractJson, geminiAvailable } from '../../providers/gemini';
+import { curLang } from '../../shared/i18n';
 import type { ComponentCategory } from '../../design-core/document/types';
 
 export interface SubCircuitItem {
@@ -77,6 +78,7 @@ export async function recommendSubCircuit(core: {
 }): Promise<SubCircuitItem[]> {
   if (!(await geminiAvailable())) throw new Error('未配置 Gemini（GEMINI_API_KEY）');
   const raw = await geminiComplete(
+    (curLang() === 'en' ? 'Answer in English: role and value fields must be in English.\n' : '') +
     `核心器件：${core.mpn}（${core.manufacturer ?? ''} ${core.description ?? ''}）。\n` +
     `请依据该器件 datasheet 的典型应用电路（Typical Application）与常见参考设计，列出让它正常工作所需的周边器件：\n` +
     `去耦/滤波电容、上拉下拉电阻、晶振及负载电容、复位电路、必要的接口保护等。\n` +

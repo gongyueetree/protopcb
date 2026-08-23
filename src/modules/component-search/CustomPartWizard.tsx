@@ -5,7 +5,7 @@
  *   路径B（手工）：KiCad 式向导 —— 管脚表（编号/名称/电气属性/描述）+ 封装参数（族/外形/间距）
  * 表单统一可编辑；保存 → 定制库（localStorage）+ 符号覆盖注册，封装经合成 KiCad 名走既有解析器。
  */
-import { tr } from '../../shared/i18n';
+import { tr, curLang } from '../../shared/i18n';
 import { useMemo, useState , useEffect} from 'react';
 import { COLORS } from '../../shared/theme';
 import { geminiAvailable, geminiComplete, extractJson } from '../../providers/gemini';
@@ -45,12 +45,16 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
     setPkg((prev) => ({ ...prev, manualPads: next }));
   }, [pins.length, pkg.family]);
 
-  const EXTRACT_PROMPT = `请从以上器件资料中提取信息，严格输出 JSON（勿输出其它文字）：
+  const EXTRACT_PROMPT_BASE = `请从以上器件资料中提取信息，严格输出 JSON（勿输出其它文字）：
 {"mpn":"型号","description":"30字内功能描述","category":"ic|mcu|power|connector|passive",
 "pins":[{"num":"1","name":"VCC","type":"power_in","desc":"电源","side":"top|bottom|left|right"}],
 "package":{"family":"dual|quad|qfn|header|chip","bodyW":本体宽mm,"bodyH":本体长mm,"pitch":引脚间距mm,"outlineW":模块整体轮廓宽mm(若焊盘只占模块一部分则填写否则省略),"outlineH":模块整体轮廓高mm}}
 side 规则：电源脚 top，地脚 bottom，输入类 left，输出类 right
 pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
+  // 英文界面：要求模型用英文回填描述类字段（管脚名/方向说明等）
+  const EXTRACT_PROMPT = (curLang() === 'en'
+    ? 'Answer in English: description and any free-text fields must be in English.\n'
+    : '') + EXTRACT_PROMPT_BASE;
 
   /** 图片提取：引脚图/封装图截图 → Gemini 视觉 → 填表 */
   const onImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -254,14 +258,14 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
 
         {/* 路径A：AI 提取 */}
         <div style={{ padding: 12, borderRadius: 10, background: '#f5f3ff', border: '1px solid #ddd6fe', marginBottom: 14 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: '#6d28d9', marginBottom: 8 }}>🤖 AI 提取（Datasheet PDF / 网页链接 / 粘贴文本）→ 自动填表</div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: '#6d28d9', marginBottom: 8 }}>{tr('🤖 AI 提取（Datasheet PDF / 网页链接 / 粘贴文本）→ 自动填表')}</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <label style={{ padding: '6px 12px', borderRadius: 6, border: '1px dashed #c4b5fd', background: '#fff', fontSize: 11, fontWeight: 700, color: '#6d28d9', cursor: 'pointer' }}>
-              📄 上传 PDF<input type="file" accept="application/pdf" onChange={onPdf} style={{ display: 'none' }} />
+              {tr('📄 上传 PDF')}<input type="file" accept="application/pdf" onChange={onPdf} style={{ display: 'none' }} />
             </label>
             <label style={{ padding: '6px 12px', borderRadius: 6, border: '1px dashed #c4b5fd', background: '#fff', fontSize: 11, fontWeight: 700, color: '#6d28d9', cursor: 'pointer' }}
               title={tr('上传引脚图/封装图截图，AI 视觉识别管脚与封装参数')}>
-              🖼 上传图片<input type="file" accept="image/png,image/jpeg,image/webp" onChange={onImage} style={{ display: 'none' }} />
+              {tr('🖼 上传图片')}<input type="file" accept="image/png,image/jpeg,image/webp" onChange={onImage} style={{ display: 'none' }} />
             </label>
             <input value={aiUrl} onChange={(e) => setAiUrl(e.target.value)} placeholder={tr('或粘贴器件页面 URL…')} style={{ ...inp, flex: 1, minWidth: 200 }} />
             <button disabled={aiBusy || !aiUrl.trim()} onClick={() => runAi({ url: aiUrl.trim() })} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', background: '#6d28d9', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', opacity: aiBusy || !aiUrl.trim() ? 0.5 : 1 }}>{tr('提取')}</button>
@@ -292,8 +296,8 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
                 {KICAD_PIN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
               <select value={p.side ?? defaultSide(p)} onChange={(e) => setPins(pins.map((x, k) => k === i ? { ...x, side: e.target.value as PinSide } : x))}
-                title="管脚在原理图符号的哪一边（默认：电源上/地下/输入左/输出右）" style={{ ...inp, width: 62 }}>
-                <option value="left">◀ 左</option><option value="right">右 ▶</option><option value="top">▲ 上</option><option value="bottom">▼ 下</option>
+                title={tr('管脚在原理图符号的哪一边（默认：电源上/地下/输入左/输出右）')} style={{ ...inp, width: 62 }}>
+                <option value="left">{tr('◀ 左')}</option><option value="right">{tr('右 ▶')}</option><option value="top">{tr('▲ 上')}</option><option value="bottom">{tr('▼ 下')}</option>
               </select>
               <input value={p.desc ?? ''} onChange={(e) => setPins(pins.map((x, k) => k === i ? { ...x, desc: e.target.value } : x))} placeholder={tr('描述')} style={{ ...inp, flex: 1 }} />
               <button onClick={() => setPins(pins.filter((_, k) => k !== i))} style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 13 }}>×</button>
@@ -312,16 +316,16 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
             </select>
             {pkg.family === 'manual' ? (
               <div>
-                <div style={{ fontSize: 9.5, color: '#94a3b8', marginBottom: 5 }}>逐焊盘坐标（相对封装中心，mm）·适合继电器等不规则孔位</div>
+                <div style={{ fontSize: 9.5, color: '#94a3b8', marginBottom: 5 }}>{tr('逐焊盘坐标（相对封装中心，mm）·适合继电器等不规则孔位')}</div>
                 <div style={{ maxHeight: 150, overflow: 'auto', border: '1px solid #f1f5f9', borderRadius: 6, marginBottom: 5 }}>
                   {(pkg.manualPads ?? []).map((mp, i) => (
                     <div key={i} style={{ display: 'flex', gap: 4, padding: '3px 5px', alignItems: 'center', borderBottom: '1px solid #f8fafc', fontSize: 10 }}>
                       <input value={mp.num} onChange={(e) => setPkg({ ...pkg, manualPads: pkg.manualPads!.map((x, k) => k === i ? { ...x, num: e.target.value } : x) })} style={{ ...inp, width: 30, textAlign: 'center', padding: '3px 4px' }} />
                       X<input type="number" step={0.1} value={mp.x} onChange={(e) => setPkg({ ...pkg, manualPads: pkg.manualPads!.map((x, k) => k === i ? { ...x, x: Number(e.target.value) } : x) })} style={{ ...inp, width: 50, padding: '3px 4px' }} />
                       Y<input type="number" step={0.1} value={mp.y} onChange={(e) => setPkg({ ...pkg, manualPads: pkg.manualPads!.map((x, k) => k === i ? { ...x, y: Number(e.target.value) } : x) })} style={{ ...inp, width: 50, padding: '3px 4px' }} />
-                      <input type="number" step={0.1} value={mp.w} title="宽/直径" onChange={(e) => setPkg({ ...pkg, manualPads: pkg.manualPads!.map((x, k) => k === i ? { ...x, w: Number(e.target.value), h: x.round ? Number(e.target.value) : x.h } : x) })} style={{ ...inp, width: 44, padding: '3px 4px' }} />
+                      <input type="number" step={0.1} value={mp.w} title={tr('宽/直径')} onChange={(e) => setPkg({ ...pkg, manualPads: pkg.manualPads!.map((x, k) => k === i ? { ...x, w: Number(e.target.value), h: x.round ? Number(e.target.value) : x.h } : x) })} style={{ ...inp, width: 44, padding: '3px 4px' }} />
                       <label style={{ display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={!!mp.round} onChange={(e) => setPkg({ ...pkg, manualPads: pkg.manualPads!.map((x, k) => k === i ? { ...x, round: e.target.checked, h: e.target.checked ? x.w : x.h } : x) })} />圆
+                        <input type="checkbox" checked={!!mp.round} onChange={(e) => setPkg({ ...pkg, manualPads: pkg.manualPads!.map((x, k) => k === i ? { ...x, round: e.target.checked, h: e.target.checked ? x.w : x.h } : x) })} />{tr('圆')}
                       </label>
                       <button onClick={() => setPkg({ ...pkg, manualPads: pkg.manualPads!.filter((_, k) => k !== i) })} style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer' }}>×</button>
                     </div>
@@ -329,9 +333,9 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button onClick={() => setPkg({ ...pkg, manualPads: [...(pkg.manualPads ?? []), { num: String((pkg.manualPads?.length ?? 0) + 1), x: 0, y: 0, w: 1.8, h: 1.8, round: true }] })}
-                    style={{ padding: '4px 10px', borderRadius: 5, border: '1px dashed #cbd5e1', background: '#fff', fontSize: 10, cursor: 'pointer' }}>＋焊盘</button>
+                    style={{ padding: '4px 10px', borderRadius: 5, border: '1px dashed #cbd5e1', background: '#fff', fontSize: 10, cursor: 'pointer' }}>{tr('＋焊盘')}</button>
                   <button onClick={() => setPkg({ ...pkg, manualPads: pins.map((p, i) => pkg.manualPads?.[i] ?? ({ num: p.num, x: 0, y: i * 2.54, w: 1.8, h: 1.8, round: true })) })}
-                    title="按管脚表生成同数量的焊盘行" style={{ padding: '4px 10px', borderRadius: 5, border: '1px dashed #cbd5e1', background: '#fff', fontSize: 10, cursor: 'pointer' }}>按管脚生成 {pins.length} 行</button>
+                    title={tr('按管脚表生成同数量的焊盘行')} style={{ padding: '4px 10px', borderRadius: 5, border: '1px dashed #cbd5e1', background: '#fff', fontSize: 10, cursor: 'pointer' }}>按管脚生成 {pins.length} 行</button>
                 </div>
               </div>
             ) : (
@@ -349,10 +353,10 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
             )}
             <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dashed #e2e8f0' }}>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: '#475569', marginBottom: 4 }}>{tr('模块轮廓（可选）')}</div>
-              <div style={{ fontSize: 9.5, color: '#94a3b8', marginBottom: 5 }}>焊盘可能只占模块的一部分（如排针在模组边缘），此处指定整体外形</div>
+              <div style={{ fontSize: 9.5, color: '#94a3b8', marginBottom: 5 }}>{tr('焊盘可能只占模块的一部分（如排针在模组边缘），此处指定整体外形')}</div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11, color: '#64748b', marginBottom: 5 }}>
-                {tr('轮廓')} <input type="number" step={0.5} placeholder="宽" value={pkg.outlineW ?? ''} onChange={(e) => setPkg({ ...pkg, outlineW: e.target.value ? Number(e.target.value) : undefined })} style={{ ...inp, width: 54 }} />
-                × <input type="number" step={0.5} placeholder="高" value={pkg.outlineH ?? ''} onChange={(e) => setPkg({ ...pkg, outlineH: e.target.value ? Number(e.target.value) : undefined })} style={{ ...inp, width: 54 }} /> mm
+                {tr('轮廓')} <input type="number" step={0.5} placeholder={tr('宽')} value={pkg.outlineW ?? ''} onChange={(e) => setPkg({ ...pkg, outlineW: e.target.value ? Number(e.target.value) : undefined })} style={{ ...inp, width: 54 }} />
+                × <input type="number" step={0.5} placeholder={tr('高')} value={pkg.outlineH ?? ''} onChange={(e) => setPkg({ ...pkg, outlineH: e.target.value ? Number(e.target.value) : undefined })} style={{ ...inp, width: 54 }} /> mm
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11, color: '#64748b' }}>
                 {tr('焊盘偏移')} <input type="number" step={0.5} value={pkg.padsOffsetX ?? 0} onChange={(e) => setPkg({ ...pkg, padsOffsetX: Number(e.target.value) })} style={{ ...inp, width: 50 }} />
@@ -375,7 +379,7 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
                       : <rect key={i} x={pd.x - pd.w / 2} y={pd.y - pd.h / 2} width={pd.w} height={pd.h} rx={Math.min(pd.w, pd.h) * 0.2} fill="#c08a2d" />)}
                   </svg>
                 );
-              })() : <span style={{ fontSize: 10, color: '#94a3b8' }}>参数不足</span>}
+              })() : <span style={{ fontSize: 10, color: '#94a3b8' }}>{tr('参数不足')}</span>}
             </div>
           </div>
         </div>

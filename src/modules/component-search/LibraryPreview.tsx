@@ -59,7 +59,7 @@ function ZoomPanBox({ children, height = 150 }: { children: React.ReactNode; hei
     <div ref={ref} style={{ height, overflow: 'hidden', background: '#fafafa', borderRadius: 6, position: 'relative', cursor: 'grab' }}
       onMouseDown={(e) => { drag.current = { active: true, sx: e.clientX, sy: e.clientY, px: pan.x, py: pan.y }; }}
       onDoubleClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
-      title="滚轮缩放 · 拖拽平移 · 双击复位">
+      title={tr('滚轮缩放 · 拖拽平移 · 双击复位')}>
       <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})`, transformOrigin: 'center' }}>
         {children}
       </div>
@@ -126,7 +126,7 @@ export function LibraryPreview({ c }: { c: PlacedComponent }) {
 
   return (
     <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.green, marginBottom: 8 }}>📚 PCB 设计库文件</div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.green, marginBottom: 8 }}>{tr('📚 PCB 设计库文件')}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={cell}>
           <div style={{ ...cellTitle, display: 'flex', alignItems: 'center', gap: 6 }}>{tr('原理图符号')} {!symUnlinked && <StatusBadge st={symbolFileStatus(c.display?.symbolFromMpn ?? c.mpn, c.display?.symbolFileUrl)} />}</div>
@@ -150,7 +150,7 @@ export function LibraryPreview({ c }: { c: PlacedComponent }) {
         </div>
         <div style={cell}>
           <div style={{ ...cellTitle, display: 'flex', alignItems: 'center', gap: 6 }}>{tr('PCB 封装')} <StatusBadge st={footprintFileStatus(c.footprint.name, c.display?.footprintFileUrl)} /></div>
-          <ZoomPanBox>{fpSvg ?? <span style={{ fontSize: 10, color: '#94a3b8' }}>无焊盘数据</span>}</ZoomPanBox>
+          <ZoomPanBox>{fpSvg ?? <span style={{ fontSize: 10, color: '#94a3b8' }}>{tr('无焊盘数据')}</span>}</ZoomPanBox>
           <div style={{ display: 'flex', gap: 4 }}>
             <button onClick={() => { const m = buildKicadMod(c); if (m) downloadText(m, `${c.footprint.name}.kicad_mod`); }} disabled={!fpSvg} style={{ ...dlBtn, flex: 1, opacity: fpSvg ? 1 : 0.5 }}>⬇ .kicad_mod</button>
             <button onClick={() => dl(makeFpSvg(false), `${c.footprint.name}-footprint.svg`)} disabled={!fpSvg} style={{ ...dlBtn, flex: 1, opacity: fpSvg ? 1 : 0.5 }}>⬇ SVG</button>

@@ -2,7 +2,7 @@
  * modules/bom/BomPanel.tsx
  * BOM 清单 —— 从 store 的 doc.bom 渲染，支持 CSV 导出。
  */
-import { tr } from '../../shared/i18n';
+import { tr, currencySym, curLang } from '../../shared/i18n';
 import { useDesignStore } from '../../state/designStore';
 import { bomTotal } from '../../design-core/document/services';
 import { fmtMoney, COLORS } from '../../shared/theme';
@@ -46,10 +46,15 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
     try {
       const desc = [l.mpn, l.footprint, l.description].filter(Boolean).join(' / ');
       const raw = await geminiComplete(
-        `器件：${desc}（位号 ${l.reference}）。\n` +
-        `请给出该类器件当前的**市场平均单价**参考（小批量 100 片价，人民币）。\n` +
-        `只回答价格信息，不要其它内容。若无法判断请把 confident 设为 false。\n` +
-        `严格输出 JSON：{"low":数字,"high":数字,"typical":数字,"basis":"依据一句话","confident":true|false}`,
+        curLang() === 'en'
+          ? `Part: ${desc} (refdes ${l.reference}).\n` +
+            `Give the current average market unit price (100-piece quantity) in USD.\n` +
+            `Answer with price information only. If you cannot judge, set confident to false.\n` +
+            `Output strict JSON: {"low":number,"high":number,"typical":number,"basis":"one sentence, in English","confident":true|false}`
+          : `器件：${desc}（位号 ${l.reference}）。\n` +
+            `请给出该类器件当前的**市场平均单价**参考（小批量 100 片价，人民币）。\n` +
+            `只回答价格信息，不要其它内容。若无法判断请把 confident 设为 false。\n` +
+            `严格输出 JSON：{"low":数字,"high":数字,"typical":数字,"basis":"依据一句话","confident":true|false}`,
       );
       const j = extractJson<{ low?: number; high?: number; typical?: number; basis?: string; confident?: boolean }>(raw);
       if (!j.confident || j.typical == null) {
@@ -137,7 +142,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
               <div style={{ fontFamily: 'monospace', fontSize: 11.5, fontWeight: 700 }}>{it.mpn}</div>
               <div style={{ fontSize: 10, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.manufacturer} · {it.description}</div>
             </div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: '#059669' }}>{it.currency === 'USD' ? '$' : '¥'}{it.price.toFixed(3)}</div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: '#059669' }}>{currencySym()}{it.price.toFixed(3)}</div>
             <button onClick={() => { setManualPrices((prev) => ({ ...prev, [fuzzy.line.mpn]: it.price })); setFuzzy(null); }}
               style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#1f5c3b', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{tr('采用')}</button>
           </div>
@@ -158,9 +163,9 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, padding: '7px 9px', borderRadius: 7, border: '1px solid #fde68a', background: '#fffbeb' }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: '#92400e' }}>
-                  ¥{market.typical.toFixed(3)}
+                  {currencySym()}{market.typical.toFixed(3)}
                   {market.low != null && market.high != null && (
-                    <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 6 }}>({tr('区间')} ¥{market.low.toFixed(3)}–{market.high.toFixed(3)})</span>
+                    <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 6 }}>({tr('区间')} {currencySym()}{market.low.toFixed(3)}–{market.high.toFixed(3)})</span>
                   )}
                 </div>
                 {market.basis && <div style={{ fontSize: 9.5, color: '#a16207' }}>{market.basis}</div>}
@@ -187,7 +192,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
           {onToggleFullscreen && <button onClick={onToggleFullscreen} style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{isFullscreen ? '↙ 退出全屏' : '⛶ 全屏'}</button>}
         </div>
       </div>
-      {bom.length === 0 ? <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>暂无器件</div> : (
+      {bom.length === 0 ? <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>{tr('暂无器件')}</div> : (
         <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
           <thead><tr style={{ background: '#f8fafc' }}>
             {['#', '位号', '型号', '厂商', '封装', '来源', '单价', '数量'].map((h) => <th key={h} style={{ textAlign: h === '单价' || h === '数量' ? 'right' : 'left', padding: '8px 10px', fontWeight: 600, color: '#64748b', fontSize: 11, borderBottom: '2px solid #e2e8f0' }}>{h}</th>)}
@@ -228,11 +233,11 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
                   ) : (
                     <span onClick={() => setEditingMpn(l.mpn)} title={tr('点击手工修改单价')} style={{ cursor: 'pointer' }}>
                       {manOf(l.mpn) != null
-                        ? <span style={{ color: '#0f766e' }}>¥{manOf(l.mpn)!.toFixed(2)} ✎</span>
+                        ? <span style={{ color: '#0f766e' }}>{currencySym()}{manOf(l.mpn)!.toFixed(2)} ✎</span>
                         : dkOf(l.mpn)
-                        ? <span title={`DigiKey 实时 · 库存 ${dkOf(l.mpn)!.stock?.toLocaleString() ?? '—'}`} style={{ color: '#0369a1' }}>¥{dkOf(l.mpn)!.unitPrice!.toFixed(2)}</span>
+                        ? <span title={`DigiKey 实时 · 库存 ${dkOf(l.mpn)!.stock?.toLocaleString() ?? '—'}`} style={{ color: '#0369a1' }}>{currencySym()}{dkOf(l.mpn)!.unitPrice!.toFixed(2)}</span>
                         : netOf(l.mpn)
-                        ? <span title={`${netOf(l.mpn)!.vendor} 实时`} style={{ color: '#7c3aed' }}>{netOf(l.mpn)!.currency === 'USD' ? '$' : '¥'}{netOf(l.mpn)!.price.toFixed(2)}</span>
+                        ? <span title={`${netOf(l.mpn)!.vendor} 实时`} style={{ color: '#7c3aed' }}>{currencySym()}{netOf(l.mpn)!.price.toFixed(2)}</span>
                         : <span style={{ color: '#94a3b8' }} title={whyNotPriceable(l.mpn, l.reference, l.footprint) ?? tr('点击手工录入')}>—</span>}
                     </span>
                   )}

@@ -243,7 +243,7 @@ export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscr
   return (
     <div style={{ padding: 12, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 14, fontWeight: 700 }}>⚡ 原理图</span>
+        <span style={{ fontSize: 14, fontWeight: 700 }}>{tr('⚡ 原理图')}</span>
         <span title={tr('连线由器件电源/信号属性自动生成；手工连线编辑正在开发中。拖动器件可调整布局，拖动连线中点可微调走线。')}
           style={{ fontSize: 10, color: '#94a3b8', cursor: 'help' }}>ⓘ {tr('连线说明')}</span>
         {wireHint && (
@@ -261,18 +261,18 @@ export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscr
           </span>
         )}
         <button onClick={() => setLinking(linking ? null : '__pick__')} style={{ ...tb, ...(linking ? { background: '#f0fdf4', color: '#16a34a', borderColor: '#22c55e' } : {}) }}>{linking ? '✕ ' + tr('取消') : '+ ' + tr('连线')}</button>
-        <button onClick={() => { if (sel) { setNets((nets || []).filter((n) => n.id !== sel)); setSel(null); } }} disabled={!sel} style={{ ...tb, opacity: sel ? 1 : 0.5 }}>🗑 删除连线(D)</button>
-        <button onClick={() => { setNets(genNets()); resetSch(); setSel(null); }} style={tb}>🔄 重新生成</button>
-        <button onClick={exportSvg} style={tb}>⬇ 导出SVG</button>
+        <button onClick={() => { if (sel) { setNets((nets || []).filter((n) => n.id !== sel)); setSel(null); } }} disabled={!sel} style={{ ...tb, opacity: sel ? 1 : 0.5 }}>{tr('🗑 删除连线(D)')}</button>
+        <button onClick={() => { setNets(genNets()); resetSch(); setSel(null); }} style={tb}>{tr('🔄 重新生成')}</button>
+        <button onClick={exportSvg} style={tb}>{tr('⬇ 导出SVG')}</button>
         {selSym && (
           <>
             <div style={{ width: 1, height: 14, background: '#E8F3EE' }} />
-            <button onClick={() => { const cur = P(selSym).rotation; setPos(selSym, { rotation: (cur + 90) % 360 }); }} style={{ ...tb, borderColor: '#93c5fd', color: '#2563eb' }}>⟳ 旋转(R)</button>
-            <button onClick={() => { const e = entryOf(selSym); if (e) setEdit({ type: 'refdes', id: selSym, text: refOf(e.c) + e.suffix }); }} style={{ ...tb, borderColor: '#93c5fd', color: '#2563eb' }}>✎ 位号</button>
-            <button onClick={() => { const e = entryOf(selSym); if (e) setEdit({ type: 'value', id: selSym, text: valOf(e.c) }); }} style={{ ...tb, borderColor: '#93c5fd', color: '#2563eb' }}>✎ 值</button>
+            <button onClick={() => { const cur = P(selSym).rotation; setPos(selSym, { rotation: (cur + 90) % 360 }); }} style={{ ...tb, borderColor: '#93c5fd', color: '#2563eb' }}>{tr('⟳ 旋转(R)')}</button>
+            <button onClick={() => { const e = entryOf(selSym); if (e) setEdit({ type: 'refdes', id: selSym, text: refOf(e.c) + e.suffix }); }} style={{ ...tb, borderColor: '#93c5fd', color: '#2563eb' }}>{tr('✎ 位号')}</button>
+            <button onClick={() => { const e = entryOf(selSym); if (e) setEdit({ type: 'value', id: selSym, text: valOf(e.c) }); }} style={{ ...tb, borderColor: '#93c5fd', color: '#2563eb' }}>{tr('✎ 值')}</button>
           </>
         )}
-        <span style={{ fontSize: 10, color: '#94a3b8' }}>拖动符号 · R旋转 · 双击位号/型号编辑 · 滚轮缩放</span>
+        <span style={{ fontSize: 10, color: '#94a3b8' }}>{tr('拖动符号 · R旋转 · 双击位号/型号编辑 · 滚轮缩放')}</span>
         <div style={{ flex: 1 }} />
         {onToggleFullscreen && <button onClick={onToggleFullscreen} style={tb}>{isFullscreen ? '↙ 退出全屏' : '⛶ 全屏'}</button>}
       </div>

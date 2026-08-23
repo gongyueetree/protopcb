@@ -173,16 +173,22 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
         }
 
         if (inst.refPos || inst.valPos) {
-          if (inst.refPos && !inst.refPos.hidden) {
-            kids.push(<text key="refA" x={inst.refPos.x * PXMM} y={inst.refPos.y * PXMM} fontSize={8.5} fontWeight={700}
-              fill="#0e7490" textAnchor="middle" fontFamily="monospace" style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={3}
-              transform={inst.refPos.rot === 90 || inst.refPos.rot === 270 ? `rotate(-90 ${inst.refPos.x * PXMM} ${inst.refPos.y * PXMM})` : undefined}>{inst.ref}</text>);
-          }
-          if (inst.valPos && !inst.valPos.hidden && inst.value) {
-            kids.push(<text key="valA" x={inst.valPos.x * PXMM} y={inst.valPos.y * PXMM} fontSize={8} fill="#7c2d12"
-              textAnchor="middle" fontFamily="monospace" style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={3}
-              transform={inst.valPos.rot === 90 || inst.valPos.rot === 270 ? `rotate(-90 ${inst.valPos.x * PXMM} ${inst.valPos.y * PXMM})` : undefined}>{inst.value}</text>);
-          }
+          // KiCad 写入的字段角度**包含器件自身旋转**：水平电阻（符号 rot 270）的字段写作 90，
+          // 直接采用会把标注竖排。有效角度 = 字段角 − 器件角，再归一到 0/90。
+          const textAngle = (rot: number) => {
+            const eff = (((rot - inst.rot) % 180) + 180) % 180;
+            return eff === 90 ? 90 : 0;
+          };
+          const label = (key: string, pos: { x: number; y: number; rot: number }, text: string, size: number, fill: string, weight?: number) => {
+            const x = pos.x * PXMM, y = pos.y * PXMM;
+            return (
+              <text key={key} x={x} y={y} fontSize={size} fontWeight={weight} fill={fill}
+                textAnchor="middle" fontFamily="monospace" style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={3}
+                transform={textAngle(pos.rot) === 90 ? `rotate(-90 ${x} ${y})` : undefined}>{text}</text>
+            );
+          };
+          if (inst.refPos && !inst.refPos.hidden) kids.push(label('refA', inst.refPos, inst.ref, 8.5, '#0e7490', 700));
+          if (inst.valPos && !inst.valPos.hidden && inst.value) kids.push(label('valA', inst.valPos, inst.value, 8, '#7c2d12'));
           els.push(<g key={'i' + ii}>{kids}</g>);
           return;
         }

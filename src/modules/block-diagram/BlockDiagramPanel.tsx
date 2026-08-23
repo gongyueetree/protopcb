@@ -207,16 +207,16 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 12, boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 14, fontWeight: 700 }}>📊 系统框图</span>
+        <span style={{ fontSize: 14, fontWeight: 700 }}>{tr('📊 系统框图')}</span>
         <button onClick={addNode} style={tb}>+ {tr('模块')}</button>
         <button onClick={() => setConnecting(connecting ? null : '__pick__')} style={{ ...tb, ...(connecting ? { background: '#f0fdf4', color: '#16a34a', borderColor: '#22c55e' } : {}) }}>{connecting ? '✕ ' + tr('取消连线') : '+ ' + tr('连线')}</button>
-        <button onClick={del} disabled={!sel} style={{ ...tb, opacity: sel ? 1 : 0.5 }}>🗑 删除</button>
+        <button onClick={del} disabled={!sel} style={{ ...tb, opacity: sel ? 1 : 0.5 }}>{tr('🗑 删除')}</button>
         <button onClick={regen} style={tb}>🔄 {tr('按类别生成')}</button>
         <button onClick={runArchAI} disabled={archBusy} title={tr('由 AI 分析器件与网络，划分真实的功能子系统与信号流')}
           style={{ ...tb, background: archBusy ? '#d6d3d1' : '#1a6b3c', color: '#fff', border: 'none', fontWeight: 700 }}>
           {archBusy ? '⟳ ' + tr('分析中…') : '🤖 ' + tr('AI 架构分析')}
         </button>
-        <button onClick={fitView} style={tb}>⊡ 适应</button>
+        <button onClick={fitView} style={tb}>{tr('⊡ 适应')}</button>
         <button onClick={() => {
           const svg = svgRef.current; if (!svg) return;
           const clone = svg.cloneNode(true) as SVGSVGElement;
@@ -229,7 +229,7 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
           clone.setAttribute('height', String(maxY));
           const blob = new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + clone.outerHTML], { type: 'image/svg+xml' });
           const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'block-diagram.svg'; a.click(); URL.revokeObjectURL(a.href);
-        }} style={tb}>⬇ 导出SVG</button>
+        }} style={tb}>{tr('⬇ 导出SVG')}</button>
         {sel?.type === 'node' && (
           <>
             <span style={{ fontSize: 11, color: '#94a3b8' }}>{tr('形状:')}</span>
@@ -261,8 +261,8 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
                 <button key={d} onClick={() => applyDir(d)}
                   style={{ ...tb, ...(effDir === d ? { borderColor: '#22c55e', color: '#16a34a', background: '#f0fdf4' } : {}) }}>{label}</button>
               ))}
-              <button onClick={() => setConns(conns.map((c) => c.id === sel.id ? { ...c, fromId: c.toId, toId: c.fromId } : c))} style={tb}>⇄ 反向</button>
-              <button onClick={() => setConns(conns.map((c) => c.id === sel.id ? { ...c, labelRot: ((c.labelRot ?? 0) + 90) % 360 } : c))} style={tb}>⟳ 转标签</button>
+              <button onClick={() => setConns(conns.map((c) => c.id === sel.id ? { ...c, fromId: c.toId, toId: c.fromId } : c))} style={tb}>{tr('⇄ 反向')}</button>
+              <button onClick={() => setConns(conns.map((c) => c.id === sel.id ? { ...c, labelRot: ((c.labelRot ?? 0) + 90) % 360 } : c))} style={tb}>{tr('⟳ 转标签')}</button>
             </>
           );
         })()}

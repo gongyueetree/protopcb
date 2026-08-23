@@ -8,6 +8,7 @@
  * 输出：功能块（含成员位号）+ 块间连接（含信号名与方向）。
  */
 import { geminiComplete, extractJson, geminiAvailable } from '../../providers/gemini';
+import { curLang } from '../../shared/i18n';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
 
 export interface ArchBlock {
@@ -77,7 +78,9 @@ export async function analyzeArchitecture(doc: CircuitCanvasDocument): Promise<A
   const active = doc.components.filter((c) => c.category !== 'passive');
   if (active.length < 2) throw new Error('画布上有源器件太少，不足以分析架构');
 
+  const en = curLang() === 'en';
   const raw = await geminiComplete(
+    (en ? 'Answer in English: all labels, roles and the summary must be in English.\n' : '') +
     `你是硬件架构师。下面是一块 PCB 的器件清单与电气网络名，请分析它的系统架构。\n\n` +
     `${buildDigest(doc)}\n\n` +
     `要求：\n` +
