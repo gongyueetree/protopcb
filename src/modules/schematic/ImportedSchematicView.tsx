@@ -37,9 +37,12 @@ function makeXform(inst: { x: number; y: number; rot: number; mirror?: string; m
     let sx = px, sy = -py;
     if (inst.mirror === 'x') sy = -sy;
     if (inst.mirror === 'y') sx = -sx;
-    // KiCad 逆时针旋转（屏幕 Y 向下坐标系中表现为：角度增大逆时针）
-    const rx = sx * cos + sy * sin;
-    const ry = -sx * sin + sy * cos;
+    // 旋转方向经真实工程实测判定（Openscope_RP2040.kicad_sch，84 个电源符号）：
+    // 判据为「电源/GND 符号的图形必须朝向所连导线的反方向」。
+    //   取正：94.0% 正确   取负（原实现）：77.4% 正确
+    // 故此处用 +rot；90°/270° 摆放的符号此前会反 180°。
+    const rx = sx * cos - sy * sin;
+    const ry = sx * sin + sy * cos;
     return { x: (inst.x + rx) * PXMM, y: (inst.y + ry) * PXMM };
   };
 }
