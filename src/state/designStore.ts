@@ -11,8 +11,8 @@ import { createDocument, touchDocument , createBoard} from '../design-core/docum
 import type { ComponentSearchResult } from '../providers/types';
 import { searchResultToPlaced, nextReference, buildBom, runDesignReview } from '../design-core/document/services';
 import { resolveAffinity, signalFlowRank, isCore } from '../design-core/placement/affinity';
-import { solvePlacement, DEFAULT_PLACEMENT_RULES, autoPlaceAll } from '../design-core/placement';
-import { clampComponentToBoard, hasOverlap, findOverlaps, BOARD_MARGIN_MM } from '../design-core/collision';
+import { solvePlacementDetailed, DEFAULT_PLACEMENT_RULES, autoPlaceAllDetailed, type PlacementViolation } from '../design-core/placement';
+import { clampComponentToBoard, findOverlaps, BOARD_MARGIN_MM } from '../design-core/collision';
 import { appConfig } from '../config';
 
 const HISTORY_LIMIT = 60;
@@ -23,6 +23,9 @@ interface DesignState {
   selectedId: string | null;
   multiSel: string[];
   overlaps: Set<string>;
+  /** 自动放置未找到合法位置的器件（instanceId → 违规明细）。UI 必须提示，禁止静默成功 */
+  placementViolations: Record<string, PlacementViolation[]>;
+  dismissPlacementViolations: () => void;
   activeLayer: 'TOP' | 'BOTTOM';
   hideAllRefDes: boolean;
   // history
@@ -105,6 +108,7 @@ export const useDesignStore = create<DesignState>()(
     selectedId: null,
     multiSel: [],
     overlaps: new Set<string>(),
+    placementViolations: {},
     activeLayer: 'TOP' as const,
     hideAllRefDes: false,
     past: [],
@@ -124,13 +128,15 @@ export const useDesignStore = create<DesignState>()(
         if (gw > s.doc.board.widthMm - BOARD_MARGIN_MM * 2) s.doc.board.widthMm = need(gw);
         if (gh > s.doc.board.heightMm - BOARD_MARGIN_MM * 2) s.doc.board.heightMm = need(gh);
 
-        const pos = solvePlacement(placed, { board: s.doc.board, existing: sameLayer, rules: DEFAULT_PLACEMENT_RULES });
-        placed.placement.xMm = pos.x;
-        placed.placement.yMm = pos.y;
+        // Detailed 求解：success=false 时仍以"最不坏"位置放下，但违规明确入 state 提示用户
+        const out = solvePlacementDetailed(placed, { board: s.doc.board, existing: sameLayer, rules: DEFAULT_PLACEMENT_RULES });
+        placed.placement.xMm = out.position.x;
+        placed.placement.yMm = out.position.y;
         // 兜底：确保主体完整落在板内（clamp 用真实 courtyard）
         const fixed = clampComponentToBoard(placed, s.doc.board);
         placed.placement.xMm = fixed.x;
         placed.placement.yMm = fixed.y;
+        if (!out.success) s.placementViolations[placed.instanceId] = out.violations;
         s.doc.components.push(placed);
         s.doc = touchDocument(refreshDerived(s.doc));
         s.overlaps = findOverlaps(s.doc.components);
@@ -150,11 +156,15 @@ export const useDesignStore = create<DesignState>()(
 
     setMultiSel: (ids) => set((s) => { s.multiSel = ids; }),
 
+    dismissPlacementViolations: () => set((s) => { s.placementViolations = {}; }),
+
     autoArrange: () =>
       set((s) => {
         if (!s.doc.components.length) return;
         snapshot(s);
-        s.doc.components = autoPlaceAll(s.doc.components, s.doc.board);
+        const arr = autoPlaceAllDetailed(s.doc.components, s.doc.board);
+        s.doc.components = arr.placed;
+        s.placementViolations = arr.violations;   // 空对象 = 全部合法
         s.doc = touchDocument(s.doc);
         s.overlaps = findOverlaps(s.doc.components);
       }),
@@ -193,9 +203,10 @@ export const useDesignStore = create<DesignState>()(
           placed.placement.side = core.placement.side;
           placed.display = { ...(placed.display ?? {}), anchorRef: core.reference };
           const sameLayer = s.doc.components.filter((c) => c.placement.side === core.placement.side);
-          const pos = solvePlacement(placed, { board: s.doc.board, existing: sameLayer, rules: DEFAULT_PLACEMENT_RULES });
-          placed.placement.xMm = pos.x;
-          placed.placement.yMm = pos.y;
+          const out = solvePlacementDetailed(placed, { board: s.doc.board, existing: sameLayer, rules: DEFAULT_PLACEMENT_RULES });
+          placed.placement.xMm = out.position.x;
+          placed.placement.yMm = out.position.y;
+          if (!out.success) s.placementViolations[placed.instanceId] = out.violations;
           s.doc.components.push(placed);
           placedCount++;
         }
@@ -224,6 +235,8 @@ export const useDesignStore = create<DesignState>()(
         // 允许自由移动（密集板上处处违反间距会导致完全拖不动）；重叠以红色高亮提示而非阻止
         c.placement.xMm = clamped.x;
         c.placement.yMm = clamped.y;
+        // 用户手动挪过 = 已知情处理该器件的自动放置违规
+        if (s.placementViolations[id]) delete s.placementViolations[id];
         s.overlaps = findOverlaps(s.doc.components);
       }),
 
@@ -456,7 +469,7 @@ export const useDesignStore = create<DesignState>()(
       set((s) => {
         snapshot(s);
         if (intent) s.doc.designIntent = { ...intent, generatedAt: new Date().toISOString() };
-        let placed: PlacedComponent[] = [];
+        const placed: PlacedComponent[] = [];
         for (const r of results) {
           const p = searchResultToPlaced(r, nextReference(r, placed));
           placed.push(p);
@@ -475,8 +488,9 @@ export const useDesignStore = create<DesignState>()(
           ordered.push(...placed.filter((c) => c.display?.anchorRef === core.reference));
         }
         for (const c of placed) if (!ordered.includes(c)) ordered.push(c);
-        placed = autoPlaceAll(ordered, s.doc.board, DEFAULT_PLACEMENT_RULES);
-        s.doc.components = placed;
+        const schemeOut = autoPlaceAllDetailed(ordered, s.doc.board, DEFAULT_PLACEMENT_RULES);
+        s.doc.components = schemeOut.placed;
+        s.placementViolations = schemeOut.violations;
         s.doc = touchDocument(refreshDerived(s.doc));
         s.overlaps = findOverlaps(s.doc.components);
       }),
@@ -518,6 +532,7 @@ export const useDesignStore = create<DesignState>()(
           return placed;
         });
         s.doc.nets = Object.fromEntries(Object.entries(data.nets ?? {}).map(([k, v]) => [k, String(v)]));
+        s.doc.copperLayers = data.copperLayers?.length ? data.copperLayers : ['F.Cu', 'B.Cu'];
         s.doc.tracks = (data.tracks ?? []).slice(0, 4000);
         s.doc.vias = (data.vias ?? []).slice(0, 1500);
         s.doc.board.widthMm = data.widthMm;

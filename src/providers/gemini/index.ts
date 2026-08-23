@@ -8,9 +8,10 @@
  *   命中 → 用 ezPLM 云端器件（真实封装/符号/STEP 文件链接随行）
  *   未命中（典型为无源件/连接器）→ 按 Gemini 建议的封装名做封装占位，交用户确认
  */
-import type { AiModelProvider, AiSchemeRequest, AiSchemeResult, AccessContext, ComponentSearchResult } from '../types';
+import type { AiModelProvider, AiSchemeRequest, AiSchemeResult, AccessContext, ComponentSearchResult, ComponentTrust } from '../types';
 import { searchEzplmParts, ezplmLiveAvailable } from '../ezplm-live';
 import type { ComponentCategory } from '../../design-core/document/types';
+import { AiSchemeSchema, validateAi, assessTrust, type AiComponent } from '../ai-schema';
 
 /* ---------- 可用性与通用补全（代理） ---------- */
 let availableCache: boolean | null = null;
@@ -50,9 +51,10 @@ export function extractJson<T>(text: string): T {
 
 /* ---------- 真实方案生成 ---------- */
 
-interface SchemeComp { mpn: string; footprint?: string; category?: string; role?: string; qty?: number }
+const CAT_MAP: Record<string, ComponentCategory> = { mcu: 'mcu', power: 'power', passive: 'passive', connector: 'connector', ic: 'ic', sensor: 'ic', rf: 'ic', electromech: 'connector', other: 'ic' };
 
-const CAT_MAP: Record<string, ComponentCategory> = { mcu: 'mcu', power: 'power', passive: 'passive', connector: 'connector', ic: 'ic' };
+/** 型号规范化：仅字母数字大写比较（用于 exact match 判定） */
+const normMpn = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 export class GeminiAiProvider implements AiModelProvider {
   async generateScheme(req: AiSchemeRequest, _ctx: AccessContext): Promise<AiSchemeResult> {
@@ -63,47 +65,87 @@ export class GeminiAiProvider implements AiModelProvider {
 2. 无源器件（电阻/电容/电感）给出通用值型号（如 RC0402FR-0710KL）与封装
 3. footprint 用 KiCad 命名规范（如 TSSOP-20_4.4x6.5mm_P0.65mm、R_0402_1005Metric、SOT-223）
 4. category 取值：mcu / power / passive / connector / ic
-5. 至多 12 个条目；rationale 为 80 字内的方案思路
+5. 至多 12 个条目；summary 为 80 字内的方案思路
 
 严格输出 JSON（勿输出其它任何文字）：
-{"rationale":"…","components":[{"mpn":"…","footprint":"…","category":"…","role":"用途简述","qty":1}]}`;
+{"summary":"…","components":[{"mpn":"…","footprint":"…","category":"…","reason":"用途简述","qty":1}]}`;
 
     const text = await geminiComplete(prompt);
-    const parsed = extractJson<{ rationale?: string; components?: SchemeComp[] }>(text);
-    const comps = (parsed.components ?? []).slice(0, 12);
-    if (!comps.length) throw new Error('模型未给出器件清单');
+    // ── 主链路：extractJson → Zod(AiSchemeSchema) → 语义校验 → DB 验证 → trust ──
+    // 任何未通过 schema 校验的 Gemini 输出整条拒绝，绝不"尽力解析一部分"进 store。
+    let raw: unknown;
+    try {
+      raw = extractJson<unknown>(text);
+    } catch (e) {
+      throw new Error(`模型输出无法解析为 JSON：${String((e as Error).message ?? e)}`);
+    }
+    // 兼容模型偶发使用旧字段名（rationale/role）——仅做字段名映射，不放宽校验
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      const o = raw as Record<string, unknown>;
+      if (o.rationale && !o.summary) o.summary = o.rationale;
+      if (Array.isArray(o.components)) {
+        for (const c of o.components as Record<string, unknown>[]) {
+          if (c && typeof c === 'object' && c.role && !c.reason) c.reason = c.role;
+        }
+      }
+    }
+    const checked = validateAi(AiSchemeSchema, raw, 'AI 方案');
+    if (!checked.ok || !checked.data) throw new Error(checked.error ?? 'AI 方案校验失败');
+    const comps = checked.data.components.slice(0, 12) as AiComponent[];
 
     const liveOk = await ezplmLiveAvailable();
-    const items: (ComponentSearchResult & { mapSource?: string })[] = [];
+    const items: NonNullable<AiSchemeResult['items']> = [];
+    const now = () => new Date().toISOString();
     for (const sc of comps) {
       const qty = Math.max(1, Math.min(8, sc.qty ?? 1));
-      let mapped: (ComponentSearchResult & { mapSource?: string }) | null = null;
+      let mapped: (ComponentSearchResult & { mapSource?: string; trust?: ComponentTrust }) | null = null;
+      let candidateHit: ComponentSearchResult | undefined;
       if (liveOk && sc.mpn) {
-        // ezPLM 云端映射：搜索建议型号，取前缀匹配的首个
         const live = await searchEzplmParts(sc.mpn, 5).catch(() => ({ available: false, items: [] as ComponentSearchResult[] }));
-        const hit = live.items.find((i) => i.mpn.toUpperCase().startsWith(sc.mpn.toUpperCase()))
-          ?? live.items.find((i) => sc.mpn.toUpperCase().startsWith(i.mpn.toUpperCase()));
-        if (hit) mapped = { ...hit, mapSource: 'ezPLM云端' };
+        // VERIFIED 仅允许规范化后 exact match。
+        // 此前的 startsWith 双向前缀匹配已删除：型号后缀承载封装/容量/温度等级/电压等
+        // 关键差异（STM32F103C8 ≠ STM32F103C8T6），绝不能自动认成同一颗料。
+        const exact = live.items.find((i) => normMpn(i.mpn) === normMpn(sc.mpn));
+        if (exact) {
+          const trust = assessTrust(sc.mpn, { mpn: exact.mpn, manufacturer: exact.manufacturer, pins: exact.pins }, { manufacturer: sc.manufacturer });
+          mapped = {
+            ...exact,
+            mapSource: 'ezPLM云端',
+            trust: { level: trust.level, evidence: trust.evidence, source: 'ezplm-exact', verifiedAt: now() },
+          };
+        } else {
+          // 前缀/家族相似 → 仅记录候选供用户确认，不自动替换成 ezPLM 器件
+          candidateHit = live.items.find((i) => normMpn(i.mpn).startsWith(normMpn(sc.mpn)) || normMpn(sc.mpn).startsWith(normMpn(i.mpn)));
+        }
       }
       if (!mapped) {
-        // 未命中：封装占位（无源件典型路径），封装名交给解析器生成真实焊盘
         const cat = CAT_MAP[(sc.category ?? '').toLowerCase()] ?? 'passive';
+        const trust: ComponentTrust = candidateHit
+          ? {
+              level: 'CANDIDATE',
+              evidence: `数据库中最接近的是 ${candidateHit.mpn}，与 AI 建议 ${sc.mpn} 型号不完全一致，需人工确认后才可替换`,
+              source: 'ezplm-candidate',
+              verifiedAt: now(),
+              candidate: { componentId: candidateHit.componentId, mpn: candidateHit.mpn, manufacturer: candidateHit.manufacturer },
+            }
+          : { level: 'PLACEHOLDER', evidence: '仅由模型建议，数据库未收录，需人工核对 datasheet', source: 'ai-only', verifiedAt: now() };
         mapped = {
           componentId: `fp_${sc.mpn}_${Math.random().toString(36).slice(2, 7)}`,
           mpn: sc.mpn || '未命名器件',
-          manufacturer: '—',
+          manufacturer: sc.manufacturer ?? '—',
           category: cat,
           defaultFootprintName: sc.footprint || (cat === 'passive' ? '0402' : 'SOIC-8'),
           family: 'Footprint',
-          description: `${sc.role ?? ''}（未映射到 ezPLM，以封装占位，可上画布后补全型号）`.trim(),
+          description: `${sc.reason ?? ''}（${candidateHit ? `候选：${candidateHit.mpn}，待确认` : '未映射到 ezPLM，以封装占位'}）`.trim(),
           pins: 2,
-          mapSource: '封装占位',
-        } as ComponentSearchResult & { mapSource?: string };
+          mapSource: candidateHit ? '候选待确认' : '封装占位',
+          trust,
+        } as ComponentSearchResult & { mapSource?: string; trust?: ComponentTrust };
       }
-      if (sc.role && !mapped.description?.includes(sc.role)) mapped = { ...mapped, description: `${sc.role} · ${mapped.description ?? ''}` };
+      if (sc.reason && !mapped.description?.includes(sc.reason)) mapped = { ...mapped, description: `${sc.reason} · ${mapped.description ?? ''}` };
       for (let k = 0; k < qty; k++) items.push(mapped);
     }
 
-    return { componentIds: [], rationale: parsed.rationale ?? 'Gemini 方案', items };
+    return { componentIds: [], rationale: checked.data.summary ?? 'Gemini 方案', items };
   }
 }

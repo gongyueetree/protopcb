@@ -22,7 +22,7 @@ describe('封装解析：奇数管脚与常用族', () => {
     expect(fp.pads.filter((p) => p.x < 0)).toHaveLength(3);   // 左列多一个
     expect(fp.pads.filter((p) => p.x > 0)).toHaveLength(2);
     // 编号连续且唯一
-    expect([...new Set(fp.pads.map((p) => p.num))].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+    expect([...new Set(fp.pads.map((p) => Number(p.num)))].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it('新增常用族均可解析', () => {

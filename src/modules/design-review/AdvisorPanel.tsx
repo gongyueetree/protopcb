@@ -35,7 +35,7 @@ function ruleSuggestions(comps: { mpn: string; category: string; family?: string
 
   if (icCount > 0 && !has((c) => c.category === 'power')) out.push({ name: tr('3.3V 稳压电路（LDO/DCDC）'), reason: tr('画布上有 IC 但没有电源管理器件，系统无法供电'), addId: 'lm1117' });
   if (fam('STM32') || fam('GD32')) {
-    out.push({ name: tr('8MHz 晶振 + 2×20pF 负载电容'), reason: tr('STM32/GD32 外部主时钟（也可用内部 HSI，但精度受限）') });
+    out.push({ name: tr('外部晶振（如 8MHz）+ 负载电容'), reason: tr('请确认时钟需求：若需 USB/精确定时等 HSI 精度不够的场景，则加外部晶振（容值按晶振 CL 与走线电容计算）；仅用内部 HSI 可省') });
     out.push({ name: tr('复位电路（10KΩ 上拉 + 100nF）'), reason: tr('NRST 引脚复位可靠性'), addId: 'res10k' });
     out.push({ name: tr('SWD 调试接口（2×5 排针）'), reason: tr('烧录与在线调试必需'), addId: 'header2x5' });
     out.push({ name: tr('BOOT0 下拉 10KΩ'), reason: tr('确保从主 Flash 启动'), addId: 'res10k' });
@@ -47,11 +47,11 @@ function ruleSuggestions(comps: { mpn: string; category: string; family?: string
   }
   if (fam('USB')) {
     out.push({ name: tr('USB ESD 保护（TVS 阵列）'), reason: tr('USB 接口静电防护') });
-    out.push({ name: tr('CC1/CC2 5.1KΩ 下拉'), reason: tr('Type-C 从机模式识别必需'), addId: 'res10k' });
+    out.push({ name: tr('CC1/CC2 各 5.1KΩ 下拉（Rd）'), reason: tr('请确认 USB 角色：若本板为 device/UFP（从机取电），则 CC1/CC2 各接 5.1K Rd；若为 host/DFP 则应为 Rp 上拉，双角色需 CC 控制器'), addId: 'res10k' });
   }
   if (fam('USB-UART') || has((c) => c.mpn.startsWith('CH340'))) out.push({ name: tr('12MHz 晶振'), reason: tr('CH340G 需外部晶振（CH340C 内置可省）') });
   if (fam('Flash')) out.push({ name: tr('CS 上拉 10KΩ'), reason: tr('SPI Flash 片选默认无效电平'), addId: 'res10k' });
-  if (fam('CAN')) out.push({ name: tr('120Ω 终端电阻'), reason: tr('CAN 总线末端匹配') });
+  if (fam('CAN')) out.push({ name: tr('120Ω 终端电阻（按拓扑）'), reason: tr('请确认本节点位置：仅当位于 CAN 总线两个物理末端时才接 120Ω 终端；中间节点不接，否则总线阻抗失配') });
   if (icCount > capCount) out.push({ name: `去耦电容 100nF ×${icCount - capCount}`, reason: `每个 IC 电源脚就近去耦（当前 ${icCount} 个 IC / ${capCount} 个电容）`, addId: 'cap100nf' });
   if (icCount > 0 && !has((c) => c.category === 'connector')) out.push({ name: tr('供电/调试接口'), reason: tr('板卡缺少对外接口'), addId: 'usbc' });
   return out;
@@ -141,7 +141,9 @@ export function AdvisorPanel() {
       <Section title={"🧠 " + tr('系统补全建议')} badge={sysSugs.length || undefined}>
         {doc.components.length === 0 ? <Empty text={tr('添加器件后，AI 分析系统还缺什么')} /> : analyzing ? <Empty text={tr('分析中...')} /> : (
           <>
-            <div style={{ fontSize: 9.5, color: '#94a3b8', marginBottom: 6 }}>{sysSource === 'gemini' ? tr('由 Gemini 基于画布器件实时生成') : tr('规则引擎基于画布器件动态生成（在 Vercel 配置 GEMINI_API_KEY 后由 Gemini 生成）')}</div>
+            <div style={{ fontSize: 9.5, color: '#94a3b8', marginBottom: 6 }}>{sysSource === 'gemini' ? tr('由 Gemini 基于画布器件实时生成')
+              : sysSource === 'gemini-cache' ? tr('由 Gemini 生成（本会话缓存结果）')
+              : tr('规则引擎基于画布器件动态生成（在 Vercel 配置 GEMINI_API_KEY 后由 Gemini 生成）')}</div>
             {sysSugs.length === 0 ? <Empty text={tr('当前构成已较完整 ✓')} /> : sysSugs.map((g, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '7px 9px', marginBottom: 5, borderRadius: 7, background: '#fff', border: '1px solid #f1f5f9' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>

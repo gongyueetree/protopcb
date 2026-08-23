@@ -44,15 +44,20 @@ function classifyPins(pins: CustomPin[]): Side {
     if (p.type === 'input' || p.type === 'tri_state' || p.type === 'open_collector') left.push(p);
     else right.push(p);
   }
-  // 顶排退化保护：正电源通常 ≤3 个，多出的挪到左侧，避免顶部拥挤
-  while (top.length > 3) left.push(top.pop()!);
-
+  // 顶/底排不再设 3 脚硬上限：MCU/FPGA/BGA 常有大量 VDD/GND，符号宽度会随
+  // topCols 自动扩展（见 buildCustomSymbol 的 halfW 计算）。改变引脚功能布局语义
+  // （把电源脚硬塞到左列）比图面稍宽的代价大得多。
   const byNum = (a: CustomPin, b: CustomPin) => {
     const na = Number(a.num), nb = Number(b.num);
     if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
     return String(a.num).localeCompare(String(b.num));
   };
-  left.sort(byNum); top.sort(byNum); bottom.sort(byNum);
+  // 电源排按「名称分组 → 脚号」排序：同名 VDD 们相邻、VDDA/VBAT 各自成组
+  const byNameThenNum = (a: CustomPin, b: CustomPin) => {
+    const nc = (a.name || '').toUpperCase().localeCompare((b.name || '').toUpperCase());
+    return nc !== 0 ? nc : byNum(a, b);
+  };
+  left.sort(byNum); top.sort(byNameThenNum); bottom.sort(byNameThenNum);
   // 右列：信号在前、NC 沉底（官方库惯例，图面更干净）
   const ncs = right.filter((p) => p.type === 'no_connect').sort(byNum);
   const sig = right.filter((p) => p.type !== 'no_connect').sort(byNum);

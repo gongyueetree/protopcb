@@ -95,8 +95,9 @@ export function parseFootprintNode(fp: SExpr[]): PadFootprint | null {
       let w = numAt(size, 1), h = numAt(size, 2);
       if (rot === 90) [w, h] = [h, w]; // 局部旋转 90° 的焊盘等效交换宽高
       const round = shape === 'circle' || shape === 'oval' || type === 'thru_hole' || type === 'np_thru_hole';
-      const num = parseInt(numRaw, 10);
-      pads.push({ x: numAt(at, 1), y: numAt(at, 2), w, h, num: Number.isFinite(num) ? num : ++autoNum, round });
+      // 焊盘号保留源文件原字符串（BGA 的 "A1" 绝不能压成 1）；空号才用自增兜底
+      const clean = numRaw.replace(/^"|"$/g, '');
+      pads.push({ x: numAt(at, 1), y: numAt(at, 2), w, h, num: clean !== '' ? clean : ++autoNum, round });
     }
     if (!pads.length) return null;
 
@@ -140,7 +141,7 @@ export function parseFootprintNode(fp: SExpr[]): PadFootprint | null {
     const bodyCy = body ? body.cy : (pMinY + pMaxY) / 2;
 
     // 引脚1标记：1 号焊盘位置
-    const p1 = pads.find((p) => p.num === 1);
+    const p1 = pads.find((p) => String(p.num) === '1' || String(p.num).toUpperCase() === 'A1');
     return { bodyW: +bodyW.toFixed(3), bodyH: +bodyH.toFixed(3), bodyCx: +bodyCx.toFixed(3), bodyCy: +bodyCy.toFixed(3), pads, pin1: p1 ? { x: p1.x, y: p1.y } : undefined };
   } catch {
     return null;

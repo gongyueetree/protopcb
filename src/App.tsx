@@ -6,7 +6,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useDesignStore } from './state/designStore';
 import { getProviders } from './providers/factory';
-import { appConfig } from './config';
 import { ComponentSearchPanel } from './modules/component-search/ComponentSearchPanel';
 import { FootprintLibraryPanel } from './modules/component-search/FootprintLibraryPanel';
 import { LibraryPreview } from './modules/component-search/LibraryPreview';
@@ -15,7 +14,6 @@ import { downloadKicadPcb } from './modules/board-editor/pcbExport';
 import { getEzplmReferenceDesigns, isEzplmPart, type ReferenceDesign } from './providers/ezplm-live';
 import { ensureFootprintFile, ensureSymbolFile, useLibFileStore } from './design-core/geometry/lib-file-registry';
 import { fetchDigikeyOffer, formatDkPrice, type DigikeyOffer } from './providers/digikey';
-import { geminiComplete, geminiAvailable, extractJson } from './providers/gemini';
 import { fetchSupplierOffers, fmtOfferPrice, type SupplierOffer } from './providers/suppliers';
 import { searchEzplmParts } from './providers/ezplm-live';
 import { ensureStepBytes } from './modules/board-editor/step-loader';
@@ -25,7 +23,10 @@ import { parseKicadPcb } from './design-core/geometry/kicad-pcb-import';
 import { parseKicadSch } from './design-core/geometry/kicad-sch-import';
 import { parseLegacySch, isLegacySch } from './design-core/geometry/kicad-sch-legacy';
 import { parseLegacyLib, legacyToParsedSymbol } from './design-core/geometry/kicad-lib-legacy';
-import { safeUnzip, ZipSafetyError } from './design-core/geometry/safe-unzip';
+import { ZipSafetyError } from './design-core/geometry/safe-unzip';
+import { ProjectPersistenceService } from './design-core/document/persistence-service';
+import { useProjectPersistence } from './modules/report/useProjectPersistence';
+import { safeUnzipOffThread } from './design-core/geometry/safe-unzip-worker';
 import { parseKicadMod } from './design-core/geometry/kicad-file-parser';
 import { recommendSubCircuit, type SubCircuitItem } from './modules/component-search/sub-circuit';
 import { TRUST_META } from './providers/ai-schema';
@@ -60,6 +61,8 @@ export default function App() {
   useEffect(() => { console.info('%c硬件原型工坊 build ' + __BUILD_STAMP__, 'color:#1f5c3b;font-weight:bold'); }, []);
   const doc = useDesignStore((s) => s.doc);
   const selectedId = useDesignStore((s) => s.selectedId);
+  const placementViolations = useDesignStore((s) => s.placementViolations);
+  const dismissPlacementViolations = useDesignStore((s) => s.dismissPlacementViolations);
   const undo = useDesignStore((s) => s.undo);
   const redo = useDesignStore((s) => s.redo);
   const clearAll = useDesignStore((s) => s.clearAll);
@@ -101,39 +104,9 @@ export default function App() {
   const [wizard, setWizard] = useState<{ open: boolean; mpn?: string; editPart?: CustomPart } | null>(null);
   const [wizardTick, setWizardTick] = useState(0);
   useEffect(() => { bootCustomLib(); }, []);
-  // 自动保存（本地）：doc 变更 800ms 防抖写 localStorage；启动时若有存档且当前为空则恢复
-  const [savedAt, setSavedAt] = useState<string | null>(null);
-  const loadDocumentRef = useRef(false);
-  useEffect(() => {
-    if (loadDocumentRef.current) return;
-    loadDocumentRef.current = true;
-    try {
-      // 首次加载（本标签页会话的第一次）清空画布：不恢复自动存档，从干净状态开始；
-      // 同一会话内的刷新（F5/路由重载）仍然恢复，避免误丢正在进行的设计。
-      const FRESH_KEY = 'cc_session_started';
-      const isFirstLoad = !sessionStorage.getItem(FRESH_KEY);
-      if (isFirstLoad) {
-        sessionStorage.setItem(FRESH_KEY, '1');
-        localStorage.removeItem('cc_doc_autosave');
-        return;
-      }
-      const saved = localStorage.getItem('cc_doc_autosave');
-      if (saved && useDesignStore.getState().doc.components.length === 0) {
-        const parsed = JSON.parse(saved) as { doc: Parameters<typeof loadDocument>[0]; at: string };
-        if (parsed.doc?.components?.length) { loadDocument(parsed.doc); setSavedAt(parsed.at); }
-      }
-    } catch { /* 存档损坏则忽略 */ }
-  }, [loadDocument]);
-  useEffect(() => {
-    const t = setTimeout(() => {
-      try {
-        const at = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-        localStorage.setItem('cc_doc_autosave', JSON.stringify({ doc, at }));
-        setSavedAt(at);
-      } catch { /* 空间不足等 */ }
-    }, 800);
-    return () => clearTimeout(t);
-  }, [doc]);
+  // 自动保存：统一走 ProjectPersistenceService（唯一 autosave；schema 校验 + 版本迁移 + 损坏备份）。
+  // 首次会话不再 removeItem 删用户存档 —— 自动存档尽量保住数据，清空由用户显式点"🧹"。
+  const { savedAt } = useProjectPersistence(doc, loadDocument);
   const [linkRow, setLinkRow] = useState<string | null>(null);
   const [linkKw, setLinkKw] = useState('');
   const [linkResults, setLinkResults] = useState<Awaited<ReturnType<typeof searchEzplmParts>>['items']>([]);
@@ -207,7 +180,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedId, undo, redo, rotate, remove, flipLayer]);
 
-  const [aiProposal, setAiProposal] = useState<{ rationale: string; source?: string; fallbackReason?: string; details: (NonNullable<Awaited<ReturnType<typeof providers.components.getComponentDetail>>> & { mapSource?: string })[] } | null>(null);
+  const [aiProposal, setAiProposal] = useState<{ rationale: string; source?: string; fallbackReason?: string; details: (NonNullable<Awaited<ReturnType<typeof providers.components.getComponentDetail>>> & { mapSource?: string; trust?: import('./providers/types').ComponentTrust })[] } | null>(null);
   const [coreOnly, setCoreOnly] = useState(false);
   useEffect(() => { if (aiProposal) setCoreOnly(false); }, [aiProposal != null]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -344,8 +317,9 @@ export default function App() {
       if (/\.zip$/i.test(f.name)) {
         // KiCad 工程压缩包：解压 → PCB 上画布 + 原理图符号逐器件挂载
         const { strFromU8 } = await import('fflate');
-        // 安全解压：限额 + zip-slip + 压缩比检查（防 ZIP 炸弹把标签页 OOM）
-        const entries = await safeUnzip(new Uint8Array(await f.arrayBuffer()));
+        // 安全解压：中央目录预检（inflate 前拒绝炸弹）+ zip-slip + 压缩比检查；
+        // 解压在 Web Worker 内进行，30~60MB 工程不再卡死 UI 线程
+        const entries = await safeUnzipOffThread(new Uint8Array(await f.arrayBuffer()));
         const names = Object.keys(entries).filter((n) => !n.startsWith('__MACOSX') && !n.endsWith('/'));
         const pcbName = names.filter((n) => /\.kicad_pcb$/i.test(n)).sort((a, b) => entries[b].length - entries[a].length)[0];
         const schNames = names.filter((n) => /\.kicad_sch$/i.test(n));
@@ -449,9 +423,9 @@ export default function App() {
           <div style={{ background: '#fff', borderBottom: '2px solid #E8F3EE', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
             <button onClick={undo} style={ibtn} title={t('撤销')} aria-label={t('撤销')}>↩</button>
             <button onClick={redo} style={ibtn} title={t('重做')} aria-label={t('重做')}>↪</button>
-            <button onClick={clearAll} style={ibtn} title={t('清除')} aria-label={t('清除')} onClickCapture={(e) => {
+            <button onClick={() => { clearAll(); ProjectPersistenceService.clearByUser(); }} style={ibtn} title={t('清除')} aria-label={t('清除')} onClickCapture={(e) => {
               const cnt = useDesignStore.getState().doc.components.length;
-              if (cnt > 0 && !window.confirm(t('确定清空画布？将移除') + ` ${cnt} ` + t('个器件（可用「撤销」恢复）'))) e.stopPropagation();
+              if (cnt > 0 && !window.confirm(t('确定清空画布？将移除') + ` ${cnt} ` + t('个器件并删除本地自动存档（可用「撤销」恢复画布）'))) e.stopPropagation();
             }}>🧹</button>
             <button onClick={autoArrange} style={ibtn} title={t('自动整理') + ' — ' + t('按电气规则重新自动布局全部器件（可撤销）')} aria-label={t('自动整理')}>✨</button>
             <div style={{ width: 1, height: 18, background: '#E8F3EE', margin: '0 4px' }} />
@@ -479,6 +453,20 @@ export default function App() {
 
           <div style={{ flex: 1, position: 'relative', minHeight: 0, display: 'flex' }}>
             {view === '2d' ? <BoardCanvas2D /> : <BoardView3D />}
+
+            {/* 自动放置违规提示：solvePlacementDetailed success=false 的器件绝不静默当作成功 */}
+            {Object.keys(placementViolations).length > 0 && (
+              <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 6, background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: 10, padding: '8px 14px', boxShadow: '0 4px 16px rgba(0,0,0,.12)', fontSize: 11.5, color: '#92400e', maxWidth: '80%', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                <span>⚠ {t('以下器件未找到完全合法的放置位置（以"最不坏"位置放下，请手动调整）：')}
+                  {Object.entries(placementViolations).slice(0, 6).map(([iid, vs]) => {
+                    const ref = doc.components.find((c) => c.instanceId === iid)?.reference ?? iid.slice(0, 6);
+                    return `${ref}（${vs.map((v) => v.detail).join('；')}）`;
+                  }).join('、')}
+                  {Object.keys(placementViolations).length > 6 ? ` …${t('等')} ${Object.keys(placementViolations).length} ${t('个')}` : ''}
+                </span>
+                <button onClick={dismissPlacementViolations} style={{ border: 'none', background: 'transparent', color: '#92400e', fontWeight: 800, cursor: 'pointer', fontSize: 13, lineHeight: 1 }}>×</button>
+              </div>
+            )}
 
             {/* Selected bar — anchored to canvas area bottom */}
             {selObj && !fullscreen && (
@@ -621,6 +609,7 @@ export default function App() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontFamily: 'monospace', fontWeight: 700, flex: 1 }}>{d.mpn}</span>
                     {d.mapSource && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, fontWeight: 700, background: d.mapSource === tr('本组织') ? '#dcfce7' : d.mapSource === tr('ezPLM云端') ? '#e0f2fe' : '#fef3c7', color: d.mapSource === tr('本组织') ? '#166534' : d.mapSource === tr('ezPLM云端') ? '#0369a1' : '#92400e' }}>{tr(d.mapSource ?? '')}</span>}
+                    {d.trust && <span title={d.trust.evidence} style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, fontWeight: 700, background: TRUST_META[d.trust.level].bg, color: TRUST_META[d.trust.level].color, cursor: 'help' }}>{tr(TRUST_META[d.trust.level].label)}</span>}
                     <span style={{ color: '#64748b' }}>{d.defaultFootprintName}</span>
                     <span style={{ color: '#059669', fontWeight: 600 }}>{fmtMoney(d.unitPrice?.amount)}</span>
                     {d.mapSource === tr('封装占位') && (
@@ -701,7 +690,7 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
   const t = useT();
   const c = useDesignStore((s) => s.doc.components.find((x) => x.instanceId === iid));
   const [alts, setAlts] = useState<{ mpn: string; manufacturer: string; note: string; channel: string; footprint?: string; description?: string }[]>([]);
-  const [offers, setOffers] = useState<{ vendor: string; price?: { amount: number; currency: string }; stock?: number; url: string }[]>([]);
+  const [, setOffers] = useState<{ vendor: string; price?: { amount: number; currency: string }; stock?: number; url: string }[]>([]);
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof providers.components.getComponentDetail>>>(null);
   const [refDesigns, setRefDesigns] = useState<ReferenceDesign[]>([]);
   const [dkOffer, setDkOffer] = useState<DigikeyOffer | null>(null);
@@ -1345,7 +1334,6 @@ const linkBtn: React.CSSProperties = { padding: '5px 12px', borderRadius: 6, bor
 const hbtn: React.CSSProperties = { padding: '5px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer' };
 /** 图标工具按钮：无文字，靠 title/aria-label 提供说明 */
 const ibtn: React.CSSProperties = { width: 34, height: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: '1px solid #E8F3EE', background: '#fff', fontSize: 15, lineHeight: 1, color: '#2C3E50', cursor: 'pointer', padding: 0 };
-const tbtn: React.CSSProperties = { padding: '7px 14px', borderRadius: 6, border: '1px solid #E8F3EE', background: '#fff', fontSize: 13, fontWeight: 500, color: '#2C3E50', cursor: 'pointer' };
 const smbtn: React.CSSProperties = { padding: '3px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#475569' };
 
 

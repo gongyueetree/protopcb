@@ -1,4 +1,18 @@
 import { acquire, checkBodySize, deny } from './_lib/guard.js';
+import { fetchWithTimeout, readResponseLimited } from './_lib/net.js';
+/** 统一出站通道（本文件所有上游请求走这里）：超时 + 响应体上限 */
+async function tfetch(url, init = {}) {
+  const { res, done } = await fetchWithTimeout(url, { timeoutMs: init.timeoutMs ?? 20_000, ...init });
+  try {
+    const buf = await readResponseLimited(res, { maxBytes: init.maxResponseBytes ?? 4 * 1024 * 1024 });
+    return {
+      ok: res.ok, status: res.status, headers: res.headers,
+      json: async () => JSON.parse(buf.toString('utf8')),
+      text: async () => buf.toString('utf8'),
+    };
+  } finally { done(); }
+}
+
 /**
  * api/digikey.js — Vercel Serverless Function：DigiKey ProductInformation V4 代理
  *
@@ -20,7 +34,7 @@ let tokenCache = { token: null, expiresAt: 0 };
 async function getToken(clientId, clientSecret) {
   if (tokenCache.token && Date.now() < tokenCache.expiresAt - 30_000) return tokenCache.token;
   const body = new URLSearchParams({ client_id: clientId, client_secret: clientSecret, grant_type: 'client_credentials' });
-  const r = await fetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  const r = await tfetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   if (!r.ok) throw new Error(`token ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j = await r.json();
   tokenCache = { token: j.access_token, expiresAt: Date.now() + (j.expires_in ?? 600) * 1000 };
@@ -77,7 +91,7 @@ export default async function handler(req, res) {
     const currency = /^[A-Z]{3}$/.test(reqCur) ? reqCur : (process.env.DIGIKEY_LOCALE_CURRENCY ?? 'CNY');
     const site = currency === 'USD' ? 'US' : (process.env.DIGIKEY_LOCALE_SITE ?? 'CN');
     const language = currency === 'USD' ? 'en' : (process.env.DIGIKEY_LOCALE_LANGUAGE ?? 'zhs');
-    const r = await fetch(SEARCH_URL, {
+    const r = await tfetch(SEARCH_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

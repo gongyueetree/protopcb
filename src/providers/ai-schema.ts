@@ -73,7 +73,7 @@ export interface ValidationOutcome<T> {
 /**
  * 统一校验入口。失败时给出可读原因，绝不返回半成品。
  */
-export function validateAi<T>(schema: z.ZodType<T>, raw: unknown, label: string): ValidationOutcome<T> {
+export function validateAi<S extends z.ZodTypeAny>(schema: S, raw: unknown, label: string): ValidationOutcome<z.output<S>> {
   const r = schema.safeParse(raw);
   if (r.success) return { ok: true, data: r.data };
   const first = r.error.issues[0];

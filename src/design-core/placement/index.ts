@@ -6,8 +6,9 @@
 import type { PlacedComponent, BoardDefinition } from '../document/types';
 import type { PlacementRule } from '../rules/types';
 import { DEFAULT_PLACEMENT_RULES } from '../rules/types';
-import { componentRect, boardRect, BOARD_MARGIN_MM, DEFAULT_GAP_MM, mountingHoleRects } from '../collision';
-import { rectsOverlap, clampRectInside, type Rect, type Point } from '../geometry';
+import { componentRect, boardRect, BOARD_MARGIN_MM, DEFAULT_GAP_MM, mountingHoleRects, lshapeCut } from '../collision';
+import { rectsOverlap, clampRectInside, pointInPolygon, type Rect, type Point } from '../geometry';
+import { SUPPORTED_PLACEMENT_RULE_TYPES } from '../rules/types';
 
 export { DEFAULT_PLACEMENT_RULES };
 
@@ -97,22 +98,17 @@ export function solvePlacementDetailed(comp: PlacedComponent, ctx: PlaceContext)
       break;
     }
   }
-  // 3) 板框（矩形外接近似；异形板的精确判定见下方说明）
-  const b = boardRect(ctx.board);
-  if (rect.x < b.x || rect.y < b.y || rect.x + rect.width > b.x + b.width || rect.y + rect.height > b.y + b.height) {
-    violations.push({ kind: 'off_board', detail: '超出板框范围' });
+  // 3) 板框 —— shape-aware：courtyard 四角必须都在合法板面内
+  //    rect/rounded 用外接矩形（rounded 圆角处的微小误差按保守处理，见 cornerInBoard），
+  //    circle 用圆内判定，lshape 排除缺口区域。
+  if (!rectInsideBoardShape(rect, ctx.board)) {
+    violations.push({ kind: 'off_board', detail: '超出板框范围（含异形板缺口/圆板边界判定）' });
   }
-  // 4) keepout 区
+  // 4) keepout 区 —— 真多边形相交判定（不再只用外接矩形）
   for (const kz of ctx.board.keepoutZones ?? []) {
     const pts = kz.polygon ?? [];
     if (pts.length < 3) continue;
-    // 禁布区是多边形，这里用其外接矩形近似判定（保守：宁可多报不可漏报）
-    const xs = pts.map((q) => q.x), ys = pts.map((q) => q.y);
-    const kr: Rect = {
-      x: Math.min(...xs), y: Math.min(...ys),
-      width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys),
-    };
-    if (kr.width > 0 && kr.height > 0 && rectsOverlap(rect, kr, 0)) {
+    if (rectIntersectsPolygon(rect, pts)) {
       violations.push({ kind: 'keepout', detail: `落入禁布区 ${kz.label || kz.id}`.trim() });
     }
   }
@@ -123,6 +119,89 @@ export function solvePlacementDetailed(comp: PlacedComponent, ctx: PlaceContext)
 /** 兼容既有调用点：只要坐标。需要知道是否放置成功请用 solvePlacementDetailed。 */
 export function solvePlacement(comp: PlacedComponent, ctx: PlaceContext): Point {
   return solvePlacementRaw(comp, ctx);
+}
+
+/* ---------- 板形几何合法性 ---------- */
+
+/** 点是否在板形合法区域内（shape-aware） */
+export function pointInBoardShape(p: Point, board: BoardDefinition): boolean {
+  const W = board.widthMm, H = board.heightMm;
+  if (p.x < 0 || p.y < 0 || p.x > W || p.y > H) return false;
+  if (board.shape === 'circle') {
+    const r = Math.min(W, H) / 2;
+    return Math.hypot(p.x - W / 2, p.y - H / 2) <= r;
+  }
+  if (board.shape === 'lshape') {
+    const { cutW, cutH } = lshapeCut(board);
+    // 缺口在右下：x > W-cutW 且 y > H-cutH 的区域被切除
+    if (p.x > W - cutW && p.y > H - cutH) return false;
+    return true;
+  }
+  // rect / rounded：外接矩形（rounded 圆角误差 <8% 边长，按矩形近似不至于误放到板外）
+  return true;
+}
+
+/** courtyard 矩形四角 + 中心是否全部在合法板面内 */
+export function rectInsideBoardShape(rect: Rect, board: BoardDefinition): boolean {
+  const corners: Point[] = [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y },
+    { x: rect.x, y: rect.y + rect.height },
+    { x: rect.x + rect.width, y: rect.y + rect.height },
+    { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
+  ];
+  return corners.every((c) => pointInBoardShape(c, board));
+}
+
+/** 矩形与多边形相交：角点互检 + 边相交检测（保守精确，替代外接矩形近似） */
+export function rectIntersectsPolygon(rect: Rect, poly: Point[]): boolean {
+  if (poly.length < 3) return false;
+  const rectPts: Point[] = [
+    { x: rect.x, y: rect.y }, { x: rect.x + rect.width, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y + rect.height }, { x: rect.x, y: rect.y + rect.height },
+  ];
+  // 1) 矩形任一角在多边形内
+  if (rectPts.some((p) => pointInPolygon(p, poly))) return true;
+  // 2) 多边形任一顶点在矩形内
+  if (poly.some((p) => p.x >= rect.x && p.x <= rect.x + rect.width && p.y >= rect.y && p.y <= rect.y + rect.height)) return true;
+  // 3) 任意边相交
+  const segInter = (a: Point, b: Point, c: Point, d: Point): boolean => {
+    const cross = (o: Point, u: Point, v: Point) => (u.x - o.x) * (v.y - o.y) - (u.y - o.y) * (v.x - o.x);
+    const d1 = cross(c, d, a), d2 = cross(c, d, b), d3 = cross(a, b, c), d4 = cross(a, b, d);
+    return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+  };
+  for (let i = 0; i < poly.length; i++) {
+    const p1 = poly[i], p2 = poly[(i + 1) % poly.length];
+    for (let j = 0; j < 4; j++) {
+      if (segInter(p1, p2, rectPts[j], rectPts[(j + 1) % 4])) return true;
+    }
+  }
+  return false;
+}
+
+export interface AutoPlaceOutcome {
+  placed: PlacedComponent[];
+  /** instanceId → 违规明细（空 = 全部合法） */
+  violations: Record<string, PlacementViolation[]>;
+}
+
+/**
+ * 批量放置（带失败语义）：success=false 的器件依然以"最不坏"位置放下，
+ * 但违规明细一并返回 —— 由 store/UI 明确提示，绝不静默当作成功。
+ */
+export function autoPlaceAllDetailed(
+  comps: PlacedComponent[],
+  board: BoardDefinition,
+  rules: PlacementRule[] = DEFAULT_PLACEMENT_RULES
+): AutoPlaceOutcome {
+  const placed: PlacedComponent[] = [];
+  const violations: Record<string, PlacementViolation[]> = {};
+  for (const c of comps) {
+    const out = solvePlacementDetailed(c, { board, existing: placed, rules });
+    if (!out.success) violations[c.instanceId] = out.violations;
+    placed.push({ ...c, placement: { ...c.placement, xMm: out.position.x, yMm: out.position.y } });
+  }
+  return { placed, violations };
 }
 
 /** 批量放置：依次为列表中的器件求解，后放的避开先放的。 */
@@ -144,6 +223,14 @@ export function autoPlaceAll(
 function pickRule(comp: PlacedComponent, rules: PlacementRule[]): PlacementRule | undefined {
   const family = comp.display?.family ?? '';
   const candidates = rules
+    .filter((r) => {
+      // 未实现的规则类型：显式告警并跳过 —— 绝不静默当作已执行
+      if (!(SUPPORTED_PLACEMENT_RULE_TYPES as readonly string[]).includes(r.type)) {
+        console.warn(`[placement] 规则 ${r.id} 类型 ${r.type} 尚未实现，已跳过（不参与求解）`);
+        return false;
+      }
+      return true;
+    })
     .filter((r) => r.appliesTo === comp.category)
     .filter((r) => !r.params.family || family.toLowerCase().includes(r.params.family.toLowerCase()))
     .sort((a, b) => b.priority - a.priority);

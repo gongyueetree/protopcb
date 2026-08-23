@@ -7,7 +7,7 @@ import { tr } from '../../shared/i18n';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useDesignStore } from '../../state/designStore';
 import { useSchematicStore, type SchNet } from './schematicStore';
-import { symbolFor, symbolUnitsFor } from './symbols';
+import { symbolUnitsFor } from './symbols';
 import { useLibFileStore } from '../../design-core/geometry/lib-file-registry';
 import { ImportedSchematicView } from './ImportedSchematicView';
 import { isCore, signalFlowRank } from '../../design-core/placement/affinity';

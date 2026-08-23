@@ -40,9 +40,11 @@ describe('服务端配额防护', () => {
     expect(acquire(a, 'other').ok).toBe(true);   // 另一个 scope 不受影响
   });
 
-  it('session 头优先于 IP 作为身份', () => {
-    expect(callerKey(req({ headers: { 'x-cc-session': 'abc' } }))).toBe('s:abc');
-    expect(callerKey(req({ headers: { 'x-forwarded-for': '5.5.5.5, 6.6.6.6' } }))).toBe('ip:5.5.5.5');
+  it('客户端 session 头不能替代 IP 成为配额主体（防轮换绕过）', () => {
+    const withSess = callerKey(req({ headers: { 'x-cc-session': 'abc' } }));
+    expect(withSess.startsWith('ip:')).toBe(true);
+    // x-forwarded-for 取链尾（反代追加的可信一跳），客户端伪造的前缀无效
+    expect(callerKey(req({ headers: { 'x-forwarded-for': '5.5.5.5, 6.6.6.6' } }))).toBe('ip:6.6.6.6');
   });
 
   it('请求体超限返回 413', () => {

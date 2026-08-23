@@ -65,3 +65,40 @@ describe('ZIP 安全解压', () => {
 });
 
 function zip_(files: Record<string, Uint8Array>) { return zipSync(files); }
+
+/* ── 本轮新增：inflate 前预检（验收 11）── */
+import { preScanZip } from './safe-unzip';
+import { zipSync as zipSync2, strToU8 as strToU8b } from 'fflate';
+
+describe('中央目录预检：在任何 inflate 之前拒绝', () => {
+  it('验收11：大量小条目、累计解压量超限 → preScanZip 直接拒绝（0 字节解压）', () => {
+    // 500 个条目 × 1MB 高度可压缩内容：压缩包很小，累计解压量 500MB 远超 200MB 上限
+    const files: Record<string, Uint8Array> = {};
+    const oneMb = strToU8b('A'.repeat(1024 * 1024));
+    for (let i = 0; i < 500; i++) files[`f${i}.txt`] = oneMb;
+    const bomb = zipSync2(files, { level: 9 });
+    expect(() => preScanZip(bomb)).toThrow(ZipSafetyError);
+    expect(() => preScanZip(bomb)).toThrow(/解压前|总量/);
+    // safeUnzip 也必须在解压前失败（同一预检路径）
+    return expect(safeUnzip(bomb)).rejects.toThrow(ZipSafetyError);
+  });
+
+  it('条目数超限在预检阶段拒绝', () => {
+    const files: Record<string, Uint8Array> = {};
+    for (let i = 0; i < 30; i++) files[`f${i}.txt`] = strToU8b('x');
+    const z = zipSync2(files);
+    expect(() => preScanZip(z, { maxFiles: 10 })).toThrow(/条目|上限/);
+  });
+
+  it('预检返回条目元数据（正常包）', () => {
+    const z = zipSync2({ 'a.kicad_pcb': strToU8b('(kicad_pcb)'), 'sub/b.kicad_sch': strToU8b('(kicad_sch)') });
+    const metas = preScanZip(z);
+    expect(metas.map((m) => m.name).sort()).toEqual(['a.kicad_pcb', 'sub/b.kicad_sch']);
+    expect(metas.every((m) => m.uncompressedSize > 0)).toBe(true);
+  });
+
+  it('zip-slip 条目在预检阶段拒绝', () => {
+    const z = zipSync2({ '../evil.txt': strToU8b('x') });
+    expect(() => preScanZip(z)).toThrow(/非法路径/);
+  });
+});

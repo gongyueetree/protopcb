@@ -10,11 +10,11 @@ import { buildCustomSymbol, symbolSideSummary } from '../../design-core/custom-s
 import { useMemo, useState , useEffect} from 'react';
 import { COLORS } from '../../shared/theme';
 import { geminiAvailable, geminiComplete, extractJson } from '../../providers/gemini';
-import { padFootprintFor } from '../../design-core/geometry/footprint-pads';
 import {
-  KICAD_PIN_TYPES, type CustomPin, type CustomPkg, type CustomPart, type PinSide,
-  synthFootprintName, saveCustomPart, defaultSide, buildCustomFootprint, customFootprintName,
+  KICAD_PIN_TYPES, CUSTOM_FAMILIES, CUSTOM_CATEGORIES, type CustomPin, type CustomPkg, type CustomPart, type PinSide,
+  saveCustomPart, defaultSide, buildCustomFootprint, customFootprintName,
 } from '../../design-core/custom-lib';
+import { validateCustomPartDraft } from '../../design-core/custom-part-schema';
 import type { ComponentCategory } from '../../design-core/document/types';
 
 const FAMILIES: [CustomPkg['family'], string][] = [
@@ -39,6 +39,8 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
   const [aiText, setAiText] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState('');
+  /** AI 提取后置 true：表单顶部显示"AI 提取 — 未人工确认"，保存即视为人工确认 */
+  const [aiDraft, setAiDraft] = useState(false);
 
   const fpName = customFootprintName({ mpn: mpn || 'X', pkg, pins });
   const fp = useMemo(() => buildCustomFootprint(pkg, pins.length), [pkg, pkg.manualPads, pins.length]);
@@ -51,10 +53,19 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
     setPkg((prev) => ({ ...prev, manualPads: next }));
   }, [pins.length, pkg.family]);
 
+  // Prompt 中的枚举从代码中央 enum 动态构建（CUSTOM_FAMILIES/CUSTOM_CATEGORIES/KICAD_PIN_TYPES），
+  // 加新 family 后 Prompt 自动跟进，不再出现"UI 支持 bga 但 Prompt 只认 5 个族"的漂移。
   const EXTRACT_PROMPT_BASE = `请从以上器件资料中提取信息，严格输出 JSON（勿输出其它文字）：
-{"mpn":"型号","description":"30字内功能描述","category":"ic|mcu|power|connector|passive",
+{"mpn":"型号","description":"30字内功能描述","category":"${CUSTOM_CATEGORIES.join('|')}",
 "pins":[{"num":"1","name":"VCC","type":"power_in","desc":"电源","side":"top|bottom|left|right"}],
-"package":{"family":"dual|quad|qfn|header|chip","bodyW":本体宽mm,"bodyH":本体长mm,"pitch":引脚间距mm,"outlineW":模块整体轮廓宽mm(若焊盘只占模块一部分则填写否则省略),"outlineH":模块整体轮廓高mm}}
+"package":{"family":"${CUSTOM_FAMILIES.filter((f) => f !== 'manual').join('|')}","bodyW":本体宽mm,"bodyH":本体长mm,"pitch":引脚间距mm,"padLen":焊盘沿引脚方向长度mm,"padWidth":焊盘宽mm,"leadSpan":两排引脚外缘跨距mm,"heightMm":本体高度mm,"outlineW":模块整体轮廓宽mm(若焊盘只占模块一部分则填写否则省略),"outlineH":模块整体轮廓高mm}}
+
+package 提取铁律（工程事实必须来自 datasheet，不允许按管脚数量猜测）：
+1. 所有尺寸必须来自 datasheet 的「Package Outline / Mechanical Dimensions / Package Information」章节的封装机械图与尺寸表（通常在文档末尾几页），以及 Land Pattern / Recommended PCB Layout 图（若有）。
+2. bodyW/bodyH 取本体 D×E 标称值；heightMm 取总高 A 的 max 值；pitch 取 e；leadSpan 取含引脚的总跨距（如 E 或 HE）标称值。
+3. padLen/padWidth 优先取 Land Pattern 推荐焊盘尺寸；datasheet 未给推荐焊盘时省略这两个字段（由系统按族规则生成），不要自行发明数值。
+4. 尺寸表若为 inch 必须换算为 mm（1 inch = 25.4mm）；min/nom/max 三栏取 nom（标称），无 nom 取 (min+max)/2。
+5. 任何在资料中找不到的字段直接省略，禁止编造。
 side 规则：电源脚 top，地脚 bottom，输入类 left，输出类 right
 pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
   // 英文界面：要求模型用英文回填描述类字段（管脚名/方向说明等）
@@ -91,28 +102,41 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
   };
 
   const applyExtract = (j: { mpn?: string; description?: string; category?: string; pins?: CustomPin[]; package?: Partial<CustomPkg> }) => {
-    if (j.mpn) setMpn(j.mpn);
-    if (j.description) setDesc(j.description);
+    if (j.mpn) setMpn(String(j.mpn).slice(0, 64));
+    if (j.description) setDesc(String(j.description).slice(0, 200));
     if (j.category && CATS.some(([c]) => c === j.category)) setCat(j.category as ComponentCategory);
     if (Array.isArray(j.pins) && j.pins.length) {
-      setPins(j.pins.slice(0, 100).map((p, i) => ({
-        num: String(p.num ?? i + 1), name: String(p.name ?? `P${i + 1}`),
-        type: KICAD_PIN_TYPES.includes(p.type) ? p.type : 'passive', desc: p.desc,
+      // 逐脚过滤非法项；重复脚号在此阶段保留（表单里高亮，保存时硬拒绝），便于用户对照 datasheet 修正
+      setPins(j.pins.slice(0, 500).map((p, i) => ({
+        num: String(p.num ?? i + 1).slice(0, 8), name: String(p.name ?? `P${i + 1}`).slice(0, 48),
+        type: KICAD_PIN_TYPES.includes(p.type) ? p.type : 'passive', desc: p.desc ? String(p.desc).slice(0, 120) : undefined,
         side: (['left', 'right', 'top', 'bottom'] as const).includes(p.side as PinSide) ? p.side as PinSide : undefined,
       })));
     }
     const pk = j.package;
     if (pk) {
+      // 数值字段统一过"有限正数"闸门：NaN/Infinity/负数丢弃，保留旧值
+      const posNum = (v: unknown): number | undefined => {
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? n : undefined;
+      };
       setPkg((prev) => ({
         family: FAMILIES.some(([f]) => f === pk.family) ? pk.family as CustomPkg['family'] : prev.family,
-        bodyW: Number(pk.bodyW) || prev.bodyW,
-        bodyH: Number(pk.bodyH) || prev.bodyH,
-        pitch: Number(pk.pitch) || prev.pitch,
-        outlineW: Number(pk.outlineW) || prev.outlineW,
-        outlineH: Number(pk.outlineH) || prev.outlineH,
+        bodyW: posNum(pk.bodyW) ?? prev.bodyW,
+        bodyH: posNum(pk.bodyH) ?? prev.bodyH,
+        pitch: posNum(pk.pitch) ?? prev.pitch,
+        // 封装机械图真实参数：焊盘尺寸/引脚跨距/本体高度（3D 用）
+        padLen: posNum(pk.padLen) ?? prev.padLen,
+        padWidth: posNum(pk.padWidth) ?? prev.padWidth,
+        leadSpan: posNum(pk.leadSpan) ?? prev.leadSpan,
+        heightMm: posNum(pk.heightMm) ?? prev.heightMm,
+        outlineW: posNum(pk.outlineW) ?? prev.outlineW,
+        outlineH: posNum(pk.outlineH) ?? prev.outlineH,
         padsOffsetX: prev.padsOffsetX, padsOffsetY: prev.padsOffsetY,
       }));
     }
+    // AI 提取的数据必须显式标注"未人工确认"，用户核对并保存后才成为定制器件
+    setAiDraft(true);
   };
 
   /** ds2kicad 封装类型 → 向导封装族 */
@@ -152,14 +176,24 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
     }
     const pk = j.packages?.[j.recommendedPackageIndex ?? 0];
     if (pk) {
+      const posNum = (v: unknown): number | undefined => {
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? n : undefined;
+      };
+      const pkx = pk as typeof pk & { height?: number; padLength?: number; padWidth?: number; leadSpan?: number };
       setPkg((prev) => ({
         ...prev,
         family: mapDsFamily(pk.type ?? ''),
-        bodyW: Number(pk.bodyWidth) || prev.bodyW,
-        bodyH: Number(pk.bodyLength) || prev.bodyH,
-        pitch: Number(pk.pitch) || prev.pitch,
+        bodyW: posNum(pk.bodyWidth) ?? prev.bodyW,
+        bodyH: posNum(pk.bodyLength) ?? prev.bodyH,
+        pitch: posNum(pk.pitch) ?? prev.pitch,
+        heightMm: posNum(pkx.height) ?? prev.heightMm,
+        padLen: posNum(pkx.padLength) ?? prev.padLen,
+        padWidth: posNum(pkx.padWidth) ?? prev.padWidth,
+        leadSpan: posNum(pkx.leadSpan) ?? prev.leadSpan,
       }));
     }
+    setAiDraft(true);
     setAiMsg(j.mock ? '⚠ ds2kicad 处于演示模式（其 GEMINI_API_KEY 未配置），已填入示例数据' : '✓ ds2kicad 提取完成（确定性解析+AI），请核对后保存');
   };
 
@@ -250,7 +284,9 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
   };
 
   const save = () => {
-    if (!mpn.trim() || !pins.length) { setAiMsg(tr('型号与管脚不能为空')); return; }
+    // 统一 Zod 校验：重复脚号 / 非法尺寸（NaN/Infinity/≤0）/ 超限一律拒绝保存
+    const check = validateCustomPartDraft({ mpn: mpn.trim(), description: desc.trim() || undefined, category: cat, pins, pkg });
+    if (!check.ok) { setAiMsg(tr('校验未通过：') + check.error); return; }
     const part: CustomPart = {
       // 编辑模式保留原 id/创建时间（保存即覆盖同一条，不产生重复器件）
       id: editPart?.id ?? Math.random().toString(36).slice(2, 10), mpn: mpn.trim(), description: desc.trim() || undefined,
@@ -286,6 +322,21 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
           {aiText.trim() && <button disabled={aiBusy} onClick={() => runAi({ text: aiText })} style={{ marginTop: 6, padding: '5px 12px', borderRadius: 6, border: 'none', background: '#6d28d9', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{aiBusy ? tr('提取中…') : tr('从文本提取')}</button>}
           {aiMsg && <div style={{ marginTop: 6, fontSize: 10.5, color: aiMsg.startsWith('✓') ? '#16a34a' : '#b91c1c' }}>{aiMsg}</div>}
         </div>
+
+        {/* AI 草稿标注：提取数据在人工核对保存前不算定制器件 */}
+        {aiDraft && (
+          <div style={{ padding: '7px 10px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fcd34d', marginBottom: 10, fontSize: 11, color: '#92400e', fontWeight: 600 }}>
+            ⚠ {tr('AI 提取 — 未人工确认。以下字段由模型从资料中提取，请逐项对照 datasheet 核对（尤其脚号与封装尺寸），点击"保存"即视为人工确认。')}
+            {(pkg.padLen || pkg.leadSpan || pkg.heightMm) && (
+              <span style={{ fontWeight: 400 }}> {tr('封装机械图参数：')}
+                {pkg.leadSpan ? `leadSpan ${pkg.leadSpan}mm ` : ''}
+                {pkg.padLen ? `padLen ${pkg.padLen}mm ` : ''}
+                {pkg.padWidth ? `padWidth ${pkg.padWidth}mm ` : ''}
+                {pkg.heightMm ? `${tr('高度')} ${pkg.heightMm}mm（3D）` : ''}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* 基本信息 */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
@@ -359,6 +410,15 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
                 )}
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11, color: '#64748b' }}>
                   {tr('间距')} <input type="number" step={0.05} value={pkg.pitch} onChange={(e) => setPkg({ ...pkg, pitch: Number(e.target.value) })} style={{ ...inp, width: 58 }} /> mm
+                </div>
+                {/* 封装机械图真实参数（datasheet Package Outline / Land Pattern 提取或手填）：
+                    留空时按封装族规则生成焊盘；填写后逐焊盘应用真实尺寸，3D 用真实高度 */}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, fontSize: 11, color: '#475569', flexWrap: 'wrap' }}>
+                  <span title={tr('两排引脚外缘跨距（datasheet 尺寸 E/HE），决定焊盘行距')}>{tr('引脚跨距')} <input type="number" step={0.05} value={pkg.leadSpan ?? ''} placeholder="—" onChange={(e) => setPkg({ ...pkg, leadSpan: e.target.value === '' ? undefined : Number(e.target.value) })} style={{ ...inp, width: 58 }} /></span>
+                  <span title={tr('Land Pattern 推荐焊盘：沿引脚方向长度')}>{tr('焊盘长')} <input type="number" step={0.05} value={pkg.padLen ?? ''} placeholder="—" onChange={(e) => setPkg({ ...pkg, padLen: e.target.value === '' ? undefined : Number(e.target.value) })} style={{ ...inp, width: 52 }} /></span>
+                  <span title={tr('Land Pattern 推荐焊盘：宽度')}>{tr('焊盘宽')} <input type="number" step={0.05} value={pkg.padWidth ?? ''} placeholder="—" onChange={(e) => setPkg({ ...pkg, padWidth: e.target.value === '' ? undefined : Number(e.target.value) })} style={{ ...inp, width: 52 }} /></span>
+                  <span title={tr('本体高度（尺寸 A max），3D 参数化模型使用')}>{tr('高度')} <input type="number" step={0.05} value={pkg.heightMm ?? ''} placeholder="—" onChange={(e) => setPkg({ ...pkg, heightMm: e.target.value === '' ? undefined : Number(e.target.value) })} style={{ ...inp, width: 52 }} /></span>
+                  <span>mm</span>
                 </div>
               </>
             )}

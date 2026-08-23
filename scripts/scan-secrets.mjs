@@ -16,7 +16,7 @@ const DANGEROUS = /\bVITE_[A-Z0-9_]*(KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL)\b/;
 /** 疑似硬编码的真实密钥（Google API Key 形态、长 hex/base64 赋值给 key 字段） */
 const HARDCODED = [
   /\bAIza[0-9A-Za-z_-]{30,}\b/,
-  /(api[_-]?key|secret|token)\s*[:=]\s*['"][A-Za-z0-9_\-]{28,}['"]/i,
+  /(api[_-]?key|secret|token)\s*[:=]\s*['"][A-Za-z0-9_-]{28,}['"]/i,
 ];
 
 const hits = [];

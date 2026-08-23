@@ -4,7 +4,6 @@
  */
 import { tr, currencySym, curLang } from '../../shared/i18n';
 import { useDesignStore } from '../../state/designStore';
-import { bomTotal } from '../../design-core/document/services';
 import { fmtMoney, COLORS } from '../../shared/theme';
 import { useEffect, useState } from 'react';
 import type { BomLine } from '../../design-core/document/types';

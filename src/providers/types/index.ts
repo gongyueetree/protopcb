@@ -141,11 +141,21 @@ export interface ProjectProvider {
 export interface AiSchemeRequest {
   prompt: string;
 }
+/** 器件映射的显式验证结果：从 mapping 层传入，不允许按 componentId 前缀（ez_*）推断 */
+export interface ComponentTrust {
+  level: 'VERIFIED' | 'CANDIDATE' | 'PLACEHOLDER';
+  evidence: string;
+  source: 'ezplm-exact' | 'ezplm-candidate' | 'ai-only';
+  verifiedAt: string;
+  /** CANDIDATE 时：数据库中最接近的候选（仅供用户确认，不自动替换） */
+  candidate?: { componentId: string; mpn: string; manufacturer?: string };
+}
+
 export interface AiSchemeResult {
   componentIds: string[];
   rationale: string;
   /** Gemini 真实链路：完整器件对象（含 ezPLM 映射来源），存在时优先于 componentIds */
-  items?: (ComponentSearchResult & { mapSource?: string })[];
+  items?: (ComponentSearchResult & { mapSource?: string; trust?: ComponentTrust })[];
   /** 结果来源与回退原因（UI 数据源徽标用） */
   source?: 'gemini' | 'mock';
   fallbackReason?: string;

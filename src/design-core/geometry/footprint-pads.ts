@@ -20,13 +20,23 @@ export interface Pad {
   /** 焊盘尺寸 (mm) */
   w: number;
   h: number;
-  /** 引脚号（用于显示/调试） */
-  num: number;
+  /**
+   * 引脚号。string | number 联合：BGA/WLCSP 的真实球号是 "A1"/"B3" 这类字符串，
+   * 早期 numeric 设计会把 A1 压成 1，属于工程级错误。内部比较一律用 String(num)。
+   */
+  num: string | number;
   /** 圆形焊盘（THT）时为 true */
   round?: boolean;
 }
 
 export interface PadFootprint {
+  /**
+   * 近似封装标记：由参数猜测（如 BGA 按 body+pitch 铺球）而非真实数据生成。
+   * 带此标记的封装在 trust 体系中只能是 CANDIDATE/PLACEHOLDER，不能 VERIFIED。
+   */
+  approximate?: boolean;
+  /** 器件本体高度 mm（datasheet 机械图提取；3D 参数化模型优先使用） */
+  heightMm?: number;
   /** 本体丝印外框 (mm) */
   bodyW: number;
   bodyH: number;

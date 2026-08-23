@@ -183,10 +183,23 @@ export interface ReviewFinding {
 
 /* ---------- 顶层文档 ---------- */
 export interface CircuitCanvasDocument {
-  /** 导入工程的铜箔走线（真实线宽 mm，坐标相对板左上角） */
-  tracks?: { x1: number; y1: number; x2: number; y2: number; w: number; layer: 'top' | 'bottom' }[];
-  /** 导入工程的过孔 */
-  vias?: { x: number; y: number; size: number }[];
+  /**
+   * 导入工程的铜箔走线（真实线宽 mm，坐标相对板左上角）。
+   * layer：'top'/'bottom' 为画布常用别名（=F.Cu/B.Cu）；内层保留 KiCad 原名（In1.Cu…），
+   * 导出时原样写回，绝不把内层压成 F.Cu。
+   * net：源文件网络号；导出写回（此前丢失 → 全部变 net 0，电气信息尽毁）。
+   */
+  tracks?: { x1: number; y1: number; x2: number; y2: number; w: number; layer: string; net?: number }[];
+  /**
+   * 导入工程的过孔：size=外径；drill/net/layers/viaType 均来自源文件原值。
+   * 禁止导出时用 size*0.5 之类重新猜测 drill。
+   */
+  vias?: { x: number; y: number; size: number; drill?: number; net?: number; layers?: [string, string]; viaType?: 'blind' | 'micro' }[];
+  /**
+   * 导入工程的铜层栈（KiCad 层名，按栈顺序，如 ["F.Cu","In1.Cu","In2.Cu","B.Cu"]）。
+   * 未导入/新建设计时缺省视为双层 F.Cu/B.Cu。导出层表按此生成。
+   */
+  copperLayers?: string[];
   /** 导入工程的电气网络表（网络号 → 网络名） */
   nets?: Record<string, string>;
   /** KiCad 工程导入的原理图原样视图（只读） */

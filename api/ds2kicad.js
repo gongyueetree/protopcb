@@ -15,6 +15,20 @@ import { acquire, checkBodySize, deny, readJsonBody } from './_lib/guard.js';
  * POST /api/ds2kicad  body {pdfUrl} 或 {pdfBase64, fileName} → 透传 extract 响应
  */
 import { createHmac } from 'node:crypto';
+import { fetchWithTimeout, readResponseLimited } from './_lib/net.js';
+/** 统一出站通道（本文件所有上游请求走这里）：超时 + 响应体上限 */
+async function tfetch(url, init = {}) {
+  const { res, done } = await fetchWithTimeout(url, { timeoutMs: init.timeoutMs ?? 20_000, ...init });
+  try {
+    const buf = await readResponseLimited(res, { maxBytes: init.maxResponseBytes ?? 4 * 1024 * 1024 });
+    return {
+      ok: res.ok, status: res.status, headers: res.headers,
+      json: async () => JSON.parse(buf.toString('utf8')),
+      text: async () => buf.toString('utf8'),
+    };
+  } finally { done(); }
+}
+
 
 function signJwt(secret) {
   const b64u = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
@@ -46,7 +60,7 @@ export default async function handler(req, res) {
     const body = JSON.stringify(readJsonBody(req));
     const headers = { 'Content-Type': 'application/json' };
     if (secret) headers.Authorization = `Bearer ${signJwt(secret)}`;
-    const r = await fetch(`${base}/api/extract`, { method: 'POST', headers, body });
+    const r = await tfetch(`${base}/api/extract`, { method: 'POST', headers, body });
     const text = await r.text();
     // 鉴权失败时给出可操作的提示（而不是裸 400/401）
     if (r.status === 401 || r.status === 403) {

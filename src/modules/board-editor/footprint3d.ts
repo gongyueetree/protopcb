@@ -76,7 +76,7 @@ function makeCan(d: number, hgt: number): THREE.Group {
 }
 
 /** SOT-223 */
-function makeSot223(): THREE.Group {
+function _makeSot223(): THREE.Group {
   const g = makeChip(6.5, 3.5, 1.6, { perSideX: 3 });
   // 散热焊片
   const tab = new THREE.Mesh(new THREE.BoxGeometry(6.5, 0.15, 1.5), MAT.lead);
@@ -156,11 +156,12 @@ function makeFromPads(fp: import('../../design-core/geometry/footprint-pads').Pa
   const g = new THREE.Group();
   const N = fpName.toUpperCase();
   const isBall = fp.pads.every((p) => p.round) && /(WLCSP|BGA|CSP)/.test(N);
-  // 高度启发式：真实高度不在 .kicad_mod 里（只有 3D 模型路径引用），按封装类型+尺寸估计；
-  // 真实 STEP 加载成功后会整体替换本参数化模型
+  // 高度：datasheet 机械图提取的真实高度（fp.heightMm，定制器件向导写入）优先；
+  // 没有真实数据时才按封装类型+尺寸启发式估计。真实 STEP 加载成功后整体替换本模型。
   const minDim = Math.min(fp.bodyW, fp.bodyH);
   const hasTht = fp.pads.some((pd) => pd.round && pd.w >= 1.2);
-  const bodyT = isBall ? 0.6
+  const bodyT = fp.heightMm && fp.heightMm > 0 ? Math.min(fp.heightMm, 40)
+    : isBall ? 0.6
     : /(QFN|DFN|SON)/.test(N) ? 0.9
     : /(SOIC|SOP|SSOP|TSSOP|SOT|QFP)/.test(N) ? 1.6
     : /(MODULE|FEATHER|ESP|BOARD|SHIELD)/.test(N) ? 3.2

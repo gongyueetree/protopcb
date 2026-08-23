@@ -70,7 +70,23 @@ function quadPads(pins: number, pitch: number, bodyW: number, bodyH: number, noL
   return { bodyW, bodyH, pads, pin1: { x: -cxL - 0.4, y: -spanY / 2 - 0.4 } };
 }
 
-/** 球栅（WLCSP/BGA）：按本体与间距铺球，近似矩形阵列 */
+/** JEDEC/KiCad 常见 BGA 行字母：跳过 I O Q S X Z（避免与数字/其它字母混淆） */
+const BGA_ROW_LETTERS = 'ABCDEFGHJKLMNPRTUVWY'.split('');
+export function bgaRowLetter(row: number): string {
+  // 行数超出单字母范围时按 AA/AB… 续排（JEDEC 双字母惯例）
+  const L = BGA_ROW_LETTERS.length;
+  if (row < L) return BGA_ROW_LETTERS[row];
+  return BGA_ROW_LETTERS[Math.floor(row / L) - 1] + BGA_ROW_LETTERS[row % L];
+}
+
+/**
+ * 球栅（WLCSP/BGA）：按本体与间距铺球，近似矩形阵列。
+ * 球号使用真实 BGA 命名 A1/A2/…/B1/B2…（行字母跳过 I O Q S X Z）。
+ *
+ * ⚠️ 诚实标注：由 body size + pitch + pinCount 推出的 ball map 只是**近似**
+ * （真实 BGA 常有中央空腔/去球），此 footprint 只能算 CANDIDATE/PLACEHOLDER，
+ * 不能视为 VERIFIED；有 datasheet ball map 或官方 KiCad footprint 时优先用真实数据。
+ */
 function ballGridPads(pins: number, pitch: number, bodyW: number, bodyH: number): PadFootprint {
   const cols = Math.max(2, Math.round(bodyW / pitch));
   const rows = Math.max(2, Math.ceil(pins / cols));
@@ -79,9 +95,10 @@ function ballGridPads(pins: number, pitch: number, bodyW: number, bodyH: number)
   const pads: Pad[] = [];
   let n = 0;
   for (let r = 0; r < rows && n < pins; r++) for (let c = 0; c < cols && n < pins; c++) {
-    pads.push({ x: x0 + c * pitch, y: y0 + r * pitch, w: d, h: d, num: ++n, round: true });
+    pads.push({ x: x0 + c * pitch, y: y0 + r * pitch, w: d, h: d, num: `${bgaRowLetter(r)}${c + 1}`, round: true });
+    n++;
   }
-  return { bodyW, bodyH, pads, pin1: { x: x0, y: y0 } };
+  return { bodyW, bodyH, pads, pin1: { x: x0, y: y0 }, approximate: true };
 }
 
 /** 排针/排母：PinHeader_2x05_P2.54mm */

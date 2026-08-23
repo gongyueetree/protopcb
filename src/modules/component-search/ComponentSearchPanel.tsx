@@ -8,9 +8,12 @@ import { searchSupplierParts, supplierPartToResult } from '../../providers/suppl
 import { searchEzplmParts, ezplmLiveAvailable } from '../../providers/ezplm-live';
 import { useDesignStore } from '../../state/designStore';
 import { useT, useTranslated, tr } from '../../shared/i18n';
-import { CATEGORY_DISPLAY, CATEGORY_LIST, COLORS, fmtMoney } from '../../shared/theme';
+import { COLORS, fmtMoney } from '../../shared/theme';
 import type { ComponentSearchResult } from '../../providers/types';
 import type { ComponentCategory } from '../../design-core/document/types';
+
+/** 空结果提示块开关：当前关闭（保留 UI 以便后续启用） */
+const SHOW_EMPTY_HINT: boolean = false;
 
 const providers = getProviders();
 const ctx = { userId: 'demo-user', organizationId: 'org-demo' };
@@ -18,8 +21,8 @@ const ctx = { userId: 'demo-user', organizationId: 'org-demo' };
 export function ComponentSearchPanel() {
   const t = useT();
   const [keyword, setKeyword] = useState('');
-  const [category, setCategory] = useState<ComponentCategory | null>(null);
-  const [orgOnly, setOrgOnly] = useState(false);
+  const [category] = useState<ComponentCategory | null>(null);
+  const [orgOnly] = useState(false);
   const [orgResults, setOrgResults] = useState<ComponentSearchResult[]>([]);
   const [ezplmResults, setEzplmResults] = useState<ComponentSearchResult[]>([]);
   const [netResults, setNetResults] = useState<ComponentSearchResult[]>([]);
@@ -153,7 +156,7 @@ export function ComponentSearchPanel() {
           {netMsg && <div style={{ marginTop: 3, fontSize: 10, color: '#a16207' }}>{netMsg}</div>}
         </div>
       )}
-      {false && results.length === 0 && keyword.trim() !== '' && (
+      {SHOW_EMPTY_HINT && results.length === 0 && keyword.trim() !== '' && (
         <div style={{ padding: '10px 12px', borderRadius: 8, background: searchErr === 'network' ? '#fef2f2' : '#fffbeb', border: `1px solid ${searchErr === 'network' ? '#fecaca' : '#fde68a'}`, fontSize: 11, color: searchErr === 'network' ? '#b91c1c' : '#92400e', marginBottom: 8 }}>
           {searchErr === 'network'
             ? t('网络或服务异常，请稍后重试；若持续失败请检查 Vercel 的 EZPLM_API_KEY 配置')
@@ -211,7 +214,7 @@ function ResultCard({ r, expanded, onToggle, onAdd, placedN }: {
   );
 }
 
-const chip = (active: boolean): React.CSSProperties => ({
+const _chip = (active: boolean): React.CSSProperties => ({
   padding: '4px 10px', borderRadius: 16, fontSize: 11, fontWeight: 600, cursor: 'pointer',
   border: `1px solid ${active ? COLORS.green : '#dbe6dd'}`, background: active ? COLORS.greenBg : '#fff', color: active ? COLORS.green : '#64748b',
 });

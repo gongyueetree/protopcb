@@ -4,13 +4,25 @@
  */
 import type { ComponentCategory } from '../document/types';
 
-export type PlacementRuleType =
+/**
+ * 求解器真正实现的规则类型。生产规则（DEFAULT_PLACEMENT_RULES / AI / 用户规则）
+ * 只允许使用这些。
+ */
+export type SupportedPlacementRuleType =
   | 'EDGE_ALIGN' // 靠板边
   | 'INSIDE_ZONE' // 在指定分区内
-  | 'NEAR_COMPONENT' // 靠近某类器件
-  | 'FAR_FROM_COMPONENT'
-  | 'GROUP'
-  | 'ORIENTATION';
+  | 'NEAR_COMPONENT'; // 靠近某类器件
+
+/**
+ * ⚠ 未实现的规则类型 —— 仅为旧数据兼容保留类型定义。
+ * 求解器遇到这些类型会显式 console.warn 并按"无规则"处理（居中锚点），
+ * 不会假装执行；等真正实现后再移入 Supported。
+ */
+export type UnsupportedPlacementRuleType = 'FAR_FROM_COMPONENT' | 'GROUP' | 'ORIENTATION';
+
+export const SUPPORTED_PLACEMENT_RULE_TYPES: readonly SupportedPlacementRuleType[] = ['EDGE_ALIGN', 'INSIDE_ZONE', 'NEAR_COMPONENT'];
+
+export type PlacementRuleType = SupportedPlacementRuleType | UnsupportedPlacementRuleType;
 
 export type RuleSource = 'SYSTEM' | 'REFERENCE_DESIGN' | 'AI' | 'USER';
 

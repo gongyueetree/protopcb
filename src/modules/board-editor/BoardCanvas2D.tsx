@@ -131,7 +131,7 @@ export function BoardCanvas2D() {
     select(c.instanceId);
     dragRef.current = { active: true, id: c.instanceId, sx: e.clientX, sy: e.clientY, startX: c.placement.xMm, startY: c.placement.yMm, mode: 'comp' };
   }, [select, toggleMulti, beginInteraction]);
-    const [refHot, setRefHot] = useState(false);
+    const [_refHot, _setRefHot] = useState(false);
 
   const onRefDesDown = useCallback((e: React.MouseEvent, c: PlacedComponent) => {
     e.stopPropagation();
@@ -180,7 +180,9 @@ export function BoardCanvas2D() {
             <g style={{ pointerEvents: 'none' }} opacity={0.55}>
               {doc.tracks.map((t2, i) => (
                 <line key={'tk' + i} x1={ORIGIN.x + t2.x1 * PX_PER_MM} y1={ORIGIN.y + t2.y1 * PX_PER_MM} x2={ORIGIN.x + t2.x2 * PX_PER_MM} y2={ORIGIN.y + t2.y2 * PX_PER_MM}
-                  stroke={t2.layer === 'bottom' ? '#4a7fb5' : '#b87333'} strokeWidth={Math.max(0.6, t2.w * PX_PER_MM)} strokeLinecap="round" />
+                  stroke={t2.layer === 'bottom' ? '#4a7fb5' : t2.layer === 'top' ? '#b87333' : '#8a8f98'}
+                  opacity={t2.layer === 'top' || t2.layer === 'bottom' ? 1 : 0.45}
+                  strokeWidth={Math.max(0.6, t2.w * PX_PER_MM)} strokeLinecap="round" />
               ))}
               {(doc.vias ?? []).map((v, i) => (
                 <g key={'via' + i}>

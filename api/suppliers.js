@@ -1,4 +1,18 @@
 import { acquire, checkBodySize, deny } from './_lib/guard.js';
+import { fetchWithTimeout, readResponseLimited } from './_lib/net.js';
+/** 统一出站通道（本文件所有上游请求走这里）：超时 + 响应体上限 */
+async function tfetch(url, init = {}) {
+  const { res, done } = await fetchWithTimeout(url, { timeoutMs: init.timeoutMs ?? 20_000, ...init });
+  try {
+    const buf = await readResponseLimited(res, { maxBytes: init.maxResponseBytes ?? 4 * 1024 * 1024 });
+    return {
+      ok: res.ok, status: res.status, headers: res.headers,
+      json: async () => JSON.parse(buf.toString('utf8')),
+      text: async () => buf.toString('utf8'),
+    };
+  } finally { done(); }
+}
+
 /**
  * api/suppliers.js — 供应商价格/库存聚合代理（Mouser / Arrow / element14）
  *
@@ -23,7 +37,7 @@ const num = (v) => { const n = parseFloat(String(v ?? '').replace(/[^0-9.]/g, ''
  * 拿到真实文档后只需校准 URL、鉴权头和响应字段映射。 */
 async function queryCecport(key, mpn) {
   // TODO(接入时校准)：中电港 API 端点与鉴权方式
-  const r = await fetch(`https://api.cecport.com/v1/product/search?keyword=${encodeURIComponent(mpn)}`, {
+  const r = await tfetch(`https://api.cecport.com/v1/product/search?keyword=${encodeURIComponent(mpn)}`, {
     headers: { Authorization: `Bearer ${key}` },
   });
   if (!r.ok) throw new Error(`cecport ${r.status}`);
@@ -34,7 +48,7 @@ async function queryCecport(key, mpn) {
 }
 async function queryB1b(key, mpn) {
   // TODO(接入时校准)：百芯 API 端点与鉴权方式
-  const r = await fetch(`https://api.b1b.com/open/search?q=${encodeURIComponent(mpn)}`, {
+  const r = await tfetch(`https://api.b1b.com/open/search?q=${encodeURIComponent(mpn)}`, {
     headers: { 'X-API-KEY': key },
   });
   if (!r.ok) throw new Error(`b1b ${r.status}`);
@@ -46,7 +60,7 @@ async function queryB1b(key, mpn) {
 
 /* ---------- Mouser ---------- */
 async function queryMouser(key, mpn) {
-  const r = await fetch(`https://api.mouser.com/api/v1/search/keyword?apiKey=${encodeURIComponent(key)}`, {
+  const r = await tfetch(`https://api.mouser.com/api/v1/search/keyword?apiKey=${encodeURIComponent(key)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ SearchByKeywordRequest: { keyword: mpn, records: 3, startingRecord: 0 } }),
@@ -68,7 +82,7 @@ async function queryMouser(key, mpn) {
 
 /* ---------- Arrow（防御式，拿到 Key 后可能需按真实响应校准） ---------- */
 async function queryArrow(login, key, mpn) {
-  const r = await fetch(`https://api.arrow.com/itemservice/v4/en/search/token?login=${encodeURIComponent(login)}&apikey=${encodeURIComponent(key)}&search_token=${encodeURIComponent(mpn)}&rows=3`);
+  const r = await tfetch(`https://api.arrow.com/itemservice/v4/en/search/token?login=${encodeURIComponent(login)}&apikey=${encodeURIComponent(key)}&search_token=${encodeURIComponent(mpn)}&rows=3`);
   if (!r.ok) throw new Error(`arrow ${r.status}`);
   const j = await r.json();
   const parts = j?.itemserviceresult?.data?.[0]?.PartList ?? [];
@@ -92,7 +106,7 @@ async function queryArrow(login, key, mpn) {
 /* ---------- element14 / Farnell（防御式） ---------- */
 async function queryElement14(key, mpn) {
   const url = `https://api.element14.com/catalog/products?term=manuPartNumber:${encodeURIComponent(mpn)}&storeInfo.id=cn.element14.com&resultsSettings.offset=0&resultsSettings.numberOfResults=3&resultsSettings.responseGroup=medium&callInfo.responseDataFormat=json&callInfo.apiKey=${encodeURIComponent(key)}`;
-  const r = await fetch(url);
+  const r = await tfetch(url);
   if (!r.ok) throw new Error(`element14 ${r.status}`);
   const j = await r.json();
   const products = j?.manufacturerPartNumberSearchReturn?.products ?? j?.keywordSearchReturn?.products ?? [];
@@ -140,7 +154,7 @@ export default async function handler(req, res) {
     // Mouser 关键词检索
     if (mouserKey) {
       try {
-        const r = await fetch(`https://api.mouser.com/api/v1/search/keyword?apiKey=${encodeURIComponent(mouserKey)}`, {
+        const r = await tfetch(`https://api.mouser.com/api/v1/search/keyword?apiKey=${encodeURIComponent(mouserKey)}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ SearchByKeywordRequest: { keyword: q, records: limit, startingRecord: 0 } }),
         });
@@ -168,13 +182,13 @@ export default async function handler(req, res) {
     const dkId = t(process.env.DIGIKEY_CLIENT_ID), dkSecret = t(process.env.DIGIKEY_CLIENT_SECRET);
     if (dkId && dkSecret && items.length < limit) {
       try {
-        const tk = await fetch('https://api.digikey.com/v1/oauth2/token', {
+        const tk = await tfetch('https://api.digikey.com/v1/oauth2/token', {
           method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: `client_id=${encodeURIComponent(dkId)}&client_secret=${encodeURIComponent(dkSecret)}&grant_type=client_credentials`,
         });
         if (tk.ok) {
           const { access_token } = await tk.json();
-          const r = await fetch('https://api.digikey.com/products/v4/search/keyword', {
+          const r = await tfetch('https://api.digikey.com/products/v4/search/keyword', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${access_token}`, 'X-DIGIKEY-Client-Id': dkId, 'X-DIGIKEY-Locale-Site': 'CN', 'X-DIGIKEY-Locale-Currency': 'CNY' },
             body: JSON.stringify({ Keywords: q, Limit: limit, Offset: 0 }),
@@ -225,7 +239,7 @@ export default async function handler(req, res) {
     const items = [];
     if (mouserKey) {
       try {
-        const r = await fetch(`https://api.mouser.com/api/v1/search/keyword?apiKey=${encodeURIComponent(mouserKey)}`, {
+        const r = await tfetch(`https://api.mouser.com/api/v1/search/keyword?apiKey=${encodeURIComponent(mouserKey)}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ SearchByKeywordRequest: { keyword: q, records: 8, startingRecord: 0 } }),
         });

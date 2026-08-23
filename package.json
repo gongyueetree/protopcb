@@ -11,9 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "echo \"lint 未配置：仓库尚未引入 eslint 依赖与配置文件，CI 以 typecheck + test 为准\" && exit 0",
+    "lint": "eslint .",
     "scan:secrets": "node scripts/scan-secrets.mjs",
-    "verify": "npm run scan:secrets && npm run typecheck && npm run test && npm run build"
+    "verify": "npm run scan:secrets && npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
     "fflate": "^0.8.3",
@@ -27,11 +27,16 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@types/three": "^0.160.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.11.0",
     "typescript": "^5.7.2",
+    "typescript-eslint": "^8.67.0",
     "vite": "^6.0.0",
     "vitest": "^2.1.8"
   }

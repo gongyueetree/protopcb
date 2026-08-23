@@ -29,14 +29,54 @@ export const LIMITS = {
   get timeoutMs() { return envInt('API_TIMEOUT_MS', 30_000); },
 };
 
-/** 调用方身份：优先可选的 session/user 头，回落到 IP */
-export function callerKey(req) {
-  const sess = String(req.headers['x-cc-session'] ?? '').slice(0, 64);
-  if (sess) return `s:${sess}`;
-  const fwd = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
-  const ip = fwd || req.socket?.remoteAddress || 'unknown';
-  return `ip:${ip}`;
+/**
+ * 调用方身份 —— 配额主体。
+ *
+ * 安全设计（本轮修复的核心）：
+ * 1. 客户端可以随意伪造的 header（x-cc-session）**绝不能替代 IP 作为配额主体**。
+ *    旧实现 `if (sess) return 's:'+sess` 意味着攻击者每次换一个 session 值就能
+ *    拿到全新配额 —— 等于没有限流。现在 session 只作为附注（日志/调试），
+ *    配额键永远以可信 IP 为主体。
+ * 2. x-forwarded-for 不可盲信（客户端可自带伪造值）。Vercel/常见反代会把真实
+ *    客户端 IP **追加到链尾**（最后一跳由平台写入），因此取右端第一个公网地址；
+ *    平台专用头（x-vercel-forwarded-for / x-real-ip）优先。
+ * 3. 未来接入 ezPLM Auth 后：verifyAuth(req) 返回 { userId, tenantId } 时，
+ *    配额主体切换为 `u:{tenantId}:{userId}`（服务端验证过的身份才可作为主体）。
+ *
+ * 注意：本模块是**单实例内存限流**，不是全局配额（见 GlobalRateLimiter 注释与 README）。
+ */
+const PRIVATE_IP = /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|::1$|f[cd])/i;
+
+function clientIp(req) {
+  // 平台注入的头最可信（Vercel 会覆盖而非透传客户端伪造值）
+  const platform = String(req.headers['x-vercel-forwarded-for'] ?? req.headers['x-real-ip'] ?? '').split(',')[0].trim();
+  if (platform) return platform;
+  // x-forwarded-for：反代把真实 IP 追加在链尾 → 从右往左取第一个非私网地址
+  const chain = String(req.headers['x-forwarded-for'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  for (let i = chain.length - 1; i >= 0; i--) {
+    if (!PRIVATE_IP.test(chain[i])) return chain[i];
+  }
+  return req.socket?.remoteAddress || 'unknown';
 }
+
+/**
+ * @param {*} req
+ * @param {{ userId?: string, tenantId?: string } | null} [auth] 服务端验证过的身份（预留 ezPLM Auth 接口）
+ */
+export function callerKey(req, auth = null) {
+  if (auth?.userId) return `u:${auth.tenantId ?? '-'}:${auth.userId}`;
+  return `ip:${clientIp(req)}`;
+}
+
+/**
+ * GlobalRateLimiter 抽象 —— 单实例内存实现，仅为 fallback。
+ * Serverless 横向扩展时每个实例配额独立（总配额被放大 N 倍）；
+ * 真正的全局限额需替换为 Upstash Redis / Vercel KV 实现（接口保持不变）。
+ */
+export const globalRateLimiter = {
+  kind: 'memory-fallback',
+  /** 预留：未来 Redis 实现 async acquire(key, limits) → { ok, retryAfter } */
+};
 
 function sweep(now) {
   if (now - LAST_SWEEP.at < 60_000) return;
@@ -50,17 +90,18 @@ function sweep(now) {
  * 频率 + 并发检查。通过返回 release 函数（务必在 finally 调用）。
  * @returns {{ ok: true, release: () => void } | { ok: false, status: number, error: string, retryAfter?: number }}
  */
-export function acquire(req, scope = 'default') {
+export function acquire(req, scope = 'default', overrides = undefined) {
   const now = Date.now();
   sweep(now);
   const key = `${scope}|${callerKey(req)}`;
   const b = buckets.get(key) ?? { hits: [], concurrent: 0 };
   buckets.set(key, b);
 
-  const win = LIMITS.windowMs;
+  const win = overrides?.windowMs ?? LIMITS.windowMs;
+  const perWindow = overrides?.perWindow ?? LIMITS.perWindow;
   b.hits = b.hits.filter((t) => now - t < win);
 
-  if (b.hits.length >= LIMITS.perWindow) {
+  if (b.hits.length >= perWindow) {
     const retryAfter = Math.ceil((win - (now - b.hits[0])) / 1000);
     return { ok: false, status: 429, error: '请求过于频繁，请稍后再试', retryAfter };
   }

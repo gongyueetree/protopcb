@@ -45,13 +45,28 @@ docs/              架构文档
 ## 安全与运行边界（v3 加固后）
 
 ### 服务端接口防护
-`/api/gemini`、`/api/digikey`、`/api/suppliers`、`/api/ezplm`、`/api/ds2kicad` 背后是自有付费配额，
-统一经 `api/_lib/guard.js` 做频率/并发/体积限制，参数见 `.env.example`。
+`/api/gemini`、`/api/digikey`、`/api/suppliers`、`/api/ezplm`、`/api/ds2kicad`、`/api/kicadlib`
+背后是自有付费配额或大量上游资源，统一经 `api/_lib/guard.js` 做频率/并发/体积限制；
+所有出站上游请求经 `api/_lib/net.js` 统一超时（`API_TIMEOUT_MS`）与响应体上限。
 
-> **已知限制**：限流状态存在 Serverless 实例内存中，属**单实例**限流。
-> 实例横向扩展时总配额会被放大，能挡住脚本化滥刷，但不是分布式配额控制。
-> 需要全局限额请接 Redis/KV。当前也**没有登录体系**，按 IP + 可选 `x-cc-session`
-> 头识别调用方，已为 `userId`/`tenantId` 预留字段。
+**调用方身份**：配额主体永远是可信 IP（平台注入头优先，`x-forwarded-for` 取链尾可信一跳）。
+客户端自带的 `x-cc-session` **不参与配额**（可任意伪造，轮换即绕过，已在本轮修复）。
+服务端验证过的身份（未来 ezPLM Auth）可经 `callerKey(req, auth)` 切换为 `userId/tenantId` 主体。
+
+`GET /api/gemini?path=diag` 会触发真实付费调用：production 默认禁用，仅在服务端配置
+`ADMIN_DIAG_TOKEN`（≥16 字符）且请求携带 `x-admin-token` 时可用，且同样过限流。
+`path=status` 不打上游，保持免费开放。
+
+> **已知限制（务必理解）**：memory limiter ≠ 全局配额。限流状态存在 Serverless 实例
+> 内存中，属**单实例**限流；实例横向扩展时总配额被放大 N 倍。能挡脚本化滥刷，
+> 不是分布式配额控制。需要全局限额请把 `guard.js` 的 `globalRateLimiter` 接
+> Upstash Redis / Vercel KV（接口已预留）。当前**没有登录体系**，不要据此声称"已实现用户认证"。
+
+### ZIP 导入防护
+浏览器导入 KiCad 工程 ZIP 时：先手工解析中央目录（EOCD）做**inflate 前预检**
+（条目数 / 逐条与累计声明解压量 / 压缩比 / zip-slip 路径 / ZIP64 拒绝），全部通过才解压；
+解压在 Web Worker 内进行，大工程不阻塞 UI。默认限额：压缩 ≤50MB、解压总量 ≤200MB、
+单文件 ≤64MB、≤2000 个文件、压缩比 ≤100。
 
 ### SSRF 防护
 服务端按 URL 抓取（datasheet 链接）统一走 `api/_lib/safe-fetch.js`：
@@ -102,3 +117,23 @@ ZIP 解压经 `safe-unzip.ts` 限制压缩包体积、解压总量、单文件�
 - eslint 未引入（`npm run lint` 为占位，CI 以 typecheck + test 为准）
 - CECPort / B1B 国产渠道为骨架，待 API 文档校准
 - 设计审查仍以「方案完整度检查」为主，不是专业 ERC/DFM
+
+
+## 工程边界（诚实声明）
+
+- **ProtoPCB 定位**：AI Hardware Design Front-End / PCB 原型设计工具。不是 KiCad，
+  也不承诺无损 EDA round-trip。
+- **KiCad 保真现状（本轮之后）**：track/via 的 net、via drill/layers/blind、内层铜
+  （In1.Cu/In2.Cu…）、定位孔真实孔径均已往返保真，并有 golden fixture 回归测试
+  （`tests/fixtures/kicad/`）。**仍不保真**的部分：铺铜 zone、圆弧走线、异形板框
+  只以包围盒导入（导出为矩形/预设形状）、文本/尺寸标注、DRC 规则、teardrop 等。
+  这些属于"不支持无损编辑"的范围，导入工程再导出时请以 KiCad 内 diff 复核。
+- **正确性验证口径**：round-trip 测试使用本项目 parser 验证本项目 exporter 的字段
+  保真，尚未接入 kicad-cli 解析/DRC 验证（CI 未安装 KiCad）。
+- **standalone server（server/）= 本地开发/演示专用**：文件存储、dev 桩身份、无
+  PostgreSQL/SSO。production 环境默认拒绝启动（`STANDALONE_ALLOW_PROD=1` 可显式放行，自担风险）。
+- **BGA 合成封装**：由 body+pitch+pinCount 推出的 ball map 是近似（`approximate` 标记），
+  只能作为 CANDIDATE/PLACEHOLDER；有 datasheet ball map 或官方 KiCad footprint 时以真实数据为准。
+- **AI 数据信任**：所有 LLM 返回经 Zod 校验后才入 store（`providers/ai-schema.ts`、
+  `design-core/custom-part-schema.ts`）；型号 VERIFIED 仅限规范化后 exact match，
+  前缀相似只作 CANDIDATE 供人工确认。

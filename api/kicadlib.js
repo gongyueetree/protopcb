@@ -12,15 +12,34 @@
  *   https://gitlab.com/kicad/libraries/kicad-packages3D   （3D 模型）
  * 目录列表走 GitLab 公共 API（无需鉴权），内存缓存 1 小时。
  */
+import { acquire, deny, LIMITS } from './_lib/guard.js';
+import { fetchWithTimeout, readResponseLimited } from './_lib/net.js';
+
 const GL_API = 'https://gitlab.com/api/v4/projects';
+
+/** 统一 GitLab 出站通道：超时 + 响应体上限（STEP 二进制上限 24MB） */
+async function gfetch(url, init = {}) {
+  const { res, done } = await fetchWithTimeout(url, { timeoutMs: init.timeoutMs ?? 15_000, ...init });
+  try {
+    const buf = await readResponseLimited(res, { maxBytes: init.maxResponseBytes ?? 24 * 1024 * 1024 });
+    return {
+      ok: res.ok,
+      status: res.status,
+      headers: res.headers,
+      json: async () => JSON.parse(buf.toString('utf8')),
+      text: async () => buf.toString('utf8'),
+      arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+    };
+  } finally {
+    done();
+  }
+}
 const FP_PROJECT = encodeURIComponent('kicad/libraries/kicad-footprints');
 const P3D_RAW = 'https://gitlab.com/kicad/libraries/kicad-packages3D/-/raw/master';
 const FP_RAW = 'https://gitlab.com/kicad/libraries/kicad-footprints/-/raw/master';
-const SYM_PROJECT = encodeURIComponent('kicad/libraries/kicad-symbols');
 const P3D_PROJECT = encodeURIComponent('kicad/libraries/kicad-packages3D');
-const SYM_RAW = 'https://gitlab.com/kicad/libraries/kicad-symbols/-/raw/master';
 
-const SAFE = /^[A-Za-z0-9._\-]+$/; // 库名/封装名白名单（防路径穿越）
+const SAFE = /^[A-Za-z0-9._-]+$/; // 库名/封装名白名单（防路径穿越）
 const cache = new Map(); // key → { at, data }
 const TTL = 60 * 60 * 1000;
 
@@ -57,7 +76,7 @@ function extractSymbolBlock(text, name) {
 let symProj = null; // { id, branch, path, workingRef? } 模块级缓存
 async function resolveSymProject() {
   if (symProj) return symProj;
-  const r = await fetch(`https://gitlab.com/api/v4/groups/${encodeURIComponent('kicad/libraries')}/projects?per_page=100`, { headers: { 'User-Agent': 'circuit-canvas' } });
+  const r = await gfetch(`https://gitlab.com/api/v4/groups/${encodeURIComponent('kicad/libraries')}/projects?per_page=100`, { headers: { 'User-Agent': 'circuit-canvas' } });
   if (!r.ok) throw new Error(`group api ${r.status}`);
   const projects = await r.json();
   const list = Array.isArray(projects) ? projects : [];
@@ -73,7 +92,7 @@ async function symLibText(lib) {
   if (!data) {
     const pj = await resolveSymProject();
     const ref = pj.workingRef !== undefined ? pj.workingRef : pj.branch;
-    const r = await fetch(`${GL_API}/${pj.id}/repository/files/${encodeURIComponent(lib + '.kicad_sym')}/raw${ref ? `?ref=${encodeURIComponent(ref)}` : '?ref=HEAD'}`, { headers: { 'User-Agent': 'circuit-canvas' } });
+    const r = await gfetch(`${GL_API}/${pj.id}/repository/files/${encodeURIComponent(lib + '.kicad_sym')}/raw${ref ? `?ref=${encodeURIComponent(ref)}` : '?ref=HEAD'}`, { headers: { 'User-Agent': 'circuit-canvas' } });
     if (!r.ok) throw new Error(`symbol lib ${r.status}`);
     data = await r.text();
     cache.set(key, { at: Date.now(), data });
@@ -85,7 +104,7 @@ async function glTree(path) {
   // GitLab tree API 分页拉全（每页 100，上限 30 页 = 3000 项，单库足够）
   const out = [];
   for (let page = 1; page <= 30; page++) {
-    const r = await fetch(`${GL_API}/${FP_PROJECT}/repository/tree?path=${encodeURIComponent(path)}&per_page=100&page=${page}&ref=master`, {
+    const r = await gfetch(`${GL_API}/${FP_PROJECT}/repository/tree?path=${encodeURIComponent(path)}&per_page=100&page=${page}&ref=master`, {
       headers: { 'User-Agent': 'circuit-canvas' },
     });
     if (!r.ok) throw new Error(`GitLab API ${r.status}`);
@@ -98,6 +117,11 @@ async function glTree(path) {
 
 export default async function handler(req, res) {
   const { path, lib, name } = req.query ?? {};
+  // ── API Guard：本接口每次请求可能触发多次 GitLab 上游调用（消耗服务器资源），
+  //    并且 fpsearch/symsearch 存在 fan-out（遍历多个库/多页）→ 使用更严格配额。
+  const heavy = path === 'fpsearch' || path === 'symsearch';
+  const lease = acquire(req, heavy ? 'kicadlib-search' : 'kicadlib', heavy ? { perWindow: Math.max(6, Math.floor(LIMITS.perWindow / 3)) } : undefined);
+  if (!lease.ok) return deny(res, lease);
   try {
     if (path === 'libs') {
       let data = getCached('libs');
@@ -112,7 +136,7 @@ export default async function handler(req, res) {
     }
 
     if (path === 'fpsearch' || path === 'symsearch') {
-      const q = String(req.query.q ?? '').trim().toLowerCase();
+      const q = String(req.query.q ?? '').trim().toLowerCase().slice(0, 64);
       if (q.length < 2) return res.status(400).send(JSON.stringify({ error: 'query too short' }));
       const isSym = path === 'symsearch';
       const cacheKey = `${path}:${q}`;
@@ -127,7 +151,7 @@ export default async function handler(req, res) {
           if (!libs) {
             const out = [];
             for (let page = 1; page <= 10; page++) {
-              const r = await fetch(`${GL_API}/${pj.id}/repository/tree?per_page=100&page=${page}` + (ref ? `&ref=${encodeURIComponent(ref)}` : ''), { headers: { 'User-Agent': 'circuit-canvas' } });
+              const r = await gfetch(`${GL_API}/${pj.id}/repository/tree?per_page=100&page=${page}` + (ref ? `&ref=${encodeURIComponent(ref)}` : ''), { headers: { 'User-Agent': 'circuit-canvas' } });
               if (!r.ok) break;
               const items = await r.json();
               if (!Array.isArray(items)) break;
@@ -176,7 +200,7 @@ export default async function handler(req, res) {
         };
         const ordered = [...libs].sort((a, b) => score(b) - score(a));
         hits = [];
-        const LIB_BUDGET = 40; // 每次最多探这么多个库，控制冷启动耗时
+        const LIB_BUDGET = Math.max(4, Math.min(40, parseInt(process.env.KICADLIB_LIB_BUDGET ?? '16', 10) || 16)); // fan-out 上限：每次最多探这么多个库
         for (const ln of ordered.slice(0, LIB_BUDGET)) {
           if (hits.length >= 100) break;
           let names = getCached(isSym ? `symlist:${ln}` : `list:${ln}`);
@@ -186,9 +210,9 @@ export default async function handler(req, res) {
                 const pj = await resolveSymProject();
                 const ref = pj.workingRef !== undefined ? pj.workingRef : pj.branch;
                 const out = [];
-                for (let page = 1; page <= 20; page++) {
+                for (let page = 1; page <= 10; page++) {
                   const qs = `per_page=100&page=${page}&path=${encodeURIComponent(ln + '.kicad_symdir')}` + (ref ? `&ref=${encodeURIComponent(ref)}` : '');
-                  const r = await fetch(`${GL_API}/${pj.id}/repository/tree?${qs}`, { headers: { 'User-Agent': 'circuit-canvas' } });
+                  const r = await gfetch(`${GL_API}/${pj.id}/repository/tree?${qs}`, { headers: { 'User-Agent': 'circuit-canvas' } });
                   if (!r.ok) break;
                   const items = await r.json();
                   if (!Array.isArray(items)) break;
@@ -234,7 +258,7 @@ export default async function handler(req, res) {
 
     if (path === 'mod') {
       if (!SAFE.test(String(lib)) || !SAFE.test(String(name))) return res.status(400).send(JSON.stringify({ error: 'bad params' }));
-      const r = await fetch(`${FP_RAW}/${lib}.pretty/${name}.kicad_mod`, { headers: { 'User-Agent': 'circuit-canvas' } });
+      const r = await gfetch(`${FP_RAW}/${lib}.pretty/${name}.kicad_mod`, { headers: { 'User-Agent': 'circuit-canvas' } });
       if (!r.ok) return res.status(r.status).send(JSON.stringify({ error: `fetch ${r.status}` }));
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate=604800');
@@ -244,7 +268,7 @@ export default async function handler(req, res) {
     if (path === 'step') {
       // lib = 3dshapes 目录基名（来自 mod 内 (model) 引用），name = 模型文件基名
       if (!SAFE.test(String(lib)) || !SAFE.test(String(name))) return res.status(400).send(JSON.stringify({ error: 'bad params' }));
-      let r = await fetch(`${P3D_RAW}/${lib}.3dshapes/${encodeURIComponent(String(name))}.step`, { headers: { 'User-Agent': 'circuit-canvas' } });
+      let r = await gfetch(`${P3D_RAW}/${lib}.3dshapes/${encodeURIComponent(String(name))}.step`, { headers: { 'User-Agent': 'circuit-canvas' } });
       if (!r.ok) {
         // 模糊匹配兜底：官方 3D 文件名与封装名可能不完全一致（大小写/后缀变体）
         const key3d = `3dtree:${lib}`;
@@ -252,7 +276,7 @@ export default async function handler(req, res) {
         if (!names) {
           const out = [];
           for (let page = 1; page <= 30; page++) {
-            const tr2 = await fetch(`${GL_API}/${P3D_PROJECT}/repository/tree?path=${encodeURIComponent(lib + '.3dshapes')}&per_page=100&page=${page}&ref=master`, { headers: { 'User-Agent': 'circuit-canvas' } });
+            const tr2 = await gfetch(`${GL_API}/${P3D_PROJECT}/repository/tree?path=${encodeURIComponent(lib + '.3dshapes')}&per_page=100&page=${page}&ref=master`, { headers: { 'User-Agent': 'circuit-canvas' } });
             if (!tr2.ok) break;
             const items = await tr2.json();
             out.push(...items);
@@ -266,7 +290,7 @@ export default async function handler(req, res) {
           ?? names.find((n) => n.toLowerCase().startsWith(want) || want.startsWith(n.toLowerCase()))
           ?? names.find((n) => n.toLowerCase().includes(want) || want.includes(n.toLowerCase()));
         if (!hit) return res.status(404).send(JSON.stringify({ error: `3D 库中无匹配模型（${lib}.3dshapes 共 ${names.length} 个）` }));
-        r = await fetch(`${P3D_RAW}/${lib}.3dshapes/${encodeURIComponent(hit)}.step`, { headers: { 'User-Agent': 'circuit-canvas' } });
+        r = await gfetch(`${P3D_RAW}/${lib}.3dshapes/${encodeURIComponent(hit)}.step`, { headers: { 'User-Agent': 'circuit-canvas' } });
         if (!r.ok) return res.status(404).send(JSON.stringify({ error: 'no step model' }));
       }
       let buf = Buffer.from(await r.arrayBuffer());
@@ -277,7 +301,7 @@ export default async function handler(req, res) {
         const size = Number(head.match(/size (\d+)/)?.[1] ?? 0);
         if (!oid) return res.status(502).send(JSON.stringify({ error: 'bad lfs pointer' }));
         if (size > 4 * 1024 * 1024) return res.status(413).send(JSON.stringify({ error: `step too large (${(size / 1048576).toFixed(1)}MB > 4MB)` }));
-        const batch = await fetch('https://gitlab.com/kicad/libraries/kicad-packages3D.git/info/lfs/objects/batch', {
+        const batch = await gfetch('https://gitlab.com/kicad/libraries/kicad-packages3D.git/info/lfs/objects/batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/vnd.git-lfs+json', 'Accept': 'application/vnd.git-lfs+json', 'User-Agent': 'circuit-canvas' },
           body: JSON.stringify({ operation: 'download', transfers: ['basic'], objects: [{ oid, size }] }),
@@ -287,7 +311,7 @@ export default async function handler(req, res) {
         const href = bj?.objects?.[0]?.actions?.download?.href;
         const hdrs = bj?.objects?.[0]?.actions?.download?.header ?? {};
         if (!href) return res.status(502).send(JSON.stringify({ error: 'lfs no href' }));
-        const real = await fetch(href, { headers: { ...hdrs, 'User-Agent': 'circuit-canvas' } });
+        const real = await gfetch(href, { headers: { ...hdrs, 'User-Agent': 'circuit-canvas' } });
         if (!real.ok) return res.status(502).send(JSON.stringify({ error: `lfs dl ${real.status}` }));
         buf = Buffer.from(await real.arrayBuffer());
       }
@@ -313,7 +337,7 @@ export default async function handler(req, res) {
               let httpErr = '';
               for (let page = 1; page <= 10; page++) {
                 const qs = `per_page=100&page=${page}` + (ref ? `&ref=${encodeURIComponent(ref)}` : '') + (sub ? `&path=${encodeURIComponent(sub)}` : '');
-                const r = await fetch(`${GL_API}/${pj.id}/repository/tree?${qs}`, { headers: { 'User-Agent': 'circuit-canvas' } });
+                const r = await gfetch(`${GL_API}/${pj.id}/repository/tree?${qs}`, { headers: { 'User-Agent': 'circuit-canvas' } });
                 if (!r.ok) { httpErr = `HTTP ${r.status}(ref=${ref || '默认'})`; break; }
                 const items = await r.json();
                 if (!Array.isArray(items)) { httpErr = '非数组'; break; }
@@ -355,7 +379,7 @@ export default async function handler(req, res) {
         const out = [];
         for (let page = 1; page <= 30; page++) {
           const qs = `per_page=100&page=${page}&path=${encodeURIComponent(lib + '.kicad_symdir')}` + (ref ? `&ref=${encodeURIComponent(ref)}` : '');
-          const r = await fetch(`${GL_API}/${pj.id}/repository/tree?${qs}`, { headers: { 'User-Agent': 'circuit-canvas' } });
+          const r = await gfetch(`${GL_API}/${pj.id}/repository/tree?${qs}`, { headers: { 'User-Agent': 'circuit-canvas' } });
           if (!r.ok) break;
           const items = await r.json();
           if (!Array.isArray(items)) break;
@@ -389,7 +413,7 @@ export default async function handler(req, res) {
         let t = getCached(key);
         if (!t) {
           const fp2 = `${lib}.kicad_symdir/${fname}.kicad_sym`;
-          const r = await fetch(`${GL_API}/${pj.id}/repository/files/${encodeURIComponent(fp2)}/raw${ref ? `?ref=${encodeURIComponent(ref)}` : '?ref=HEAD'}`, { headers: { 'User-Agent': 'circuit-canvas' } });
+          const r = await gfetch(`${GL_API}/${pj.id}/repository/files/${encodeURIComponent(fp2)}/raw${ref ? `?ref=${encodeURIComponent(ref)}` : '?ref=HEAD'}`, { headers: { 'User-Agent': 'circuit-canvas' } });
           if (!r.ok) return null;
           t = await r.text();
           cache.set(key, { at: Date.now(), data: t });
@@ -442,5 +466,7 @@ export default async function handler(req, res) {
   } catch (err) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     return res.status(502).send(JSON.stringify({ error: 'KiCad 库拉取失败', detail: String(err).slice(0, 160) }));
+  } finally {
+    lease.release();
   }
 }

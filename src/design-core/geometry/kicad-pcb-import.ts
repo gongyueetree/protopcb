@@ -35,10 +35,16 @@ export interface KicadImportedComp {
 export interface KicadImportResult {
   /** 网络表：网络号 → 网络名（导出时原样写回，保留电气连接） */
   nets: Record<number, string>;
-  /** 铜箔走线（原始线宽，坐标已归一化到板左上原点） */
-  tracks: { x1: number; y1: number; x2: number; y2: number; w: number; layer: 'top' | 'bottom' }[];
-  /** 过孔（外径） */
-  vias: { x: number; y: number; size: number }[];
+  /**
+   * 铜箔走线（原始线宽，坐标已归一化到板左上原点）。
+   * layer：F.Cu→'top'、B.Cu→'bottom'，内层保留 KiCad 原名（In1.Cu…）；
+   * net：源文件 (net N) 原值 —— 导出时写回，铜线电气归属不丢失。
+   */
+  tracks: { x1: number; y1: number; x2: number; y2: number; w: number; layer: string; net?: number }[];
+  /** 过孔：size/drill/layers/net 均为源文件原值，不做任何猜测 */
+  vias: { x: number; y: number; size: number; drill?: number; net?: number; layers?: [string, string]; viaType?: 'blind' | 'micro' }[];
+  /** 铜层栈（KiCad 层名，按文件层表顺序；至少 [F.Cu, B.Cu]） */
+  copperLayers: string[];
   /** 板框左上角在 KiCad 图纸中的绝对坐标（器件坐标需减去它） */
   originXMm: number;
   originYMm: number;
@@ -109,6 +115,19 @@ export function parseKicadPcb(text: string): KicadImportResult {
     const id = Number(n[1]);
     if (Number.isFinite(id)) nets[id] = String(n[2] ?? '').replace(/^"|"$/g, '');
   }
+  // ── 铜层栈：解析 (layers (0 "F.Cu" signal) (1 "In1.Cu" signal) …) 中的 *.Cu 层 ──
+  // 4/6 层板的 In1.Cu/In2.Cu 必须保留原名，绝不能压成 TOP/BOTTOM。
+  const copperLayers: string[] = [];
+  const layerTable = find(pcb, 'layers');
+  if (layerTable) {
+    for (const entry of layerTable) {
+      if (!isList(entry)) continue;
+      const lname = String(entry[1] ?? '').replace(/^"|"$/g, '');
+      if (/\.Cu$/.test(lname)) copperLayers.push(lname);
+    }
+  }
+  if (!copperLayers.length) copperLayers.push('F.Cu', 'B.Cu');
+
   let hasMountingHoles = false;
   const mountingHoles: { x: number; y: number; d: number }[] = [];
   for (const fp of fps) {
@@ -118,13 +137,13 @@ export function parseKicadPcb(text: string): KicadImportResult {
       hasMountingHoles = true;
       const at2 = find(fp, 'at');
       if (at2) {
-        // 孔径取该封装内最大钻孔
-        let d = 3;
+        // 孔径取该封装内最大真实钻孔；此前写死 3mm 下限 → 2.7mm 孔被抬成 3mm（保真丢失）
+        let d = 0;
         for (const pd of findAll(fp, 'pad')) {
           const dr = find(pd, 'drill');
-          if (dr) d = Math.max(d, num(dr, 1) || 3);
+          if (dr) d = Math.max(d, num(dr, 1));
         }
-        mountingHoles.push({ x: num(at2, 1), y: num(at2, 2), d });
+        mountingHoles.push({ x: num(at2, 1), y: num(at2, 2), d: d > 0 ? d : 3 });
       }
       continue;
     }
@@ -166,18 +185,45 @@ export function parseKicadPcb(text: string): KicadImportResult {
     });
   }
   // ── 走线与过孔（真实线宽；随器件同一原点归一化）──
-  const tracks: { x1: number; y1: number; x2: number; y2: number; w: number; layer: 'top' | 'bottom' }[] = [];
+  // F.Cu/B.Cu → 'top'/'bottom' 画布别名；其余铜层（In1.Cu 等）保留 KiCad 原名
+  const canonLayer = (raw: string): string => {
+    const ly = raw.replace(/^"|"$/g, '');
+    if (ly === 'F.Cu') return 'top';
+    if (ly === 'B.Cu') return 'bottom';
+    return ly || 'top';
+  };
+  const tracks: { x1: number; y1: number; x2: number; y2: number; w: number; layer: string; net?: number }[] = [];
   for (const seg of findAll(pcb, 'segment')) {
     const st = find(seg, 'start'), en = find(seg, 'end'), wd = find(seg, 'width');
     const ly = String(find(seg, 'layer')?.[1] ?? '');
+    const nn = find(seg, 'net');
     if (!st || !en) continue;
-    tracks.push({ x1: num(st, 1), y1: num(st, 2), x2: num(en, 1), y2: num(en, 2), w: wd ? num(wd, 1) : 0.25, layer: ly.startsWith('B') ? 'bottom' : 'top' });
+    const netId = nn ? Number(nn[1]) : NaN;
+    tracks.push({
+      x1: num(st, 1), y1: num(st, 2), x2: num(en, 1), y2: num(en, 2),
+      w: wd ? num(wd, 1) : 0.25,
+      layer: canonLayer(ly),
+      net: Number.isFinite(netId) ? netId : undefined,
+    });
   }
-  const viasArr: { x: number; y: number; size: number }[] = [];
+  const viasArr: { x: number; y: number; size: number; drill?: number; net?: number; layers?: [string, string]; viaType?: 'blind' | 'micro' }[] = [];
   for (const v of findAll(pcb, 'via')) {
-    const at = find(v, 'at'), sz = find(v, 'size');
+    const at = find(v, 'at'), sz = find(v, 'size'), dr = find(v, 'drill'), nn = find(v, 'net'), lys = find(v, 'layers');
     if (!at) continue;
-    viasArr.push({ x: num(at, 1), y: num(at, 2), size: sz ? num(sz, 1) : 0.6 });
+    const netId = nn ? Number(nn[1]) : NaN;
+    // (layers "F.Cu" "B.Cu")：贯穿层对原样保留（盲埋孔的层对不同）
+    const layerPair = lys
+      ? [String(lys[1] ?? '').replace(/^"|"$/g, ''), String(lys[2] ?? '').replace(/^"|"$/g, '')] as [string, string]
+      : undefined;
+    const viaType = v.some((tok) => tok === 'blind') ? 'blind' as const : v.some((tok) => tok === 'micro') ? 'micro' as const : undefined;
+    viasArr.push({
+      x: num(at, 1), y: num(at, 2),
+      size: sz ? num(sz, 1) : 0.6,
+      drill: dr ? num(dr, 1) : undefined,   // 真实钻径；导出时禁止用 size*0.5 重新猜
+      net: Number.isFinite(netId) ? netId : undefined,
+      layers: layerPair,
+      viaType,
+    });
   }
 
   if (!comps.length) throw new Error('文件中没有可导入的器件');
@@ -197,5 +243,5 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const widthMm = hasOutline ? Math.max(1, rawW) : Math.max(20, rawW);
   const heightMm = hasOutline ? Math.max(1, rawH) : Math.max(20, rawH);
 
-  return { nets, tracks, vias: viasArr, mountingHoles, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs };
+  return { nets, copperLayers, tracks, vias: viasArr, mountingHoles, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs };
 }

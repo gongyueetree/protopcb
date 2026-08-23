@@ -175,7 +175,7 @@ export function LibraryPreview({ c }: { c: PlacedComponent }) {
 
 const cell: React.CSSProperties = { background: '#fff', borderRadius: 8, border: '1px solid #f1f5f9', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 };
 const cellTitle: React.CSSProperties = { fontSize: 10, fontWeight: 700, color: '#475569' };
-const preview: React.CSSProperties = { minHeight: 70, maxHeight: 130, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', background: '#fafafa', borderRadius: 6, padding: 4 };
+const _preview: React.CSSProperties = { minHeight: 70, maxHeight: 130, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', background: '#fafafa', borderRadius: 6, padding: 4 };
 const dlBtn: React.CSSProperties = { fontSize: 10, padding: '4px 0', borderRadius: 5, border: '1px solid #c6e2d0', background: '#f0f9f4', color: '#1f5c3b', fontWeight: 700, cursor: 'pointer' };
 
 /** 受控 STEP 下载：fetch→blob，失败（签名过期/401）提示重新搜索器件刷新，不中断当前页面 */

@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import path from 'node:path'
 
 export default defineConfig({
+  // 解压 Worker 内部动态 import fflate 会触发 code-splitting，Worker 输出必须用 ES 格式
+  worker: { format: 'es' },
   define: { __BUILD_STAMP__: JSON.stringify('2026-07-15 21:03 UTC') },
   plugins: [react()],
   base: '/',

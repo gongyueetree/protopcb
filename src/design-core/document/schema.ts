@@ -157,8 +157,17 @@ export const documentSchema = z.object({
   designIntent: z.object({ requirement: z.string(), rationale: z.string(), generatedAt: z.string() }).optional(),
   /** 导入工程的电气网络表（网络号 → 网络名），导出 PCB 时写回 */
   nets: z.record(z.string()).optional(),
-  tracks: z.array(z.object({ x1: z.number(), y1: z.number(), x2: z.number(), y2: z.number(), w: z.number(), layer: z.enum(['top', 'bottom']) })).optional(),
-  vias: z.array(z.object({ x: z.number(), y: z.number(), size: z.number() })).optional(),
+  // layer 用 string：'top'/'bottom' 别名 + 内层 KiCad 原名（In1.Cu…）；net 为源文件网络号
+  tracks: z.array(z.object({ x1: z.number(), y1: z.number(), x2: z.number(), y2: z.number(), w: z.number(), layer: z.string(), net: z.number().int().optional() })).optional(),
+  vias: z.array(z.object({
+    x: z.number(), y: z.number(), size: z.number(),
+    drill: z.number().positive().optional(),
+    net: z.number().int().optional(),
+    layers: z.tuple([z.string(), z.string()]).optional(),
+    viaType: z.enum(['blind', 'micro']).optional(),
+  })).optional(),
+  /** 导入工程的铜层栈（KiCad 层名，按栈顺序） */
+  copperLayers: z.array(z.string()).optional(),
   /** KiCad 工程导入的原理图原样视图（只读渲染：实例坐标/连线/结点/标签） */
   schematicSheet: z.object({
     instances: z.array(z.object({
@@ -216,13 +225,81 @@ export function parseDocument(raw: unknown): ValidationResult {
   return { ok: false, error: result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ') };
 }
 
-/** 版本迁移：把旧 schemaVersion 的文档升级到当前结构。 */
-function migrate(raw: unknown): unknown {
+/* ---------- 显式版本迁移链 ---------- */
+
+type RawDoc = Record<string, unknown>;
+
+/**
+ * 每个迁移是 from → to 的纯函数，只做该版本跨度内的结构变换。
+ * 旧实现"遇到旧文件只把 schemaVersion 改成最新"不是迁移 —— 结构差异会
+ * 原样落到 Zod 校验里以难懂的报错失败。现在逐版本升级、每步可单测。
+ */
+interface Migration { from: string; to: string; up: (doc: RawDoc) => RawDoc }
+
+export const MIGRATIONS: Migration[] = [
+  {
+    // 无版本 / 早期原型：补齐必备容器字段与 metadata（缺失时给空缺省）
+    from: '0.0.0', to: '1.0.0',
+    up: (doc) => ({
+      components: [], functionalBlocks: [], connections: [], bom: [], reviewResults: [],
+      ...doc,
+      metadata: (doc.metadata as RawDoc) ?? { createdBy: 'unknown', createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), revision: 1 },
+      context: (doc.context as RawDoc) ?? { source: 'demo' },
+    }),
+  },
+  {
+    // 1.x → 2.0：board.mountingHoles 从 {x,y,d} 迁移为 {position:{x,y},diameterMm}
+    from: '1.0.0', to: '2.0.0',
+    up: (doc) => {
+      const board = { ...(doc.board as RawDoc ?? {}) };
+      const holes = board.mountingHoles;
+      if (Array.isArray(holes)) {
+        board.mountingHoles = holes.map((h) => {
+          const hh = h as RawDoc;
+          if (hh.position) return hh;
+          return { position: { x: Number(hh.x) || 0, y: Number(hh.y) || 0 }, diameterMm: Number(hh.d ?? hh.diameterMm) || 3.2 };
+        });
+      }
+      return { ...doc, board };
+    },
+  },
+  {
+    // 2.x → 3.0：track.layer 归一（'F.Cu'/'B.Cu' 字面量 → 'top'/'bottom' 画布别名，内层保留原名）
+    from: '2.0.0', to: '3.0.0',
+    up: (doc) => {
+      const tracks = Array.isArray(doc.tracks)
+        ? (doc.tracks as RawDoc[]).map((t) => ({
+            ...t,
+            layer: t.layer === 'F.Cu' ? 'top' : t.layer === 'B.Cu' ? 'bottom' : (t.layer ?? 'top'),
+          }))
+        : doc.tracks;
+      return { ...doc, tracks };
+    },
+  },
+];
+
+/** 版本比较（semver 主.次.补，缺段按 0） */
+function verCmp(a: string, b: string): number {
+  const pa = a.split('.').map((x) => parseInt(x, 10) || 0);
+  const pb = b.split('.').map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < 3; i++) { if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0); }
+  return 0;
+}
+
+/** 逐版本执行迁移链（导出以便单测）。未知的更高版本原样返回交给 Zod 报错。 */
+export function migrateDocument(raw: unknown): unknown {
   if (typeof raw !== 'object' || raw === null) return raw;
-  const doc = raw as Record<string, unknown>;
-  const version = typeof doc.schemaVersion === 'string' ? doc.schemaVersion : '0.0.0';
-  // 示例：从无版本/旧版本迁移
-  if (version === SCHEMA_VERSION) return doc;
-  // 这里集中处理逐版本迁移；当前仅打平版本号
+  let doc = { ...(raw as RawDoc) };
+  let version = typeof doc.schemaVersion === 'string' ? doc.schemaVersion : '0.0.0';
+  for (const m of MIGRATIONS) {
+    if (verCmp(version, m.from) <= 0 && verCmp(m.to, version) > 0) {
+      doc = m.up(doc);
+      version = m.to;
+    }
+  }
   return { ...doc, schemaVersion: SCHEMA_VERSION };
+}
+
+function migrate(raw: unknown): unknown {
+  return migrateDocument(raw);
 }

@@ -6,7 +6,7 @@
  */
 import type { ComponentSearchResult } from '../providers/types';
 import type { ComponentCategory } from './document/types';
-import { registerSymbolOverride, registerFootprintOverride, type ParsedSymbol } from './geometry/lib-file-registry';
+import { registerSymbolOverride, registerFootprintOverride } from './geometry/lib-file-registry';
 import { padFootprintFor, type PadFootprint } from './geometry/footprint-pads';
 
 export const KICAD_PIN_TYPES = [
@@ -18,9 +18,29 @@ export type KicadPinType = (typeof KICAD_PIN_TYPES)[number];
 export type PinSide = 'left' | 'right' | 'top' | 'bottom';
 export interface CustomPin { num: string; name: string; type: KicadPinType; desc?: string; side?: PinSide }
 export interface ManualPad { num: string; x: number; y: number; w: number; h: number; round?: boolean }
+
+/**
+ * 封装族中央 enum —— UI 下拉、Zod 校验、AI 提取 Prompt 全部从这里取值。
+ * 此前 Prompt 里复制了一份过期列表（只有 dual|quad|qfn|header|chip），
+ * 每加一个族就漂移一次；现在 Prompt 动态构建，不再漂移。
+ */
+export const CUSTOM_FAMILIES = ['dual', 'quad', 'qfn', 'header', 'chip', 'sot', 'sod', 'dpak', 'to220', 'bga', 'manual'] as const;
+export type CustomFamily = (typeof CUSTOM_FAMILIES)[number];
+/** 器件类别中央 enum（与 ComponentCategory 保持一致的子集，供 Prompt/校验共用） */
+export const CUSTOM_CATEGORIES = ['ic', 'mcu', 'power', 'connector', 'passive', 'electromech', 'sensor', 'rf'] as const;
+
 export interface CustomPkg {
-  family: 'dual' | 'quad' | 'qfn' | 'header' | 'chip' | 'sot' | 'sod' | 'dpak' | 'to220' | 'bga' | 'manual';
+  family: CustomFamily;
   bodyW: number; bodyH: number; pitch: number;
+  /**
+   * 封装机械图（Package Outline / Mechanical Dimensions）提取的真实焊盘与外形参数。
+   * 这些值来自 datasheet 尺寸图/尺寸表，不是按管脚数量猜的：
+   *  padLen  — 焊盘沿引脚方向长度 mm（land pattern 推荐值或引脚 L×1.5 估算，AI 需注明来源）
+   *  padWidth— 焊盘垂直引脚方向宽度 mm
+   *  leadSpan— 两排引脚外缘跨距 mm（决定焊盘行距，dual/sot/sod/quad 关键参数）
+   *  heightMm— 器件本体高度 mm（用于 3D 参数化模型，取 A/A2 max）
+   */
+  padLen?: number; padWidth?: number; leadSpan?: number; heightMm?: number;
   /** family='manual' 时：逐焊盘坐标表（继电器等异形器件，坐标相对封装中心，mm） */
   manualPads?: ManualPad[];
   /** 模块轮廓（丝印外形）：焊盘可能只占模块的一部分，轮廓独立指定 */
@@ -103,7 +123,8 @@ export function buildCustomFootprint(pkg: CustomPkg, pinCount: number): PadFootp
       bodyH: pkg.outlineH && pkg.outlineH > 0 ? pkg.outlineH
         : pkg.bodyH > 0 ? pkg.bodyH
         : ext((p) => p.y, (p) => p.h / 2) * 2 + 1,
-      pads: pads.map((p, i) => ({ num: Number.isFinite(parseInt(p.num, 10)) ? parseInt(p.num, 10) : i + 1, x: p.x + (pkg.padsOffsetX ?? 0), y: p.y + (pkg.padsOffsetY ?? 0), w: p.w, h: p.h, round: p.round })),
+      // 焊盘号保留原字符串（BGA 的 A1 / 继电器的 COM 等都不能被压成数字）
+      pads: pads.map((p, i) => ({ num: String(p.num ?? '').trim() || String(i + 1), x: p.x + (pkg.padsOffsetX ?? 0), y: p.y + (pkg.padsOffsetY ?? 0), w: p.w, h: p.h, round: p.round })),
       pin1: { x: pads[0].x + (pkg.padsOffsetX ?? 0), y: pads[0].y + (pkg.padsOffsetY ?? 0) },
     };
   }
@@ -113,10 +134,38 @@ export function buildCustomFootprint(pkg: CustomPkg, pinCount: number): PadFootp
   const dy = pkg.padsOffsetY ?? 0;
   const outW = pkg.outlineW && pkg.outlineW > 0 ? pkg.outlineW : base.bodyW;
   const outH = pkg.outlineH && pkg.outlineH > 0 ? pkg.outlineH : base.bodyH;
+  // ── 封装机械图真实参数覆盖 ──
+  // 名字参数化（synthFootprintName → padFootprintFor）只能按族规则估焊盘；
+  // datasheet 的 Package Outline 提供了真实 padLen/padWidth/leadSpan 时，
+  // 逐焊盘应用：水平引出的排（|x|>|y|）w=padLen h=padWidth，垂直排相反；
+  // leadSpan 决定行心距（span - padLen）。BGA/chip/manual 不适用此规则。
+  const rowFamilies = new Set(['dual', 'quad', 'qfn', 'sot', 'sod', 'dpak', 'to220', 'header']);
+  const pl = pkg.padLen && pkg.padLen > 0 ? pkg.padLen : undefined;
+  const pw = pkg.padWidth && pkg.padWidth > 0 ? pkg.padWidth : undefined;
+  const span = pkg.leadSpan && pkg.leadSpan > 0 ? pkg.leadSpan : undefined;
+  const applyDims = rowFamilies.has(pkg.family) && (pl || pw || span);
+  const pads = base.pads.map((pd) => {
+    let { x, y, w, h } = pd;
+    if (applyDims) {
+      const horizontal = Math.abs(x) >= Math.abs(y);  // 引脚沿 X 方向伸出（左右排）
+      if (horizontal && x !== 0) {
+        if (pl) w = pl;
+        if (pw) h = pw;
+        if (span) x = Math.sign(x) * (span - (pl ?? w)) / 2;
+      } else if (!horizontal && y !== 0) {
+        if (pl) h = pl;
+        if (pw) w = pw;
+        if (span && pkg.family === 'quad') y = Math.sign(y) * (span - (pl ?? h)) / 2;
+      }
+    }
+    return { ...pd, x: x + dx, y: y + dy, w, h };
+  });
   return {
     bodyW: outW,
     bodyH: outH,
-    pads: base.pads.map((pd) => ({ ...pd, x: pd.x + dx, y: pd.y + dy })),
+    heightMm: pkg.heightMm && pkg.heightMm > 0 ? pkg.heightMm : undefined,
+    approximate: base.approximate,
+    pads,
     pin1: base.pin1 ? { x: base.pin1.x + dx, y: base.pin1.y + dy } : undefined,
   };
 }

@@ -6,11 +6,10 @@
 import { tr } from '../../shared/i18n';
 import { analyzeArchitecture, layoutArchBlocks, colorForKind } from './arch-analysis';
 import type { ConnectionStyle } from '../../design-core/document/types';
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useDesignStore } from '../../state/designStore';
 import { bdShapes, BdShape } from './shapes';
-import type { FunctionalBlock, LogicalConnection } from '../../design-core/document/types';
-import { COLORS } from '../../shared/theme';
+import type { FunctionalBlock } from '../../design-core/document/types';
 
 export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: boolean; onToggleFullscreen?: () => void }) {
   const blocks = useDesignStore((s) => s.doc.functionalBlocks);

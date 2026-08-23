@@ -1,5 +1,6 @@
 import { acquire, checkBodySize, checkAiPayload, deny, LIMITS, readJsonBody } from './_lib/guard.js';
 import { safeFetch } from './_lib/safe-fetch.js';
+import { fetchUpstream, UpstreamError } from './_lib/net.js';
 
 /**
  * api/gemini.js — Vercel Serverless Function：Gemini 代理
@@ -26,13 +27,24 @@ async function callGemini(apiKey, prompt, temperature = 0.35, inline = null) {
     // gemini-2.5 系默认开启"思考"，会吃光输出 token 导致正文为空 → 显式关闭思考预算
     const generationConfig = { temperature, maxOutputTokens: 8192 };
     if (model.startsWith('gemini-2.5')) generationConfig.thinkingConfig = { thinkingBudget: 0 };
-    const r = await fetch(`${modelUrl(model)}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: inline ? [{ inline_data: inline }, { text: prompt }] : [{ text: prompt }] }], generationConfig }),
-    });
+    let r, j;
+    try {
+      // 统一出站通道：AbortController 超时 + 流式响应上限（Gemini 正常响应远小于该值）
+      const out = await fetchUpstream(`${modelUrl(model)}?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: inline ? [{ inline_data: inline }, { text: prompt }] : [{ text: prompt }] }], generationConfig }),
+        timeoutMs: LIMITS.timeoutMs,
+        maxResponseBytes: 8 * 1024 * 1024,
+        as: 'json',
+      });
+      r = out.res; j = out.json;
+    } catch (e) {
+      if (e instanceof UpstreamError && e.kind === 'timeout') { lastErr = `${model}: 上游超时`; break; }
+      lastErr = `${model}: ${e instanceof UpstreamError ? `${e.message} ${e.detail}` : String(e?.message ?? e)}`.slice(0, 200);
+      continue;
+    }
     if (r.ok) {
-      const j = await r.json();
       const text = j?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
       if (text.trim()) {
         workingModel = model;
@@ -42,7 +54,7 @@ async function callGemini(apiKey, prompt, temperature = 0.35, inline = null) {
       lastErr = `${model}: 返回正文为空 (finishReason=${j?.candidates?.[0]?.finishReason ?? '未知'})`;
       continue;
     }
-    lastErr = `${model}: HTTP ${r.status} ${(await r.text()).slice(0, 180)}`;
+    lastErr = `${model}: HTTP ${r.status} ${JSON.stringify(j?.error?.message ?? '').slice(0, 180)}`;
     if (r.status !== 404 && r.status !== 400) break; // 非模型不存在类错误（如 401/429）不再换模型
   }
   throw new Error(lastErr);
@@ -57,14 +69,29 @@ export default async function handler(req, res) {
     if (path === 'status') {
       return res.status(200).send(JSON.stringify({ configured: !!apiKey }));
     }
-    // 诊断：真实调用一次上游，返回可用模型或具体错误（浏览器直接打开可见）
+    // 诊断：会真实调用一次付费上游 → 绝不能匿名开放。
+    // 旧实现任何人 GET ?path=diag 即可反复触发 Gemini 计费调用（在 acquire 之前）。
+    // 现在：production 默认禁用；仅在设置了服务端 ADMIN_DIAG_TOKEN（非 VITE_，
+    // 不进前端 bundle）且请求头携带匹配 token 时可用；且必须先过限流。
     if (path === 'diag') {
-      if (!apiKey) return res.status(200).send(JSON.stringify({ ok: false, error: 'GEMINI_API_KEY 未配置' }));
+      const adminToken = (process.env.ADMIN_DIAG_TOKEN ?? '').trim();
+      const provided = String(req.headers['x-admin-token'] ?? '').trim();
+      const tokenOk = adminToken.length >= 16 && provided.length === adminToken.length
+        && (await import('node:crypto')).timingSafeEqual(Buffer.from(provided), Buffer.from(adminToken));
+      if (!tokenOk) {
+        return res.status(process.env.NODE_ENV === 'production' ? 404 : 403)
+          .send(JSON.stringify({ error: 'diag 已禁用：需服务端 ADMIN_DIAG_TOKEN（≥16字符）并携带 x-admin-token 头' }));
+      }
+      const diagLease = acquire(req, 'gemini');       // 即使持有 token 也过限流
+      if (!diagLease.ok) return deny(res, diagLease);
       try {
+        if (!apiKey) return res.status(200).send(JSON.stringify({ ok: false, error: 'GEMINI_API_KEY 未配置' }));
         const out = await callGemini(apiKey, '只回复两个字：正常', 0);
         return res.status(200).send(JSON.stringify({ ok: true, model: out.model, reply: out.text.slice(0, 40) }));
       } catch (e) {
         return res.status(200).send(JSON.stringify({ ok: false, error: String(e.message ?? e) }));
+      } finally {
+        diagLease.release();
       }
     }
     return res.status(400).send(JSON.stringify({ error: 'POST {prompt} or GET ?path=status|diag' }));

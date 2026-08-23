@@ -56,11 +56,12 @@ describe('定制器件原理图符号生成', () => {
     expect(sum.right).toBe(4);        // IP- 出右
   });
 
-  it('正电源超过 3 个时不挤在顶排', () => {
+  it('正电源超过 3 个时顶排自动扩展（不改变引脚功能布局语义）', () => {
     const pins = Array.from({ length: 6 }, (_, i) => P(String(i + 1), `VDD${i}`, 'power_in'));
     const sum = symbolSideSummary(pins);
-    expect(sum.top).toBeLessThanOrEqual(3);
-    expect(sum.left).toBeGreaterThan(0);
+    // 此前会把多出的电源脚硬塞到左列（改变语义）；现在全部保留在顶排，符号宽度随之扩展
+    expect(sum.top).toBe(6);
+    expect(sum.left).toBe(0);
   });
 
   it('散热焊盘 EP 归到底部', () => {

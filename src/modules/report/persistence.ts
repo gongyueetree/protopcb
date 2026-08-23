@@ -5,7 +5,9 @@
 import { serializeDocument, deserializeDocument } from '../../design-core/document/factory';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
 
-const AUTOSAVE_KEY = 'cc:autosave';
+// 自动保存已统一到 ProjectPersistenceService（唯一键 'cc_doc_autosave'）；
+// 旧 'cc:autosave' 键由服务在 load() 时一次性迁移。
+import { ProjectPersistenceService } from '../../design-core/document/persistence-service';
 
 export function exportDocument(doc: CircuitCanvasDocument) {
   const a = document.createElement('a');
@@ -27,15 +29,14 @@ export function importDocumentFromFile(file: File): Promise<CircuitCanvasDocumen
   });
 }
 
+/** @deprecated 请直接用 ProjectPersistenceService.saveDebounced */
 export function autosave(doc: CircuitCanvasDocument) {
-  try { localStorage.setItem(AUTOSAVE_KEY, serializeDocument(doc)); } catch { /* ignore */ }
+  ProjectPersistenceService.saveDebounced(doc);
 }
 
+/** @deprecated 请直接用 ProjectPersistenceService.load */
 export function loadAutosave(): CircuitCanvasDocument | null {
-  try {
-    const raw = localStorage.getItem(AUTOSAVE_KEY);
-    return raw ? deserializeDocument(raw) : null;
-  } catch { return null; }
+  return ProjectPersistenceService.load()?.doc ?? null;
 }
 
 /**
@@ -58,7 +59,6 @@ export async function exportMarkdownReport(doc: CircuitCanvasDocument) {
   const priceOf = (l: { mpn: string; unitPrice?: { amount: number } }) => digikeyOfferCached(l.mpn)?.unitPrice ?? l.unitPrice?.amount ?? 0;
   const priceSrc = (l: { mpn: string }) => (digikeyOfferCached(l.mpn) ? 'DigiKey实时' : '演示估价');
   const total = doc.bom.reduce((s, l) => s + priceOf(l) * l.quantity, 0);
-  const cats = new Set(doc.components.map((c) => c.category));
   const mcus = doc.components.filter((c) => c.category === 'mcu');
   const powers = doc.components.filter((c) => c.category === 'power');
   const conns = doc.components.filter((c) => c.category === 'connector');
