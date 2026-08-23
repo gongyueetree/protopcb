@@ -8,6 +8,7 @@ import { bomTotal } from '../../design-core/document/services';
 import { fmtMoney, COLORS } from '../../shared/theme';
 import { useEffect, useState } from 'react';
 import type { BomLine } from '../../design-core/document/types';
+import { geminiComplete, extractJson } from '../../providers/gemini';
 import { isPriceable, whyNotPriceable, classifyByRefDes, pricingPriority, CLASS_LABEL } from './part-class';
 import { fetchDigikeyOffer, type DigikeyOffer } from '../../providers/digikey';
 import { fetchSupplierOffers } from '../../providers/suppliers';
@@ -24,8 +25,10 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   /** 已查询完成的型号（无论有无结果）—— 用于把"查询中…"落定为"无报价" */
   const [queried, setQueried] = useState<Record<string, true>>({});
   /** 无报价行的人工查价：模糊候选列表（用户点选后作为录入价） */
+  const [market, setMarket] = useState<{ busy: boolean; low?: number; high?: number; typical?: number; basis?: string; msg?: string } | null>(null);
   const [fuzzy, setFuzzy] = useState<{ line: BomLine; busy: boolean; items: { vendor: string; mpn: string; manufacturer: string; description?: string; price: number; currency?: string; stock?: number; url?: string }[]; msg?: string } | null>(null);
   const openFuzzy = async (l: BomLine) => {
+    setMarket(null);
     setFuzzy({ line: l, busy: true, items: [] });
     try {
       const qs = new URLSearchParams({ path: 'fuzzy', mpn: l.mpn ?? '', footprint: l.footprint ?? '', desc: l.description ?? '' });
@@ -34,6 +37,28 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
       setFuzzy({ line: l, busy: false, items: Array.isArray(j.items) ? j.items : [], msg: j.message });
     } catch (e) {
       setFuzzy({ line: l, busy: false, items: [], msg: (e as Error).message });
+    }
+  };
+
+  /** 网络参考价：AI 按公开市场行情给区间。明确标注为估算，必须人工确认后才落为录入价。 */
+  const askMarketPrice = async (l: BomLine) => {
+    setMarket({ busy: true });
+    try {
+      const desc = [l.mpn, l.footprint, l.description].filter(Boolean).join(' / ');
+      const raw = await geminiComplete(
+        `器件：${desc}（位号 ${l.reference}）。\n` +
+        `请给出该类器件当前的**市场平均单价**参考（小批量 100 片价，人民币）。\n` +
+        `只回答价格信息，不要其它内容。若无法判断请把 confident 设为 false。\n` +
+        `严格输出 JSON：{"low":数字,"high":数字,"typical":数字,"basis":"依据一句话","confident":true|false}`,
+      );
+      const j = extractJson<{ low?: number; high?: number; typical?: number; basis?: string; confident?: boolean }>(raw);
+      if (!j.confident || j.typical == null) {
+        setMarket({ busy: false, msg: '无法判断该器件的市场价，请手工录入' });
+        return;
+      }
+      setMarket({ busy: false, low: j.low, high: j.high, typical: j.typical, basis: j.basis });
+    } catch (e) {
+      setMarket({ busy: false, msg: (e as Error).message });
     }
   };
   useEffect(() => {
@@ -117,6 +142,35 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
               style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#1f5c3b', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{tr('采用')}</button>
           </div>
         ))}
+        {/* 网络参考价：非分销商实时报价，AI 依公开行情估算 */}
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #e2e8f0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#334155' }}>{tr('网络参考价')}</span>
+            <span style={{ fontSize: 9.5, color: '#94a3b8' }}>{tr('市场平均价 · AI 估算，需人工确认')}</span>
+            <span style={{ flex: 1 }} />
+            <button onClick={() => askMarketPrice(fuzzy.line)} disabled={market?.busy}
+              style={{ padding: '3px 10px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>
+              {market?.busy ? '⟳ ' + tr('查询中…') : tr('查市场价')}
+            </button>
+          </div>
+          {market?.msg && <div style={{ fontSize: 10, color: '#92400e', marginTop: 4 }}>{market.msg}</div>}
+          {market?.typical != null && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, padding: '7px 9px', borderRadius: 7, border: '1px solid #fde68a', background: '#fffbeb' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: '#92400e' }}>
+                  ¥{market.typical.toFixed(3)}
+                  {market.low != null && market.high != null && (
+                    <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 6 }}>({tr('区间')} ¥{market.low.toFixed(3)}–{market.high.toFixed(3)})</span>
+                  )}
+                </div>
+                {market.basis && <div style={{ fontSize: 9.5, color: '#a16207' }}>{market.basis}</div>}
+              </div>
+              <button onClick={() => { setManualPrices((prev) => ({ ...prev, [fuzzy.line.mpn]: market.typical! })); setFuzzy(null); }}
+                style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#b45309', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{tr('采用')}</button>
+            </div>
+          )}
+        </div>
+
         <div style={{ textAlign: 'right', marginTop: 8 }}>
           <button onClick={() => setFuzzy(null)} style={{ padding: '5px 14px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', fontSize: 11.5, cursor: 'pointer' }}>{tr('关闭')}</button>
         </div>

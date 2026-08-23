@@ -177,7 +177,7 @@ export interface RawSymGeom {
   rects: { x1: number; y1: number; x2: number; y2: number }[];
   circles: { cx: number; cy: number; r: number }[];
   arcs: { x1: number; y1: number; xm: number; ym: number; x2: number; y2: number }[];
-  pins: { x: number; y: number; ex: number; ey: number; number: string }[];
+  pins: { x: number; y: number; ex: number; ey: number; number: string; name?: string }[];
 }
 
 const rawGeomCache = new Map<string, RawSymGeom>();
@@ -202,10 +202,16 @@ export function rawSymbolGeom(block: string): RawSymGeom {
     const [x1, y1] = nums(m, 1, 2), [xm, ym] = nums(m, 3, 4), [x2, y2] = nums(m, 5, 6);
     g.arcs.push({ x1, y1, xm, ym, x2, y2 });
   }
-  for (const m of block.matchAll(/\(pin\s+\w+\s+\w+\s*\(at\s+([-\d.]+)\s+([-\d.]+)(?:\s+([-\d.]+))?\)\s*\(length\s+([-\d.]+)\)[\s\S]{0,400}?\(number\s+"([^"]*)"/g)) {
+  // (pin passive line (at x y ang) (length L) (name "VDD" …) (number "1" …))
+  for (const m of block.matchAll(/\(pin\s+\w+\s+\w+\s*\(at\s+([-\d.]+)\s+([-\d.]+)(?:\s+([-\d.]+))?\)\s*\(length\s+([-\d.]+)\)([\s\S]{0,400}?)\(number\s+"([^"]*)"/g)) {
     const x = parseFloat(m[1]), y = parseFloat(m[2]), ang = m[3] ? parseFloat(m[3]) : 0, len = parseFloat(m[4]);
     const rad = (ang * Math.PI) / 180;
-    g.pins.push({ x, y, ex: x + Math.cos(rad) * len, ey: y + Math.sin(rad) * len, number: m[5] });
+    const nm = m[5].match(/\(name\s+"([^"]*)"/)?.[1];
+    g.pins.push({
+      x, y, ex: x + Math.cos(rad) * len, ey: y + Math.sin(rad) * len,
+      number: m[6],
+      name: nm && nm !== '~' ? nm : undefined,   // ~ 表示无名
+    });
   }
   rawGeomCache.set(block, g);
   return g;

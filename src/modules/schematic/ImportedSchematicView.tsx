@@ -86,10 +86,27 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
       const block = sheet.libSymbols[inst.libId];
       const legKey = inst.libId.replace(':', '_');
       const legacy = sheet.legacySymbols?.[legKey] ?? sheet.legacySymbols?.[inst.libId];
-      if (!block && !legacy) return;
+      const isPowerSym = inst.ref.startsWith('#') || /^power[:_]/i.test(inst.libId);
+      if (!block && !legacy) {
+        // 无符号定义时，电源/接地至少把网络名画出来（此前整条 return，文字彻底丢失）
+        if (isPowerSym) {
+          const netName = inst.value || inst.libId.split(':').pop() || '';
+          if (netName) {
+            const px = inst.x * PXMM, py = inst.y * PXMM;
+            const vp = inst.valPos && !inst.valPos.hidden ? { x: inst.valPos.x * PXMM, y: inst.valPos.y * PXMM } : null;
+            const isGnd = /^(GND|GNDA|GNDD|AGND|DGND|VSS|EARTH)$/i.test(netName);
+            els.push(
+              <text key={'pw' + ii} x={vp?.x ?? px} y={vp?.y ?? (py + (isGnd ? 14 : -7))} fontSize={8} fontWeight={600}
+                fill="#7c2d12" textAnchor="middle" fontFamily="monospace"
+                style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={3}>{netName}</text>,
+            );
+          }
+        }
+        return;
+      }
       const g = block ? rawSymbolGeom(block) : {
         rects: legacy!.rects, polys: legacy!.polys, circles: legacy!.circles, arcs: legacy!.arcs,
-        pins: legacy!.pins.map((pn) => ({ x: pn.x, y: pn.y, ex: pn.ex, ey: pn.ey, number: pn.number })),
+        pins: legacy!.pins.map((pn) => ({ x: pn.x, y: pn.y, ex: pn.ex, ey: pn.ey, number: pn.number, name: pn.name || undefined })),
       };
       const T = makeXform(inst);
       const kids: JSX.Element[] = [];
@@ -112,12 +129,27 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
         const tip = T(pn.x, pn.y), end = T(pn.ex, pn.ey);
         kids.push(<line key={'pl' + i} x1={tip.x} y1={tip.y} x2={end.x} y2={end.y} stroke="#8a1c1c" strokeWidth={1.2} />);
         if (!showPinNums) return;
-        // 脚号放在管脚中点、沿"法线方向"外移，避免竖直管脚的数字压在上下轮廓线上
         const mx = (tip.x + end.x) / 2, my = (tip.y + end.y) / 2;
         const dx = end.x - tip.x, dy = end.y - tip.y;
-        const len = Math.hypot(dx, dy) || 1;
-        const nx = -dy / len, ny = dx / len;   // 单位法线
-        kids.push(<text key={'pn' + i} x={mx + nx * 5} y={my + ny * 5 + 2} fontSize={6.5} fill="#7c2d12" textAnchor="middle">{pn.number}</text>);
+        const horizontal = Math.abs(dx) > Math.abs(dy);
+        // 脚号：横向管脚一律画在线的"上方"（左右两侧都如此，符合 KiCad 习惯）；
+        // 纵向管脚画在线的右侧。原来按法线方向偏移，左侧管脚会掉到线下面。
+        kids.push(
+          <text key={'pn' + i} x={horizontal ? mx : mx + 4} y={horizontal ? my - 2.5 : my}
+            fontSize={6.5} fill="#7c2d12" textAnchor="middle"
+            style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={2}>{pn.number}</text>,
+        );
+        // 管脚名：画在本体一侧（从端点朝本体内缩），KiCad 的标准画法
+        if (pn.name) {
+          const ux = horizontal ? (end.x >= tip.x ? -1 : 1) : 0;
+          const uy = horizontal ? 0 : (end.y >= tip.y ? -1 : 1);
+          kids.push(
+            <text key={'pname' + i} x={end.x + ux * 3} y={end.y + uy * 3 + (horizontal ? 2.5 : 0)}
+              fontSize={7} fill="#334155" fontFamily="monospace"
+              textAnchor={horizontal ? (end.x >= tip.x ? 'end' : 'start') : 'middle'}
+              style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={2.5}>{pn.name}</text>,
+          );
+        }
       });
       // 位号（电源符号不标）
       if (!inst.ref.startsWith('#')) {

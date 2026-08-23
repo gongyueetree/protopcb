@@ -30,6 +30,14 @@ export const useLangStore = create<LangState>((set) => ({
 
 /* ───────────── 固定文案词典（key = 中文原文） ───────────── */
 const DICT: Record<string, string> = {
+  '查找相近': 'Find similar', '查找相近器件': 'Find similar parts', '采用': 'Use',
+  '模糊匹配结果需人工确认后作为录入价': 'Fuzzy matches need your confirmation before being used',
+  '检索中…': 'Searching…', '未找到相近器件': 'No similar parts found', '关闭': 'Close',
+  '网络参考价': 'Market reference', '市场平均价 · AI 估算，需人工确认': 'Average market price · AI estimate, confirm before use',
+  '查市场价': 'Check market price', '区间': 'range',
+  '点击按型号/封装/值模糊查找相近器件的价格': 'Click to search similar parts by MPN/footprint/value',
+  '按类别生成': 'Group by category', 'AI 架构分析': 'AI architecture',
+  '由 AI 分析器件与网络，划分真实的功能子系统与信号流': 'AI analyzes parts and nets to derive real subsystems and signal flow',
   '缺少明确型号': 'No specific MPN', '这是元件值不是型号': 'Value, not an MPN',
   '型号不完整，无法精确匹配': 'MPN incomplete — no exact match', '结构件无需采购': 'Mechanical — not purchased',
   '点击手工录入': 'Click to enter manually', '查询中…': 'Querying…',
