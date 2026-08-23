@@ -102,6 +102,9 @@ function materialFromColor(r: number, g: number, b: number): THREE.MeshStandardM
 
 export function bodyColorForFootprint(name = ''): number {
   const K = name.toUpperCase();
+  // 自建器件注册名为 CUSTOM_<型号>，推不出族 —— 给一个中性塑封色而非纯黑，
+  // 避免自建件在板上全是黑盒。
+  if (K.startsWith('CUSTOM_') || K.startsWith('MANUAL-')) return 0x33363d;
   if (/^C_\d{4}|CAPACITOR/.test(K)) return 0xc8a86a;      // MLCC 米色
   if (/^R_\d{4}|RESISTOR/.test(K)) return 0x2b2b2b;       // 电阻 黑
   if (/^LED_|LED/.test(K)) return 0xe8e8ea;                // LED 乳白

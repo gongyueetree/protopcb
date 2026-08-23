@@ -30,6 +30,8 @@ export const useLangStore = create<LangState>((set) => ({
 
 /* ───────────── 固定文案词典（key = 中文原文） ───────────── */
 const DICT: Record<string, string> = {
+  '填写管脚后自动生成': 'Generated automatically once pins are filled in',
+  '（可在管脚表中改「方向」调整）': '(adjust via the Side column in the pin table)',
   '小外形三极管 (SOT-23/SC-70，支持 3/5/6/8 脚)': 'Small-outline transistor (SOT-23 / SC-70, 3/5/6/8 pins)',
   '二极管 (SOD-123/323)': 'Diode (SOD-123 / SOD-323)',
   '功率贴片 (TO-252/DPAK)': 'Power SMD (TO-252 / DPAK)',

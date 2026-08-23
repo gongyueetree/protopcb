@@ -6,6 +6,7 @@
  * 表单统一可编辑；保存 → 定制库（localStorage）+ 符号覆盖注册，封装经合成 KiCad 名走既有解析器。
  */
 import { tr, curLang } from '../../shared/i18n';
+import { buildCustomSymbol, symbolSideSummary } from '../../design-core/custom-symbol';
 import { useMemo, useState , useEffect} from 'react';
 import { COLORS } from '../../shared/theme';
 import { geminiAvailable, geminiComplete, extractJson } from '../../providers/gemini';
@@ -376,6 +377,34 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
             <div style={{ marginTop: 8, fontSize: 10, color: '#94a3b8', fontFamily: 'monospace' }}>{fpName}</div>
           </div>
           <div style={{ width: 200 }}>
+            {/* 原理图符号预览：保存前让用户核对管脚被分到了哪一边 */}
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: '#334155', marginBottom: 6 }}>{tr('原理图符号')}</div>
+            {(() => {
+              const sym = buildCustomSymbol(pins);
+              if (!sym) return <div style={{ fontSize: 10.5, color: '#94a3b8', marginBottom: 10 }}>{tr('填写管脚后自动生成')}</div>;
+              const side = symbolSideSummary(pins);
+              return (
+                <div style={{ marginBottom: 10 }}>
+                  <svg viewBox={`0 0 ${sym.w} ${sym.h}`} style={{ width: '100%', maxHeight: 190, background: '#fffdf5', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                    {sym.rects.map((r, i) => (
+                      <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} rx={0.6} fill="#fffbd6" stroke="#8a1c1c" strokeWidth={0.35} />
+                    ))}
+                    {sym.pins.map((pn, i) => (
+                      <g key={i}>
+                        <line x1={pn.tipX} y1={pn.tipY} x2={pn.endX} y2={pn.endY} stroke="#8a1c1c" strokeWidth={0.3} />
+                        <text x={pn.nameX} y={pn.nameY} fontSize={1.7} fill="#334155" fontFamily="monospace"
+                          textAnchor={pn.nameX > pn.endX ? 'start' : pn.nameX < pn.endX ? 'end' : 'middle'}>{pn.name}</text>
+                        <text x={pn.numX} y={pn.numY} fontSize={1.4} fill="#7c2d12" textAnchor="middle">{pn.number}</text>
+                      </g>
+                    ))}
+                  </svg>
+                  <div style={{ fontSize: 9.5, color: '#64748b', marginTop: 3 }}>
+                    {tr('左')} {side.left} · {tr('右')} {side.right} · {tr('上')} {side.top} · {tr('下')} {side.bottom}
+                    <span style={{ marginLeft: 6, color: '#94a3b8' }}>{tr('（可在管脚表中改「方向」调整）')}</span>
+                  </div>
+                </div>
+              );
+            })()}
             <div style={{ fontSize: 11.5, fontWeight: 700, color: '#334155', marginBottom: 6 }}>{tr('封装预览')}（{fp?.pads.length ?? 0}）</div>
             <div style={{ height: 130, background: '#f0f6f1', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {fp && fp.pads.length ? (() => {

@@ -76,35 +76,14 @@ export function defaultSide(p: CustomPin): PinSide {
   return 'right';
 }
 
-/** 管脚定义 → 带真实管脚名的符号（四边布置，10px 栅格对齐） */
-export function buildCustomSymbol(pins: CustomPin[]): ParsedSymbol {
-  const usable = pins.filter((p) => p.type !== 'no_connect');
-  const G = 10; // 栅格
-  const by = (side: PinSide) => usable.filter((p) => (p.side ?? defaultSide(p)) === side);
-  const L = by('left'), R = by('right'), T = by('top'), B = by('bottom');
-  const rows = Math.max(L.length, R.length, 1);
-  const cols = Math.max(T.length, B.length, 0);
-  const w = Math.max(120, (cols + 1) * 2 * G);
-  const h = Math.max(60, (rows + 1) * 2 * G);
-  const pinsOut: ParsedSymbol['pins'] = [];
-  L.forEach((p, i) => {
-    const y = 2 * G + i * 2 * G;
-    pinsOut.push({ tipX: -G, tipY: y, endX: 0, endY: y, name: p.name, number: p.num, nameX: 3, nameY: y + 2.5, numX: -G / 2, numY: y - 2 });
-  });
-  R.forEach((p, i) => {
-    const y = 2 * G + i * 2 * G;
-    pinsOut.push({ tipX: w + G, tipY: y, endX: w, endY: y, name: p.name, number: p.num, nameX: w - 3, nameY: y + 2.5, numX: w + G / 2, numY: y - 2 });
-  });
-  T.forEach((p, i) => {
-    const x = 2 * G + i * 2 * G;
-    pinsOut.push({ tipX: x, tipY: -G, endX: x, endY: 0, name: p.name, number: p.num, nameX: x + 3, nameY: 10, numX: x + 3, numY: -G / 2 });
-  });
-  B.forEach((p, i) => {
-    const x = 2 * G + i * 2 * G;
-    pinsOut.push({ tipX: x, tipY: h + G, endX: x, endY: h, name: p.name, number: p.num, nameX: x + 3, nameY: h - 5, numX: x + 3, numY: h + G / 2 + 3 });
-  });
-  return { w, h, rects: [{ x: 0, y: 0, w, h }], polys: [], circles: [], pins: pinsOut };
-}
+/**
+ * 管脚定义 → 原理图符号。
+ * 实现见 custom-symbol.ts（布局规则移植自 ds2kicad，遵循 KLC S4）。
+ * 旧实现用 10px 栅格且顶部/左侧管脚坐标为负，而渲染层把 ParsedSymbol 坐标
+ * 直接当 SVG 单位用 —— 符号会跑出画框，这是"定制器件没有符号"的根因。
+ */
+export { buildCustomSymbol } from './custom-symbol';
+import { buildCustomSymbol as buildSym } from './custom-symbol';
 
 /** 定制封装：焊盘阵列（按合成名解析）+ 独立模块轮廓 + 焊盘偏移
  *  焊盘可能只占模块的一部分（如带屏蔽罩的模组），故轮廓与焊盘范围解耦 */
@@ -115,8 +94,15 @@ export function buildCustomFootprint(pkg: CustomPkg, pinCount: number): PadFootp
     if (!pads.length) return null;
     const ext = (sel: (p: ManualPad) => number, half: (p: ManualPad) => number) => Math.max(...pads.map((p) => Math.abs(sel(p)) + half(p)));
     return {
-      bodyW: pkg.outlineW && pkg.outlineW > 0 ? pkg.outlineW : ext((p) => p.x, (p) => p.w / 2) * 2 + 1,
-      bodyH: pkg.outlineH && pkg.outlineH > 0 ? pkg.outlineH : ext((p) => p.y, (p) => p.h / 2) * 2 + 1,
+      // 本体尺寸优先级：自定义轮廓 > 向导填的本体尺寸 > 由焊盘范围反推。
+      // 手动焊盘模式此前只认 outlineW/H，忽略了用户填的 bodyW/H —— 3D 模型会按
+      // 焊盘范围缩水（如模组只有边缘两个焊盘时，本体被算成一条窄条）。
+      bodyW: pkg.outlineW && pkg.outlineW > 0 ? pkg.outlineW
+        : pkg.bodyW > 0 ? pkg.bodyW
+        : ext((p) => p.x, (p) => p.w / 2) * 2 + 1,
+      bodyH: pkg.outlineH && pkg.outlineH > 0 ? pkg.outlineH
+        : pkg.bodyH > 0 ? pkg.bodyH
+        : ext((p) => p.y, (p) => p.h / 2) * 2 + 1,
       pads: pads.map((p, i) => ({ num: Number.isFinite(parseInt(p.num, 10)) ? parseInt(p.num, 10) : i + 1, x: p.x + (pkg.padsOffsetX ?? 0), y: p.y + (pkg.padsOffsetY ?? 0), w: p.w, h: p.h, round: p.round })),
       pin1: { x: pads[0].x + (pkg.padsOffsetX ?? 0), y: pads[0].y + (pkg.padsOffsetY ?? 0) },
     };
@@ -152,7 +138,8 @@ export function loadCustomParts(): CustomPart[] {
 }
 
 function registerPart(part: CustomPart) {
-  registerSymbolOverride(part.mpn, buildCustomSymbol(part.pins));
+  const sym = buildSym(part.pins);
+  if (sym) registerSymbolOverride(part.mpn, sym);
   const fp = buildCustomFootprint(part.pkg, part.pins.length);
   if (fp) registerFootprintOverride(part.footprintName, fp);
 }
