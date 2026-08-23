@@ -335,7 +335,7 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
                   <button onClick={() => setPkg({ ...pkg, manualPads: [...(pkg.manualPads ?? []), { num: String((pkg.manualPads?.length ?? 0) + 1), x: 0, y: 0, w: 1.8, h: 1.8, round: true }] })}
                     style={{ padding: '4px 10px', borderRadius: 5, border: '1px dashed #cbd5e1', background: '#fff', fontSize: 10, cursor: 'pointer' }}>{tr('＋焊盘')}</button>
                   <button onClick={() => setPkg({ ...pkg, manualPads: pins.map((p, i) => pkg.manualPads?.[i] ?? ({ num: p.num, x: 0, y: i * 2.54, w: 1.8, h: 1.8, round: true })) })}
-                    title={tr('按管脚表生成同数量的焊盘行')} style={{ padding: '4px 10px', borderRadius: 5, border: '1px dashed #cbd5e1', background: '#fff', fontSize: 10, cursor: 'pointer' }}>按管脚生成 {pins.length} 行</button>
+                    title={tr('按管脚表生成同数量的焊盘行')} style={{ padding: '4px 10px', borderRadius: 5, border: '1px dashed #cbd5e1', background: '#fff', fontSize: 10, cursor: 'pointer' }}>{tr('按管脚生成')} {pins.length} {tr('行')}</button>
                 </div>
               </div>
             ) : (

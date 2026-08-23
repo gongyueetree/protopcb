@@ -585,7 +585,7 @@ export default function App() {
               <span style={{ fontSize: 15, fontWeight: 700, color: COLORS.green }}>🤖 {tr('AI 方案建议 · 请确认')}</span>
               {aiProposal.source === 'gemini'
                 ? <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 5, background: '#dcfce7', color: '#166534', fontWeight: 700 }}>{tr('✓ Gemini 生成')}</span>
-                : <span title={aiProposal.fallbackReason} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 5, background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>演示引擎{aiProposal.fallbackReason ? ` · ${aiProposal.fallbackReason.slice(0, 46)}` : ''}</span>}
+                : <span title={aiProposal.fallbackReason} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 5, background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>{tr('演示引擎')}{aiProposal.fallbackReason ? ` · ${aiProposal.fallbackReason.slice(0, 46)}` : ''}</span>}
             </div>
             <div style={{ fontSize: 12, color: '#475569', padding: '8px 10px', background: '#f7fcf9', borderRadius: 8, marginBottom: 10 }}><TrSpan text={aiProposal.rationale} /></div>
             <div style={{ maxHeight: 260, overflow: 'auto', marginBottom: 12 }}>

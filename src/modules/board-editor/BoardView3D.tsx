@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { buildStudioEnvironment } from './studio-env';
 import { useDesignStore } from '../../state/designStore';
 import { buildComponent3D, MAT } from './footprint3d';
+import { buildBoardTexture } from './board-texture';
 import { mountingHoleCenters, HOLE_DIAMETER_MM, lshapeCut } from '../../design-core/collision';
 import { lshapeRoundedSegments } from '../../design-core/geometry/board-outline';
 import { useLibFileStore } from '../../design-core/geometry/lib-file-registry';
@@ -208,10 +209,17 @@ function rebuildBoard(group: THREE.Group, doc: CircuitCanvasDocument) {
   const W = doc.board.widthMm, H = doc.board.heightMm;
   // PCB 板（厚 1.6mm）
   const boardThk = 1.6;
+  // 板面贴图：焊盘/走线/丝印画进 CanvasTexture（纯绿挤出体是 3D 观感最大的缺口）
+  const texTop = buildBoardTexture(doc, 'top');
+  const texBot = buildBoardTexture(doc, 'bottom');
+  const faceMat = (tex: THREE.CanvasTexture | null) => (tex
+    ? new THREE.MeshStandardMaterial({ map: tex, roughness: 0.62, metalness: 0.12 })
+    : MAT.pcbGreen);
+  const edgeMat = new THREE.MeshStandardMaterial({ color: 0x0b3d27, roughness: 0.8, metalness: 0.05 });
   let boardMesh: THREE.Mesh;
   if (doc.board.shape === 'circle') {
     const geo = new THREE.CylinderGeometry(Math.min(W, H) / 2, Math.min(W, H) / 2, boardThk, 64);
-    boardMesh = new THREE.Mesh(geo, MAT.pcbGreen);
+    boardMesh = new THREE.Mesh(geo, [edgeMat, faceMat(texTop), faceMat(texBot)]);
     boardMesh.position.y = -boardThk / 2;
   } else {
     // 用 Shape 构造圆角矩形 / L 形，再挤出厚度
@@ -238,7 +246,19 @@ function rebuildBoard(group: THREE.Group, doc: CircuitCanvasDocument) {
     }
     const geo = new THREE.ExtrudeGeometry(shape, { depth: boardThk, bevelEnabled: false });
     geo.rotateX(Math.PI / 2); // 让挤出方向朝 y
-    boardMesh = new THREE.Mesh(geo, MAT.pcbGreen);
+    // ExtrudeGeometry 默认 UV 不适配整板贴图 → 按 xz 平面重算，使贴图与板框严格对齐
+    {
+      const pos = geo.attributes.position;
+      const uv = new Float32Array(pos.count * 2);
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), z = pos.getZ(i);
+        uv[i * 2] = (x + W / 2) / W;
+        uv[i * 2 + 1] = 1 - (z + H / 2) / H;   // 纹理 v 轴与板 y 轴相反
+      }
+      geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    }
+    // 组 0 = 上下端面，组 1 = 侧壁（含孔壁）
+    boardMesh = new THREE.Mesh(geo, [faceMat(texTop), edgeMat]);
     boardMesh.position.y = 0;
   }
   group.add(boardMesh);
@@ -292,6 +312,16 @@ function disposeObj(obj: THREE.Object3D) {
   obj.traverse((o: THREE.Object3D) => {
     const m = o as THREE.Mesh;
     if (m.geometry) m.geometry.dispose();
+    // 板面贴图是每次重建新生成的 CanvasTexture，不释放会持续占用显存；
+    // 共享材质（MAT.*）不能 dispose，只释放其贴图之外的一次性材质。
+    const mats = Array.isArray(m.material) ? m.material : m.material ? [m.material] : [];
+    for (const mt of mats) {
+      const std = mt as THREE.MeshStandardMaterial;
+      if (std.map && std.map instanceof THREE.CanvasTexture) {
+        std.map.dispose();
+        std.dispose();
+      }
+    }
   });
 }
 

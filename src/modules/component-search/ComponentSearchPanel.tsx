@@ -199,11 +199,11 @@ function ResultCard({ r, expanded, onToggle, onAdd, placedN }: {
         <div style={{ padding: '0 12px 12px', borderTop: '1px solid #e5e7eb', fontSize: 11, color: '#475569' }}>
           <p style={{ margin: '8px 0' }}>{r.description}</p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 12px' }}>
-            <div>封装：{r.defaultFootprintName}</div><div>引脚：{r.pins ?? '—'}</div>
-            <div>族：{r.family}</div><div>厂商：{r.manufacturer}</div>
+            <div>{tr('封装：')}{r.defaultFootprintName}</div><div>{tr('引脚：')}{r.pins ?? '—'}</div>
+            <div>{tr('族：')}{r.family}</div><div>{tr('厂商：')}{r.manufacturer}</div>
           </div>
           {r.org && <div style={{ marginTop: 6, padding: '6px 8px', borderRadius: 6, background: '#f0f9f4', fontSize: 10 }}>
-            内部料号 {r.org.internalPartNumber} · 库存 {r.org.stockQuantity} · 已用于 {r.org.projectUsageCount} 个项目
+            {tr('内部料号')} {r.org.internalPartNumber} · 库存 {r.org.stockQuantity} · 已用于 {r.org.projectUsageCount} {tr('个项目')}
           </div>}
         </div>
       )}

@@ -6,6 +6,7 @@
  * 实例变换：先 Y 翻转进 sch 局部系 → 镜像 → 旋转（KiCad 逆时针角度）→ 平移到 (at x y)。
  */
 import { useMemo, useRef, useState } from 'react';
+import { tr } from '../../shared/i18n';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
 import { rawSymbolGeom } from '../../design-core/geometry/kicad-sch-import';
 
@@ -93,7 +94,7 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
           const netName = inst.value || inst.libId.split(':').pop() || '';
           if (netName) {
             const px = inst.x * PXMM, py = inst.y * PXMM;
-            const vp = inst.valPos && !inst.valPos.hidden ? { x: inst.valPos.x * PXMM, y: inst.valPos.y * PXMM } : null;
+            const vp = inst.valPos ? { x: inst.valPos.x * PXMM, y: inst.valPos.y * PXMM } : null;
             const isGnd = /^(GND|GNDA|GNDD|AGND|DGND|VSS|EARTH)$/i.test(netName);
             els.push(
               <text key={'pw' + ii} x={vp?.x ?? px} y={vp?.y ?? (py + (isGnd ? 14 : -7))} fontSize={8} fontWeight={600}
@@ -152,16 +153,17 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
         }
       });
       // 位号（电源符号不标）
-      if (!inst.ref.startsWith('#')) {
+      {
         // KiCad 里位号/值是可拖动的独立标注，工程文件带绝对坐标 —— 原样还原，
         // 否则按本体推算会压到连线上。
-        // 电源/接地符号：位号 #PWR… 无意义（KiCad 亦隐藏），要显示的是网络名（GND/+5V/+3V3）
-        const isPower = inst.ref.startsWith('#') || /^power:/i.test(inst.libId);
+        // 电源/接地符号：位号 #PWR… 无意义（KiCad 亦隐藏），要显示的是网络名（GND/+5V/+3V3）。
+        // 注意：外层曾用 !ref.startsWith('#') 包裹，与这里的判断互斥，导致电源文字永远不渲染。
+        const isPower = inst.ref.startsWith('#') || /^power[:_]/i.test(inst.libId);
         if (isPower) {
           const netName = inst.value || inst.libId.split(':').pop() || '';
           if (netName) {
             const p0 = T(0, 0);
-            const vp = inst.valPos && !inst.valPos.hidden ? { x: inst.valPos.x * PXMM, y: inst.valPos.y * PXMM } : null;
+            const vp = inst.valPos ? { x: inst.valPos.x * PXMM, y: inst.valPos.y * PXMM } : null;
             // GND 类符号文字在下方，电源类在上方（与 KiCad 习惯一致）
             const isGnd = /^(GND|GNDA|GNDD|AGND|DGND|VSS|EARTH)$/i.test(netName);
             kids.push(<text key="pwr" x={vp?.x ?? p0.x} y={vp?.y ?? (p0.y + (isGnd ? 15 : -8))} fontSize={8}
@@ -269,7 +271,7 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
         <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>{content}</g>
       </svg>
       <div style={{ position: 'absolute', top: 8, right: 10, fontSize: 10, color: '#94a3b8', background: 'rgba(255,255,255,.85)', padding: '2px 8px', borderRadius: 6 }}>
-        {sheet.instances.length} 实例 · {sheet.wires.length} 连线 · 拖拽平移 / 滚轮缩放
+        {sheet.instances.length} 实例 · {sheet.wires.length} {tr('连线 · 拖拽平移 / 滚轮缩放')}
       </div>
     </div>
   );

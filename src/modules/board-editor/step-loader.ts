@@ -17,6 +17,10 @@ type OcctModule = {
       attributes: { position: { array: number[] }; normal?: { array: number[] } };
       index?: { array: number[] };
       color?: number[];
+      /** 源 B-rep 的逐面颜色：{first,last} 是三角形下标区间，color 为该面颜色（可能为 null）。
+       *  KiCad / 立创的 STEP 常把整个器件做成一个 solid，把黑色塑封、银色引脚、白色丝印
+       *  标在**面**上；只读 mesh 级 color 会让多色模型退化成整件一色。 */
+      brep_faces?: { first: number; last: number; color?: number[] | null }[];
     }[];
   };
 };
@@ -78,6 +82,24 @@ export function ensureStepBytes(url: string | undefined) {
 }
 
 /** 封装名 → 本体基色（STEP 未带有效原色时用，避免整板同一个深色） */
+/**
+ * 由 STEP 给出的 RGB 推断表面质感：低饱和亮灰 → 金属，金黄 → 镀金，其余 → 塑封哑光。
+ * 颜色值是 sRGB，必须用 setRGB(..., SRGBColorSpace) 转换；
+ * 直接当线性值解读会整体偏亮。
+ */
+function materialFromColor(r: number, g: number, b: number): THREE.MeshStandardMaterial {
+  const color = new THREE.Color();
+  color.setRGB(r, g, b, THREE.SRGBColorSpace);
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  const sat = mx - mn;
+  const lum = (r + g + b) / 3;
+  const isGoldish = r > 0.45 && g > 0.32 && b < g * 0.75 && sat > 0.12;
+  const isGrayMetal = sat < 0.09 && lum > 0.42;
+  if (isGoldish) return new THREE.MeshStandardMaterial({ color, metalness: 0.9, roughness: 0.25, envMapIntensity: 1.5 });
+  if (isGrayMetal) return new THREE.MeshStandardMaterial({ color, metalness: 0.92, roughness: 0.28, envMapIntensity: 1.4 });
+  return new THREE.MeshStandardMaterial({ color, metalness: 0.08, roughness: 0.62, envMapIntensity: 1.0 });
+}
+
 export function bodyColorForFootprint(name = ''): number {
   const K = name.toUpperCase();
   if (/^C_\d{4}|CAPACITOR/.test(K)) return 0xc8a86a;      // MLCC 米色
@@ -170,28 +192,43 @@ export function ensureStepModel(url: string | undefined, footprintName?: string)
         else geo.computeVertexNormals();
         if (m.index) geo.setIndex(m.index.array);
 
-        // STEP 原色（作者指定且有意义时尊重）
-        const raw = Array.isArray(m.color) && m.color.length >= 3 ? new THREE.Color(m.color[0], m.color[1], m.color[2]) : null;
-        const sum = raw ? raw.r + raw.g + raw.b : 0;
-        const rawIsMeaningful = raw ? (sum > 0.25 && sum < 2.7 && (Math.max(raw.r, raw.g, raw.b) - Math.min(raw.r, raw.g, raw.b) > 0.04 || sum < 1.2)) : false;
+        // ── ① 逐面颜色优先：一个 mesh 多材质，还原「黑体 + 银脚 + 白丝印」 ──
+        const faces = (m.brep_faces ?? []).filter((f) => Array.isArray(f.color) && f.color.length >= 3);
+        if (faces.length) {
+          const mats: THREE.MeshStandardMaterial[] = [];
+          const keyToIdx = new Map<string, number>();
+          for (const f of faces) {
+            const c = f.color as number[];
+            const key = `${c[0].toFixed(3)},${c[1].toFixed(3)},${c[2].toFixed(3)}`;
+            let idx = keyToIdx.get(key);
+            if (idx === undefined) {
+              idx = mats.length;
+              keyToIdx.set(key, idx);
+              mats.push(materialFromColor(c[0], c[1], c[2]));
+            }
+            // brep_faces 的下标是「三角形」序号，转成顶点下标区间
+            geo.addGroup(f.first * 3, (f.last - f.first + 1) * 3, idx);
+          }
+          group.add(new THREE.Mesh(geo, mats));
+          continue;
+        }
 
-        // 形态特征
+        // ── ② mesh 级原色：occt 在模型确实无色时返回 null，非 null 即作者指定，直接采信 ──
+        //    （旧启发式会把纯黑塑封、近白、低饱和银灰判成「无意义」而覆盖成族固定色）
+        if (Array.isArray(m.color) && m.color.length >= 3) {
+          group.add(new THREE.Mesh(geo, materialFromColor(m.color[0], m.color[1], m.color[2])));
+          continue;
+        }
+
+        // ── ③ 模型完全无颜色：按形态猜引脚，本体用封装族基色 ──
         const volRatio = info.vol / maxVol;
         const nearBottom = info.minZ < botZ + height * 0.5;
         const spansHeight = info.dz > height * 0.62;
         const thin = info.dz < height * 0.5;
         const isLead = (volRatio < 0.35 && nearBottom && !spansHeight) || (thin && nearBottom && volRatio < 0.45);
-
-        // 配色与参数化模型统一：深色塑封本体 + 金色引脚（STEP 自带有效颜色时仍尊重原色）
-        let mat: THREE.MeshStandardMaterial;
-        if (rawIsMeaningful) {
-          mat = new THREE.MeshStandardMaterial({ color: raw!, metalness: 0.35, roughness: 0.55 });
-        } else if (isLead) {
-          mat = new THREE.MeshStandardMaterial({ color: 0xe6c66a, metalness: 0.95, roughness: 0.22, envMapIntensity: 1.6 }); // 金脚
-        } else {
-          // 本体：按封装族取基色（否则所有 STEP 器件都是同一个深色）
-          mat = new THREE.MeshStandardMaterial({ color: bodyColorForFootprint(fpHint), metalness: 0.12, roughness: 0.6, envMapIntensity: 1.0 });
-        }
+        const mat = isLead
+          ? new THREE.MeshStandardMaterial({ color: 0xe6c66a, metalness: 0.95, roughness: 0.22, envMapIntensity: 1.6 })
+          : new THREE.MeshStandardMaterial({ color: bodyColorForFootprint(fpHint), metalness: 0.12, roughness: 0.6, envMapIntensity: 1.0 });
         group.add(new THREE.Mesh(geo, mat));
       }
 

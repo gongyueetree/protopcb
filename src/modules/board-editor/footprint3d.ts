@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import { padFootprintFor } from '../../design-core/geometry/footprint-pads';
-import { stepModelFor, ensureStepModel } from './step-loader';
+import { stepModelFor, ensureStepModel, bodyColorForFootprint } from './step-loader';
 import type { PlacedComponent } from '../../design-core/document/types';
 
 const MAT = {
@@ -140,6 +140,18 @@ function makeHeader(cols: number, rows: number): THREE.Group {
 
 /** 从 2D 焊盘数据构建通用 3D 模型 —— 引脚位于每个焊盘的真实位置，与 2D 布局严格一致。
  *  SMD 矩形焊盘 → 金属引脚片；圆形小盘(<1.2mm) → 焊球(WLCSP/BGA)；圆形大盘 → 通孔引脚。 */
+/** 封装族基色 → 材质（按色值缓存，避免每个器件都新建材质） */
+const bodyMatCache = new Map<number, THREE.MeshStandardMaterial>();
+function bodyMatFor(fpName: string): THREE.MeshStandardMaterial {
+  const c = bodyColorForFootprint(fpName);
+  let m = bodyMatCache.get(c);
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, metalness: 0.2 });
+    bodyMatCache.set(c, m);
+  }
+  return m;
+}
+
 function makeFromPads(fp: import('../../design-core/geometry/footprint-pads').PadFootprint, fpName: string): THREE.Group {
   const g = new THREE.Group();
   const N = fpName.toUpperCase();
@@ -155,7 +167,8 @@ function makeFromPads(fp: import('../../design-core/geometry/footprint-pads').Pa
     : /(CRYSTAL|OSC|XTAL)/.test(N) ? Math.min(minDim * 0.8, 13.5)
     : /(POT|SWITCH|BUTTON|RELAY|CONN|SOCKET|HEADER|USB)/.test(N) ? Math.min(Math.max(minDim * 0.6, 3), 12)
     : Math.min(Math.max(minDim * (hasTht ? 0.5 : 0.3), 1.2), 10);
-  const body = new THREE.Mesh(new THREE.BoxGeometry(fp.bodyW, bodyT, fp.bodyH), MAT.blackBody);
+  // 本体按封装族取基色：STEP 加载失败时兜底模型也有层次，而非整板黑盒
+  const body = new THREE.Mesh(new THREE.BoxGeometry(fp.bodyW, bodyT, fp.bodyH), bodyMatFor(fpName));
   body.position.x = fp.bodyCx ?? 0;
   body.position.z = fp.bodyCy ?? 0;
   body.position.y = bodyT / 2 + (isBall ? 0.3 : 0.06);
