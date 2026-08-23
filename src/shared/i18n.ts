@@ -30,6 +30,11 @@ export const useLangStore = create<LangState>((set) => ({
 
 /* ───────────── 固定文案词典（key = 中文原文） ───────────── */
 const DICT: Record<string, string> = {
+  '小外形三极管 (SOT-23/SC-70，支持 3/5/6/8 脚)': 'Small-outline transistor (SOT-23 / SC-70, 3/5/6/8 pins)',
+  '二极管 (SOD-123/323)': 'Diode (SOD-123 / SOD-323)',
+  '功率贴片 (TO-252/DPAK)': 'Power SMD (TO-252 / DPAK)',
+  '插件功率 (TO-220/TO-247)': 'Through-hole power (TO-220 / TO-247)',
+  '球栅阵列 (BGA/WLCSP)': 'Ball grid array (BGA / WLCSP)',
   '型号': 'MPN', '未收录该型号': 'MPN not listed', '未找到相近器件': 'No similar parts found',
   '未配置 MOUSER_API_KEY': 'MOUSER_API_KEY not configured', '无匹配结果': 'No matches',
   '接口': 'Interface', '外设IC': 'Peripheral IC', '主控': 'MCU', '电源': 'Power',

@@ -18,6 +18,11 @@ import type { ComponentCategory } from '../../design-core/document/types';
 
 const FAMILIES: [CustomPkg['family'], string][] = [
   ['dual', tr('双列贴片 (SOP/TSSOP)')], ['quad', tr('四边鸥翼 (QFP)')], ['qfn', tr('四边无脚 (QFN)')], ['header', tr('单排针 (2.54)')], ['chip', tr('两端贴片 (阻容)')],
+  ['sot', tr('小外形三极管 (SOT-23/SC-70，支持 3/5/6/8 脚)')],
+  ['sod', tr('二极管 (SOD-123/323)')],
+  ['dpak', tr('功率贴片 (TO-252/DPAK)')],
+  ['to220', tr('插件功率 (TO-220/TO-247)')],
+  ['bga', tr('球栅阵列 (BGA/WLCSP)')],
   ['manual', tr('异形·手动焊盘坐标（继电器/模块等）')],
 ];
 const CATS: [ComponentCategory, string][] = [['ic', tr('集成电路')], ['mcu', tr('微控制器')], ['power', tr('电源')], ['connector', tr('连接器')], ['passive', tr('无源')], ['electromech', tr('机电(继电器/开关)')], ['sensor', tr('传感器')], ['rf', tr('射频无线')]];
@@ -112,7 +117,12 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
   /** ds2kicad 封装类型 → 向导封装族 */
   const mapDsFamily = (type: string): CustomPkg['family'] => {
     const t = (type ?? '').toUpperCase();
-    if (/QFN|DFN|WQFN|VQFN/.test(t)) return 'qfn';
+    if (/QFN|DFN|WQFN|VQFN|SON/.test(t)) return 'qfn';
+    if (/SOT-?23|SOT-?353|SOT-?363|SC-?70|SOT-?89|SOT-?223/.test(t)) return 'sot';
+    if (/SOD-?\d|SMA|SMB/.test(t)) return 'sod';
+    if (/TO-?252|TO-?263|DPAK/.test(t)) return 'dpak';
+    if (/TO-?220|TO-?247/.test(t)) return 'to220';
+    if (/BGA|WLCSP|CSP/.test(t)) return 'bga';
     if (/QFP|LQFP|TQFP/.test(t)) return 'quad';
     if (/DIP|HEADER/.test(t)) return 'header';
     return 'dual'; // SOIC/SOP/TSSOP/MSOP/SSOP/SOT…

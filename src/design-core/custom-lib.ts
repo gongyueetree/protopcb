@@ -19,7 +19,7 @@ export type PinSide = 'left' | 'right' | 'top' | 'bottom';
 export interface CustomPin { num: string; name: string; type: KicadPinType; desc?: string; side?: PinSide }
 export interface ManualPad { num: string; x: number; y: number; w: number; h: number; round?: boolean }
 export interface CustomPkg {
-  family: 'dual' | 'quad' | 'qfn' | 'header' | 'chip' | 'manual';
+  family: 'dual' | 'quad' | 'qfn' | 'header' | 'chip' | 'sot' | 'sod' | 'dpak' | 'to220' | 'bga' | 'manual';
   bodyW: number; bodyH: number; pitch: number;
   /** family='manual' 时：逐焊盘坐标表（继电器等异形器件，坐标相对封装中心，mm） */
   manualPads?: ManualPad[];
@@ -57,6 +57,12 @@ export function synthFootprintName(pkg: CustomPkg, pinCount: number): string {
     case 'qfn': return `QFN-${pinCount}_${dims}`;
     case 'header': return `PinHeader_1x${String(pinCount).padStart(2, '0')}_P${pkg.pitch}mm`;
     case 'chip': return pkg.bodyW >= 3 ? '1206' : pkg.bodyW >= 1.9 ? '0805' : pkg.bodyW >= 1.4 ? '0603' : '0402';
+    // 小外形三极管族：脚数决定具体变体（3/5/6/8 脚均支持，奇数脚正是 SOT 的常态）
+    case 'sot': return pkg.bodyW <= 1.5 ? `SC-70-${pinCount}` : pinCount === 4 ? 'SOT-223' : `SOT-23-${pinCount}`;
+    case 'sod': return pkg.bodyW >= 2.2 ? 'SOD-123' : 'SOD-323';
+    case 'dpak': return `TO-252-${pinCount}`;
+    case 'to220': return `TO-220-${pinCount}`;
+    case 'bga': return `BGA-${pinCount}_${dims}`;
   }
 }
 

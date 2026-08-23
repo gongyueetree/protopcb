@@ -27,14 +27,22 @@ function extract(name: string) {
 
 /** 双列（左右两排）：TSSOP/SSOP/SOIC/SOP/MSOP/SO-8 等 */
 function dualRowPads(pins: number, pitch: number, bodyW: number, bodyH: number): PadFootprint {
-  const per = pins / 2;
+  // 奇数脚（如 SOP-5 这类非常规双列件）：左列多一个，与 KiCad 的编号习惯一致
+  // ——沿左列自上而下 1..ceil，再沿右列自下而上继续。绝不凑成偶数补出不存在的焊盘。
+  const left = Math.ceil(pins / 2);
+  const right = pins - left;
   const padLen = 1.2;
   const padW = Math.max(0.25, Math.min(0.6 * pitch, pitch - 0.2));
   const rowGap = bodyW + padLen; // 焊盘中心列距
-  const y0 = -((per - 1) * pitch) / 2;
+  const rows = Math.max(left, right);
+  const y0 = -((rows - 1) * pitch) / 2;
   const pads: Pad[] = [];
-  for (let i = 0; i < per; i++) pads.push({ x: -rowGap / 2, y: y0 + i * pitch, w: padLen, h: padW, num: i + 1 });
-  for (let i = 0; i < per; i++) pads.push({ x: rowGap / 2, y: y0 + (per - 1 - i) * pitch, w: padLen, h: padW, num: per + i + 1 });
+  for (let i = 0; i < left; i++) pads.push({ x: -rowGap / 2, y: y0 + i * pitch, w: padLen, h: padW, num: i + 1 });
+  // 右列自下而上；数量少于左列时居中对齐，避免顶部悬空
+  const rOff = (rows - right) / 2;
+  for (let i = 0; i < right; i++) {
+    pads.push({ x: rowGap / 2, y: y0 + (rows - 1 - rOff - i) * pitch, w: padLen, h: padW, num: left + i + 1 });
+  }
   return { bodyW, bodyH, pads, pin1: { x: -rowGap / 2, y: y0 - pitch * 0.6 } };
 }
 
@@ -145,6 +153,50 @@ export function parseKicadFootprintName(name: string): PadFootprint | null {
   // SOT 家族
   const sot = N.match(/SOT-?23-?(\d)?/);
   if (sot && !N.includes('SOT-223')) return sot23(sot[1] ? parseInt(sot[1]) : 3);
+  // SC-70 / SOT-353(5脚) / SOT-363(6脚)：与 SOT-23 同族，尺寸更小
+  const sc70 = N.match(/SC-?70-?(\d)|SOT-?35(3)|SOT-?36(3)/);
+  if (sc70) {
+    const n = sc70[1] ? parseInt(sc70[1]) : (sc70[2] ? 5 : 6);
+    const base = sot23(n);
+    // SC-70 本体约为 SOT-23 的 65%
+    const k = 0.65;
+    return {
+      bodyW: +(base.bodyW * k).toFixed(2), bodyH: +(base.bodyH * k).toFixed(2),
+      pads: base.pads.map((pd) => ({ ...pd, x: +(pd.x * k).toFixed(3), y: +(pd.y * k).toFixed(3), w: +(pd.w * k).toFixed(3), h: +(pd.h * k).toFixed(3) })),
+      pin1: base.pin1 ? { x: base.pin1.x * k, y: base.pin1.y * k } : undefined,
+    };
+  }
+  // SOT-89（3 脚，中间脚带散热片）
+  if (/SOT-?89/.test(N)) {
+    return { bodyW: 4.5, bodyH: 4.0, pads: [
+      { x: -1.5, y: 1.6, w: 1.2, h: 1.4, num: 1 },
+      { x: 0, y: 1.6, w: 1.2, h: 1.4, num: 2 },
+      { x: 1.5, y: 1.6, w: 1.2, h: 1.4, num: 3 },
+      { x: 0, y: -1.4, w: 3.4, h: 1.8, num: 2 },   // 中间脚与散热片相连
+    ], pin1: { x: -1.5, y: 2.6 } };
+  }
+  // TO-252(DPAK) / TO-263(D2PAK)：3 脚 + 大散热焊盘
+  const dpak = N.match(/TO-?(252|263)-?(\d)?/);
+  if (dpak) {
+    const big = dpak[1] === '263';
+    const n = dpak[2] ? parseInt(dpak[2]) : 2;
+    const sp = big ? 2.54 : 2.28;
+    const pads = [] as PadFootprint['pads'];
+    const lead = n >= 3 ? [-1, 0, 1] : [-1, 1];
+    lead.forEach((k, i) => pads.push({ x: k * sp, y: big ? 4.6 : 3.2, w: big ? 1.6 : 1.2, h: big ? 2.2 : 1.8, num: i + 1 }));
+    pads.push({ x: 0, y: big ? -1.6 : -1.1, w: big ? 10.2 : 6.2, h: big ? 9.1 : 6.2, num: lead.length + 1 });
+    return { bodyW: big ? 10.4 : 6.5, bodyH: big ? 12 : 9, pads, pin1: { x: lead[0] * sp, y: big ? 5.9 : 4.3 } };
+  }
+  // TO-220 / TO-247：插件功率器件，2.54mm 直插
+  const to220 = N.match(/TO-?(220|247)-?(\d)?/);
+  if (to220) {
+    const n = to220[2] ? parseInt(to220[2]) : 3;
+    const sp = to220[1] === '247' ? 5.45 : 2.54;
+    const pads = Array.from({ length: n }, (_, i) => ({
+      x: (i - (n - 1) / 2) * sp, y: 0, w: 1.8, h: 1.8, num: i + 1, round: true,
+    }));
+    return { bodyW: to220[1] === '247' ? 15.9 : 10.2, bodyH: to220[1] === '247' ? 21 : 15, pads, pin1: { x: pads[0].x, y: -1.6 } };
+  }
   if (N.includes('SOT-223')) {
     return { bodyW: 6.5, bodyH: 3.5, pads: [
       { x: -2.3, y: 2.7, w: 1.2, h: 1.6, num: 1 }, { x: 0, y: 2.7, w: 1.2, h: 1.6, num: 2 }, { x: 2.3, y: 2.7, w: 1.2, h: 1.6, num: 3 },
@@ -171,7 +223,7 @@ export function parseKicadFootprintName(name: string): PadFootprint | null {
     return ballGridPads(pins, pitch, bodyW, bodyH);
   }
   // 双列鸥翼：TSSOP / SSOP / MSOP / HTSSOP / SOIC / SOP / SO-N
-  if (/(TSSOP|SSOP|MSOP|HTSSOP|SOIC|SOP|SO)-?\d+/.test(N) && pins && pitch && bodyW && bodyH && pins % 2 === 0) {
+  if (/(TSSOP|SSOP|MSOP|HTSSOP|SOIC|SOP|SO)-?\d+/.test(N) && pins && pitch && bodyW && bodyH) {
     // 引脚沿长边分布：若名字给的 W > H，交换使排列方向正确
     return bodyH >= bodyW ? dualRowPads(pins, pitch, bodyW, bodyH) : dualRowPads(pins, pitch, bodyH, bodyW);
   }
