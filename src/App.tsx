@@ -185,6 +185,8 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      // Esc：从任何页签返回 PCB 布局（页签栏万一被遮挡时的兜底退路）
+      if (e.key === 'Escape') { setMainTab('pcb'); return; }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
       if ((e.key === 'r' || e.key === 'R') && selectedId) { e.preventDefault(); rotate(selectedId); }
@@ -466,12 +468,12 @@ export default function App() {
           </div>
 
           <div style={{ flex: 1, position: 'relative', minHeight: 0, display: 'flex' }}>
-            {mainTab === 'overview' ? <div style={{ flex: 1, minWidth: 0 }}><OverviewPanel /></div>
-              : mainTab === 'connectivity' ? <div style={{ flex: 1, minWidth: 0 }}><ConnectivityPanel /></div>
-              : mainTab === 'schematic' ? <div style={{ flex: 1, minWidth: 0, display: 'flex' }}><SchematicPanel isFullscreen={false} onToggleFullscreen={() => setFullscreen('schematic')} /></div>
-              : mainTab === 'bom' ? <div style={{ flex: 1, minWidth: 0, display: 'flex' }}><BomPanel onToggleFullscreen={() => setFullscreen('bom')} /></div>
-              : mainTab === 'review' ? <div style={{ flex: 1, minWidth: 0 }}><ReviewPanel /></div>
-              : mainTab === 'block' ? <div style={{ flex: 1, minWidth: 0, display: 'flex' }}><BlockDiagramPanel isFullscreen={false} onToggleFullscreen={() => setFullscreen('block')} /></div>
+            {mainTab === 'overview' ? <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}><OverviewPanel /></div>
+              : mainTab === 'connectivity' ? <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}><ConnectivityPanel /></div>
+              : mainTab === 'schematic' ? <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', overflow: 'hidden' }}><SchematicPanel isFullscreen={false} onToggleFullscreen={() => setFullscreen('schematic')} /></div>
+              : mainTab === 'bom' ? <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', overflow: 'hidden' }}><BomPanel onToggleFullscreen={() => setFullscreen('bom')} /></div>
+              : mainTab === 'review' ? <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}><ReviewPanel /></div>
+              : mainTab === 'block' ? <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', overflow: 'hidden' }}><BlockDiagramPanel isFullscreen={false} onToggleFullscreen={() => setFullscreen('block')} /></div>
               : mainTab === 'enclosure' ? (
                 <>
                   <BoardView3D />
@@ -511,7 +513,7 @@ export default function App() {
           </div>
 
           {/* Bottom bar：板参数（仅 PCB / 3D结构 页相关）+ 主视图页签 */}
-          <div style={{ display: 'flex', background: '#fff', borderTop: '1px solid #E8F3EE', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', background: '#fff', borderTop: '1px solid #E8F3EE', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0, position: 'relative', zIndex: 4 }}>
             <div style={{ display: (mainTab === 'pcb' || mainTab === 'enclosure') ? 'flex' : 'none', alignItems: 'center', gap: 8, padding: '6px 16px', fontSize: 12 }}>
               <span style={{ fontWeight: 600, color: COLORS.green }}>📐 PCB</span>
               <NumInput value={doc.board.widthMm} onChange={(v) => setBoardSize(v, doc.board.heightMm)} label={t('板宽 (mm)')} />
@@ -545,7 +547,7 @@ export default function App() {
             <div style={{ flex: 1 }} />
             <div style={{ display: 'flex', overflowX: 'auto' }}>
               {MAIN_TABS.map((tb) => (
-                <button key={tb.id} onClick={() => setMainTab(tb.id)} title={t(tb.label)}
+                <button key={tb.id} onClick={() => setMainTab(mainTab === tb.id && tb.id !== 'pcb' ? 'pcb' : tb.id)} title={mainTab === tb.id && tb.id !== 'pcb' ? t('再次点击返回 PCB 布局') : t(tb.label)}
                   style={{ padding: '8px 14px', border: 'none', whiteSpace: 'nowrap', background: mainTab === tb.id ? COLORS.greenBg : '#fff', color: mainTab === tb.id ? COLORS.green : '#2C3E50', fontSize: 12.5, fontWeight: mainTab === tb.id ? 700 : 500, cursor: 'pointer', borderTop: mainTab === tb.id ? `2px solid ${COLORS.green}` : '2px solid transparent' }}>
                   {tb.icon} {t(tb.label)}
                 </button>
@@ -758,7 +760,7 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
     <div style={{ background: '#fff', borderRadius: 10, padding: 14, border: '1px solid #e2e8f0' }}>
       {/* 头部：位号+型号 与 图片同行 */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>{c.reference}</div>
           <div style={{ fontSize: 14, fontFamily: 'monospace', color: COLORS.green, fontWeight: 600, wordBreak: 'break-all' }}>{c.mpn}</div>
           <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{c.display?.classification ?? disp.name} · {c.manufacturer} · {c.footprint.name}</div>
