@@ -6,7 +6,7 @@
  */
 import type { PlacedComponent } from '../../design-core/document/types';
 import { padFootprintFor as padFootprintForSym } from '../../design-core/geometry/footprint-pads';
-import { symbolOverrideFor, symbolUnitsOverrideFor, type ParsedSymbol , ensureKicadSymbol} from '../../design-core/geometry/lib-file-registry';
+import { symbolOverrideFor, symbolUnitsOverrideFor, type ParsedSymbol , ensureKicadSymbol, ensureKicadSymbolByMpn} from '../../design-core/geometry/lib-file-registry';
 
 const STROKE = '#334155';
 const PIN = '#7c2d12';
@@ -228,6 +228,9 @@ export function symbolFor(c: PlacedComponent): SymbolDef {
   // ezPLM 真实符号文件解析结果优先（真实引脚名）
   const symKey = c.display?.symbolFromMpn ?? c.mpn; // 仅关联符号时借用库中型号的符号
   ensureKicadSymbol(symKey); // KICADSYM: 前缀且内存缺失时自动重拉（刷新/导入后自愈）
+  // 没有任何真实符号时，先到 KiCad 官方符号库按型号找一次 —— 官方库有的一律用官方符号，
+  // 而不是退回"按名字猜"的通用符号（那种符号既不符合 KLC，引脚定义也常常是错的）
+  if (!symbolOverrideFor(symKey)) ensureKicadSymbolByMpn(c.mpn);
   // 封装占位器件：没有真实管脚定义，画电阻/IC 都是误导 —— 显式空态，引导去关联
   if (c.display?.family === 'Footprint' && !c.customSymbolSvg && !symbolOverrideFor(symKey)) {
     const prj = symbolOverrideFor(`PRJSYM:${c.reference}`);

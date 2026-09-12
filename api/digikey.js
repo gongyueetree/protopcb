@@ -79,6 +79,50 @@ export default async function handler(req, res) {
   if (!clientId || !clientSecret) {
     return res.status(501).send(JSON.stringify({ error: 'DIGIKEY_CLIENT_ID / DIGIKEY_CLIENT_SECRET not configured' }));
   }
+  /**
+   * path=fuzzy —— 关键词检索（供 BOM「查找相近」使用）。
+   * 与 path=price 的区别：price 只接受厂商料号**精确匹配**（价格张冠李戴代价高）；
+   * 这里是用户主动要看的候选列表，返回多条并由前端打分排序、由用户确认，
+   * 因此允许关键词命中，但每条都标出真实 MPN 供核对。
+   */
+  if (path === 'fuzzy') {
+    const kw = String(req.query?.q ?? mpn ?? '').trim().slice(0, 120);
+    if (!kw) return res.status(400).send(JSON.stringify({ error: 'usage: ?path=fuzzy&q=keywords' }));
+    try {
+      const token = await getToken(clientId, clientSecret);
+      const reqCur = String(req.query?.currency ?? '').toUpperCase();
+      const currency = /^[A-Z]{3}$/.test(reqCur) ? reqCur : (process.env.DIGIKEY_LOCALE_CURRENCY ?? 'CNY');
+      const site = currency === 'USD' ? 'US' : (process.env.DIGIKEY_LOCALE_SITE ?? 'CN');
+      const language = currency === 'USD' ? 'en' : (process.env.DIGIKEY_LOCALE_LANGUAGE ?? 'zhs');
+      const r = await tfetch(SEARCH_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'X-DIGIKEY-Client-Id': clientId,
+          'X-DIGIKEY-Locale-Site': site,
+          'X-DIGIKEY-Locale-Currency': currency,
+          'X-DIGIKEY-Locale-Language': language,
+        },
+        body: JSON.stringify({ Keywords: kw, Limit: 10, Offset: 0 }),
+      });
+      if (!r.ok) return res.status(200).send(JSON.stringify({ items: [], message: `DigiKey HTTP ${r.status}` }));
+      const j = await r.json();
+      const items = (Array.isArray(j?.Products) ? j.Products : []).slice(0, 10).map((p) => {
+        const m = mapProduct(p);
+        return {
+          vendor: 'DigiKey', mpn: p?.ManufacturerProductNumber ?? '',
+          manufacturer: p?.Manufacturer?.Name ?? '', description: p?.Description?.ProductDescription ?? '',
+          price: m.unitPrice, currency, stock: m.stock, url: m.productUrl,
+        };
+      }).filter((x) => x.mpn);
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      return res.status(200).send(JSON.stringify({ items }));
+    } catch (e) {
+      return res.status(200).send(JSON.stringify({ items: [], message: String(e?.message ?? e).slice(0, 120) }));
+    }
+  }
+
   if (path !== 'price' || !mpn) {
     return res.status(400).send(JSON.stringify({ error: 'usage: ?path=price&mpn=XXX' }));
   }

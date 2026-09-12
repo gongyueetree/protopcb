@@ -27,17 +27,20 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   const [queried, setQueried] = useState<Record<string, true>>({});
   /** 无报价行的人工查价：模糊候选列表（用户点选后作为录入价） */
   const [market, setMarket] = useState<{ busy: boolean; low?: number; high?: number; typical?: number; basis?: string; msg?: string } | null>(null);
-  const [fuzzy, setFuzzy] = useState<{ line: BomLine; busy: boolean; items: ScoredCandidate[]; msg?: string; query?: ReturnType<typeof buildMatchQuery> } | null>(null);
+  const [fuzzy, setFuzzy] = useState<{ line: BomLine; busy: boolean; items: ScoredCandidate[]; msg?: string; query?: ReturnType<typeof buildMatchQuery>; searchMpn?: string } | null>(null);
+  /** 对话框里可改写的型号 —— 用户原始命名常常不完整（如 9012 → S9012、MachXO2-1200-QFN32 → LCMXO2-1200HC-4SG32C） */
+  const [editSearchMpn, setEditSearchMpn] = useState('');
 
   /**
    * 智能匹配：由位号（类别）+ 封装（族/尺寸）+ 型号或描述（值/关键词）构造检索计划，
    * **先查 ezPLM 自有器件库，再查分销商**，合并打分排序后交用户确认。
    * 候选永不自动写回设计 —— 与 AI trust 同一条原则。
    */
-  const openFuzzy = async (l: BomLine) => {
+  const openFuzzy = async (l: BomLine, mpnOverride?: string) => {
     setMarket(null);
-    const query = buildMatchQuery({ reference: l.reference, mpn: l.mpn, footprint: l.footprint, description: l.description });
-    setFuzzy({ line: l, busy: true, items: [], query });
+    const searchMpn = (mpnOverride ?? l.mpn ?? '').trim();
+    const query = buildMatchQuery({ reference: l.reference, mpn: searchMpn, footprint: l.footprint, description: l.description });
+    setFuzzy({ line: l, busy: true, items: [], query, searchMpn });
     const pool: Candidate[] = [];
     const notes: string[] = [];
 
@@ -58,7 +61,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
 
     // 2) 分销商补充（后端按关键词检索，未配 Key 时返回提示）
     try {
-      const qs = new URLSearchParams({ path: 'fuzzy', mpn: l.mpn ?? '', footprint: l.footprint ?? '', desc: l.description ?? '', q: query.queries[0] ?? '' });
+      const qs = new URLSearchParams({ path: 'fuzzy', mpn: searchMpn, footprint: l.footprint ?? '', desc: l.description ?? '', q: query.queries[0] ?? '' });
       const r = await fetch(`/api/suppliers?${qs}`);
       const j = await r.json();
       for (const it of (Array.isArray(j.items) ? j.items : [])) {
@@ -70,8 +73,24 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
       if (j.message) notes.push(String(j.message));
     } catch (e) { notes.push((e as Error).message); }
 
+    // 3) DigiKey 关键词检索：用户填写的型号优先，其次是构造出的检索串
+    try {
+      for (const kw of [searchMpn, query.queries[0]].filter(Boolean).slice(0, 2)) {
+        const r = await fetch(`/api/digikey?path=fuzzy&q=${encodeURIComponent(kw as string)}`);
+        const j = await r.json();
+        for (const it of (Array.isArray(j.items) ? j.items : [])) {
+          pool.push({
+            mpn: it.mpn, manufacturer: it.manufacturer, description: it.description, source: 'distributor',
+            vendor: 'DigiKey', price: it.price, currency: it.currency, stock: it.stock, url: it.url,
+          });
+        }
+        if (j.message) notes.push(`DigiKey: ${j.message}`);
+        if (pool.some((x) => x.vendor === 'DigiKey')) break;
+      }
+    } catch (e) { notes.push((e as Error).message); }
+
     const ranked = rankCandidates(query, pool).slice(0, 12);
-    setFuzzy({ line: l, busy: false, items: ranked, query, msg: ranked.length ? undefined : (notes.join(' · ') || '未找到相近器件') });
+    setFuzzy({ line: l, busy: false, items: ranked, query, searchMpn, msg: ranked.length ? undefined : (notes.join(' · ') || '未找到相近器件；可在上方修改型号后重新检索') });
   };
 
   /** 网络参考价：AI 按公开市场行情给区间。明确标注为估算，必须人工确认后才落为录入价。 */
@@ -189,6 +208,20 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
           )}
           <div style={{ marginTop: 3, color: '#b45309' }}>{tr('候选由位号类别 + 封装 + 值/关键词匹配得出，需人工确认后才写回设计')}</div>
         </div>
+        {/* 改写型号重新检索：原理图里的名称常常不是可采购的完整型号 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 9px', marginBottom: 8, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+          <span style={{ fontSize: 10.5, color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>{tr('检索型号')}</span>
+          <input
+            value={editSearchMpn}
+            placeholder={fuzzy.searchMpn || fuzzy.line.mpn}
+            onChange={(e) => setEditSearchMpn(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && editSearchMpn.trim()) openFuzzy(fuzzy.line, editSearchMpn.trim()); }}
+            style={{ flex: 1, minWidth: 0, padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11.5, fontFamily: 'monospace', outline: 'none' }} />
+          <button onClick={() => openFuzzy(fuzzy.line, (editSearchMpn.trim() || fuzzy.line.mpn))} disabled={fuzzy.busy}
+            style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#1f5c3b', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: fuzzy.busy ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
+            {fuzzy.busy ? '⟳' : tr('重新检索')}
+          </button>
+        </div>
         {fuzzy.busy && <div style={{ fontSize: 11.5, color: '#64748b' }}>{tr('检索中…')}</div>}
         {!fuzzy.busy && !fuzzy.items.length && <div style={{ fontSize: 11.5, color: '#92400e' }}>{tr(fuzzy.msg || '未找到相近器件')}</div>}
         {fuzzy.items.map((it, i) => (
@@ -287,7 +320,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
                       return why
                         ? <span style={{ fontSize: 9.5, color: '#94a3b8' }} title={CLASS_LABEL[classifyByRefDes(l.reference, l.footprint, l.mpn)]}>{tr(why)}</span>
                         : queried[l.mpn]
-                        ? <span onClick={() => openFuzzy(l)} title={tr('点击按型号/封装/值模糊查找相近器件的价格')}
+                        ? <span onClick={() => { setEditSearchMpn(''); openFuzzy(l); }} title={tr('点击按型号/封装/值模糊查找相近器件的价格')}
                             style={{ fontSize: 9.5, color: '#0369a1', cursor: 'pointer', textDecoration: 'underline dotted' }}>{tr('查找相近')}</span>
                         : <span style={{ fontSize: 10, color: '#cbd5e1' }}>{tr('查询中…')}</span>;
                     })()}

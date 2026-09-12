@@ -368,3 +368,59 @@ export function ensureKicadSymbol(key: string | undefined): void {
     })
     .then(() => ksymInflight.delete(key));
 }
+
+/* ---------- KiCad 官方符号库：按型号自动检索 ---------- */
+
+const kmpnInflight = new Set<string>();
+const kmpnMiss = new Set<string>();   // 官方库确实没有的型号，本会话不再重复请求
+
+/**
+ * 按 MPN 到 KiCad 官方符号库检索并注册符号。
+ *
+ * 为什么需要它：导入的工程或 ezPLM 物料常常没有符号文件链接，此前会退回到
+ * 「按名字猜」的通用符号（运放画成三角形、IC 画成方框），既不符合 KLC，
+ * 也和真实器件的引脚定义对不上。官方库里有的型号，一律用官方符号。
+ *
+ * 匹配口径（保守）：symsearch 返回的符号名与 MPN 规范化后必须是
+ * 完全相等或官方名是 MPN 的前缀（如 MPN「LM358DR」→ 官方「LM358」），
+ * 不做模糊近似 —— 符号错了比没有符号更危险。
+ */
+export function ensureKicadSymbolByMpn(mpn: string | undefined): void {
+  const key = (mpn ?? '').trim();
+  if (!key || key.length < 3) return;
+  if (symbolOverrideFor(key) || kmpnInflight.has(key) || kmpnMiss.has(key)) return;
+  const norm = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const target = norm(key);
+  if (!target) return;
+
+  kmpnInflight.add(key);
+  const cacheK = 'cc_ksym_mpn_' + key;
+  const apply = (text: string): boolean => {
+    const ps = parseKicadSym(text);
+    if (ps && ps.pins.length) { registerSymbolOverride(key, ps); return true; }
+    return false;
+  };
+  try {
+    const cached = localStorage.getItem(cacheK);
+    if (cached && apply(cached)) { kmpnInflight.delete(key); return; }
+  } catch { /* localStorage 不可用则走网络 */ }
+
+  fetch(`/api/kicadlib?path=symsearch&q=${encodeURIComponent(key)}&limit=5`)
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    .then((j: { items?: { lib: string; name: string }[] }) => {
+      const hit = (j.items ?? []).find((it) => {
+        const n = norm(it.name);
+        return n === target || target.startsWith(n) && n.length >= Math.min(5, target.length);
+      });
+      if (!hit) { kmpnMiss.add(key); return null; }
+      return fetch(`/api/kicadlib?path=sym&lib=${encodeURIComponent(hit.lib)}&name=${encodeURIComponent(hit.name)}`)
+        .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))));
+    })
+    .then((text) => {
+      if (!text) return;
+      try { localStorage.setItem(cacheK, text); } catch { /* 空间不足忽略 */ }
+      if (!apply(text)) kmpnMiss.add(key);
+    })
+    .catch(() => { kmpnMiss.add(key); })
+    .then(() => kmpnInflight.delete(key));
+}

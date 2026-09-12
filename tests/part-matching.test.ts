@@ -108,3 +108,30 @@ describe('候选打分', () => {
     expect(cap.score).toBeLessThan(ranked[0].score);
   });
 });
+
+describe('不完整型号场景（用户可改写后重新检索）', () => {
+  it('9012 + SOT-23 识别为晶体管，查询串含 transistor', () => {
+    const q = buildMatchQuery({ reference: 'Q1', mpn: '9012', footprint: 'SOT-23' });
+    expect(q.partClass).toBe('transistor');
+    expect(q.queries.join(' ')).toMatch(/transistor/);
+    expect(q.footprint.family).toBe('SOT-23');
+  });
+
+  it('改写为完整型号后，精确候选能排到第一', () => {
+    const q = buildMatchQuery({ reference: 'Q1', mpn: 'S9012', footprint: 'SOT-23' });
+    const ranked = rankCandidates(q, [
+      { mpn: 'S9012', description: 'PNP transistor SOT-23', source: 'distributor', vendor: 'DigiKey', price: 0.05 },
+      { mpn: 'S9013', description: 'NPN transistor SOT-23', source: 'distributor', vendor: 'DigiKey', price: 0.05 },
+    ]);
+    expect(ranked[0].mpn).toBe('S9012');
+  });
+
+  it('FPGA 这类无值器件靠封装+类别仍能给出可用查询串', () => {
+    const q = buildMatchQuery({ reference: 'U6', mpn: 'MachXO2-1200-QFN32', footprint: 'QFN-32-1EP_5x5mm_P0.5mm_EP3.45x3.45mm' });
+    expect(q.partClass).toBe('ic');
+    expect(q.footprint.family).toBe('QFN');
+    expect(q.footprint.pins).toBe(32);
+    expect(q.queries.join(' ')).toMatch(/QFN-32/);
+    expect(q.queries).toContain('MachXO2-1200-QFN32');     // 原始串兜底，供用户改写前先试
+  });
+});
