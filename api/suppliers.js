@@ -21,7 +21,6 @@ async function tfetch(url, init = {}) {
  *   MOUSER_API_KEY                      — Mouser Search API
  *   ARROW_LOGIN + ARROW_API_KEY         — Arrow ItemService（两个都要）
  *   ELEMENT14_API_KEY                   — element14/Farnell Product Search
- *   CECPORT_API_KEY                     — 中电港（国产渠道，预留：配置后自动启用）
  *   B1B_API_KEY                         — 百芯（国产渠道，预留：配置后自动启用）
  *   ICEASY_ACCOUNT + ICEASY_PASSWORD    — Iceasy 接口账号/密码（两个都要；按 2026-09-11 对接文档实现）
  *   ICEASY_PRODUCT_DETAIL_URL           — 可选，默认 https://www.iceasy.com/api/ezplm/product/list
@@ -37,20 +36,10 @@ async function tfetch(url, init = {}) {
 
 const num = (v) => { const n = parseFloat(String(v ?? '').replace(/[^0-9.]/g, '')); return Number.isFinite(n) ? n : undefined; };
 
-/* ---------- 国产渠道预留骨架（中电港 / 百芯）----------
- * 两家均需商务开通后获得 API 文档；以下按常见 REST 形态编写，
- * 拿到真实文档后只需校准 URL、鉴权头和响应字段映射。 */
-async function queryCecport(key, mpn) {
-  // TODO(接入时校准)：中电港 API 端点与鉴权方式
-  const r = await tfetch(`https://api.cecport.com/v1/product/search?keyword=${encodeURIComponent(mpn)}`, {
-    headers: { Authorization: `Bearer ${key}` },
-  });
-  if (!r.ok) throw new Error(`cecport ${r.status}`);
-  const j = await r.json();
-  const p = (j?.data?.list ?? j?.results ?? [])[0];
-  if (!p) return { found: false };
-  return { found: true, price: num(p.price ?? p.unitPrice), currency: p.currency ?? 'CNY', stock: num(p.stock ?? p.quantity), url: p.url };
-}
+/* ---------- 国产渠道 ----------
+ * 中电港（CECPORT）已更名为 Iceasy，真实对接见下方 queryIceasy（有官方文档与固定校验样例）。
+ * 原先那段基于猜测端点 api.cecport.com 的骨架已删除 —— 猜的端点连不通，留着只会误导。
+ * 百芯（B1B）仍是待商务开通的预留骨架。 */
 async function queryB1b(key, mpn) {
   // TODO(接入时校准)：百芯 API 端点与鉴权方式
   const r = await tfetch(`https://api.b1b.com/open/search?q=${encodeURIComponent(mpn)}`, {
@@ -177,7 +166,6 @@ export default async function handler(req, res) {
   const arrowLogin = t(process.env.ARROW_LOGIN);
   const arrowKey = t(process.env.ARROW_API_KEY);
   const e14Key = t(process.env.ELEMENT14_API_KEY);
-  const cecKey = t(process.env.CECPORT_API_KEY);
   const b1bKey = t(process.env.B1B_API_KEY);
   const iceasyAcc = t(process.env.ICEASY_ACCOUNT);
   const iceasyPwd = t(process.env.ICEASY_PASSWORD);
@@ -185,7 +173,7 @@ export default async function handler(req, res) {
   const ouricSecret = t(process.env.OURIC_API_SECRET);
 
   if (path === 'status') {
-    return res.status(200).send(JSON.stringify({ mouser: !!mouserKey, arrow: !!(arrowLogin && arrowKey), element14: !!e14Key, cecport: !!cecKey, b1b: !!b1bKey, iceasy: !!(iceasyAcc && iceasyPwd), ouric: !!(ouricKey && ouricSecret) }));
+    return res.status(200).send(JSON.stringify({ mouser: !!mouserKey, arrow: !!(arrowLogin && arrowKey), element14: !!e14Key, b1b: !!b1bKey, iceasy: !!(iceasyAcc && iceasyPwd), ouric: !!(ouricKey && ouricSecret) }));
   }
   // ── 关键词检索：给"网络" Tab 用（返回候选列表，含封装描述供映射） ──
   if (path === 'search') {
@@ -315,8 +303,7 @@ export default async function handler(req, res) {
     // 国产现货渠道（真实对接，按各自文档实现；未配凭据时 configured=false 不发请求）
     { vendor: 'Iceasy', configured: !!(iceasyAcc && iceasyPwd), run: () => queryIceasy(iceasyAcc, iceasyPwd, String(mpn)) },
     { vendor: 'OURIC', configured: !!(ouricKey && ouricSecret), run: () => queryOuric(ouricKey, ouricSecret, String(mpn)) },
-    // 国产渠道（预留骨架）：配置 Key 后按各家真实响应字段校准 map 函数即可启用
-    { vendor: 'CECPort', configured: !!cecKey, run: () => queryCecport(cecKey, String(mpn)) },
+    // 预留骨架：配置 Key 后按真实响应字段校准 map 函数即可启用
     { vendor: 'B1B', configured: !!b1bKey, run: () => queryB1b(b1bKey, String(mpn)) },
     { vendor: 'Arrow', configured: !!(arrowLogin && arrowKey), run: () => queryArrow(arrowLogin, arrowKey, String(mpn)) },
     { vendor: 'element14', configured: !!e14Key, run: () => queryElement14(e14Key, String(mpn)) },

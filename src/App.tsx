@@ -38,6 +38,7 @@ import type { PlacedComponent as PlacedComponentT } from './design-core/document
 import { BoardCanvas2D } from './modules/board-editor/BoardCanvas2D';
 import { OverviewPanel } from './modules/report/OverviewPanel';
 import { ConnectivityPanel } from './modules/connectivity/ConnectivityPanel';
+import { NetInspector } from './modules/connectivity/NetInspector';
 import { EnclosurePanel } from './modules/enclosure/EnclosurePanel';
 import { ReviewPanel } from './modules/design-review/ReviewPanel';
 import { BoardView3D } from './modules/board-editor/BoardView3D';
@@ -80,6 +81,7 @@ export default function App() {
   const doc = useDesignStore((s) => s.doc);
   const selectedId = useDesignStore((s) => s.selectedId);
   const placementViolations = useDesignStore((s) => s.placementViolations);
+  const selectedNet = useDesignStore((s) => s.selectedNet);
   const dismissPlacementViolations = useDesignStore((s) => s.dismissPlacementViolations);
   const undo = useDesignStore((s) => s.undo);
   const redo = useDesignStore((s) => s.redo);
@@ -115,7 +117,7 @@ export default function App() {
   const [mainTab, setMainTab] = useState<MainTab>('pcb');
   // 画布视角由页签派生：PCB 页 = 2D，3D结构页 = 3D（原工具栏的 2D/3D 切换已由页签取代）
   const view: '2d' | '3d' = mainTab === 'enclosure' ? '3d' : '2d';
-  const [rightTab, setRightTab] = useState<'comp' | 'advisor'>('comp');
+  const [rightTab, setRightTab] = useState<'comp' | 'net' | 'advisor'>('comp');
   const [fullscreen, setFullscreen] = useState<'bom' | 'block' | 'schematic' | null>(null);
   const [aiPrompt, setAiPrompt] = useState('');
   const [leftTab, setLeftTab] = useState<'model' | 'footprint' | 'custom'>('model');
@@ -180,6 +182,9 @@ export default function App() {
 
   // autosave
   useEffect(() => { autosave(doc); }, [doc]);
+
+  // 画布点中网络 → 右侧自动切到「网络」页签；取消高亮则回到「当前元件」
+  useEffect(() => { setRightTab(selectedNet != null ? 'net' : 'comp'); }, [selectedNet]);
 
   // keyboard
   useEffect(() => {
@@ -559,12 +564,14 @@ export default function App() {
         {/* Right */}
         <aside style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', borderLeft: '1px solid #e2e8f0' }}>
           <div style={{ background: COLORS.green, padding: '6px 8px 0', display: 'flex', gap: 4 }}>
-            {([['comp', '🔧 ' + t('当前元件')], ['advisor', '🤖 ' + t('AI顾问')]] as const).map(([id, label]) => (
+            {([['comp', '🔧 ' + t('当前元件')], ['net', '🔗 ' + t('网络')], ['advisor', '🤖 ' + t('AI顾问')]] as const).map(([id, label]) => (
               <button key={id} onClick={() => setRightTab(id)} style={{ flex: 1, padding: '9px 0', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', border: 'none', borderRadius: '6px 6px 0 0', background: rightTab === id ? '#fff' : 'rgba(255,255,255,.12)', color: rightTab === id ? COLORS.green : 'rgba(255,255,255,.85)' }}>{label}</button>
             ))}
           </div>
           <div style={{ flex: 1, overflow: 'auto', padding: 12, background: '#f8fafc' }}>
-            {rightTab === 'advisor' ? <AdvisorPanel /> : selObj ? <CompDetail iid={selObj.instanceId} onBuild={(mpn) => setWizard({ open: true, mpn })} /> : <div style={{ textAlign: 'center', padding: 40, color: '#7F8C8D', fontSize: 12 }}>{t('点击画布中的元件查看详情')}</div>}
+            {rightTab === 'advisor' ? <AdvisorPanel />
+              : rightTab === 'net' ? <NetInspector />
+              : selObj ? <CompDetail iid={selObj.instanceId} onBuild={(mpn) => setWizard({ open: true, mpn })} /> : <div style={{ textAlign: 'center', padding: 40, color: '#7F8C8D', fontSize: 12 }}>{t('点击画布中的元件查看详情')}</div>}
           </div>
         </aside>
       </div>

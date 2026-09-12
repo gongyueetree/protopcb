@@ -21,13 +21,22 @@ import crypto from 'node:crypto';
 
 /* ---------------- Iceasy ---------------- */
 
-/** 生成 Iceasy 认证参数 { date, key }。now 可注入以便测试固定样例。 */
+/**
+ * 生成 Iceasy 认证参数 { date, key }。now 可注入以便测试固定样例。
+ *
+ * ⚠ 时区：Iceasy 按**中国时间**校验（接口负责人确认）。文档里的参考实现读的是
+ * 进程本地时间，但我们部署在 Vercel，进程 TZ 是 UTC —— 直接用本地时间会差 8 小时，
+ * 必然鉴权失败。因此这里显式按 Asia/Shanghai 取年月日时分秒。
+ */
 export function buildIceasyAuth(account, password, now = new Date()) {
   const pad = (v) => String(v).padStart(2, '0');
-  // 文档 3.2：进程本地时间；不要用 toISOString（那是 UTC）
-  const date = String(now.getFullYear())
-    + pad(now.getMonth() + 1) + pad(now.getDate())
-    + pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai', hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(now).reduce((a, p) => (a[p.type] = p.value, a), {});
+  const hour = parts.hour === '24' ? '00' : parts.hour;   // 某些运行时 hour12:false 会把 0 点给成 24
+  const date = `${parts.year}${parts.month}${parts.day}${hour}${pad(parts.minute)}${pad(parts.second)}`;
 
   // MD5(account+date) 十六进制前 16 字符转大写，作为 UTF-8 文本字节的 AES-128 密钥
   const aesKeyText = crypto.createHash('md5')
@@ -117,12 +126,12 @@ export function mapOuricData(data, partNumber) {
   return {
     found: true,
     price: ladder[0]?.price,
-    // 币种未在文档中明确，不虚构；UI 端显示裸数值并附 note
-    currency: undefined,
+    currency: 'USD',                                 // 已与 OURIC 确认为美元计价
     stock,
     url: undefined,                                  // 文档未提供商品页链接字段
     priceBreaks: ladder,
-    note: '币种/含税口径待与OURIC确认' + (row.vrFlag === 1 ? ' · 虚拟库存' : '') + (row.moq ? ` · MOQ ${row.moq}` : ''),
+    // 含税口径仍未确认，只在有额外信息时给 note
+    note: [row.vrFlag === 1 ? '虚拟库存' : '', row.moq ? `MOQ ${row.moq}` : ''].filter(Boolean).join(' · ') || undefined,
     warehouse: typeof row.warehouse === 'string' ? row.warehouse : undefined,
     deliveryTime: typeof row.deliveryTime === 'string' ? row.deliveryTime : undefined,
   };

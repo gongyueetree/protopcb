@@ -27,6 +27,9 @@ export function BoardCanvas2D() {
   const activeLayer = useDesignStore((s) => s.activeLayer);
   const hideAllRefDes = useDesignStore((s) => s.hideAllRefDes);
   const select = useDesignStore((s) => s.select);
+  const selectedNet = useDesignStore((s) => s.selectedNet);
+  const selectNet = useDesignStore((s) => s.selectNet);
+  const netName = useCallback((n: number) => doc.nets?.[String(n)] ?? `Net-${n}`, [doc.nets]);
   const toggleMulti = useDesignStore((s) => s.toggleMulti);
   const move = useDesignStore((s) => s.moveComponent);
   const beginInteraction = useDesignStore((s) => s.beginInteraction);
@@ -152,7 +155,7 @@ export function BoardCanvas2D() {
       panRef.current = { active: true, sx: e.clientX, sy: e.clientY, px: pan.x, py: pan.y, moved: false };
     }
   };
-  const onBgClick = () => { if (!panRef.current.moved) select(null); };
+  const onBgClick = () => { if (!panRef.current.moved) { select(null); selectNet(null); } };
 
   return (
     <div ref={containerRef} onContextMenu={(e) => e.preventDefault()}
@@ -178,14 +181,31 @@ export function BoardCanvas2D() {
           {/* 导入工程的铜箔走线与过孔：按真实线宽渲染，置于器件之下（顶层铜色 / 底层蓝色） */}
           {!!doc.tracks?.length && (
             <g style={{ pointerEvents: 'none' }} opacity={0.55}>
-              {doc.tracks.map((t2, i) => (
-                <line key={'tk' + i} x1={ORIGIN.x + t2.x1 * PX_PER_MM} y1={ORIGIN.y + t2.y1 * PX_PER_MM} x2={ORIGIN.x + t2.x2 * PX_PER_MM} y2={ORIGIN.y + t2.y2 * PX_PER_MM}
-                  stroke={t2.layer === 'bottom' ? '#4a7fb5' : t2.layer === 'top' ? '#b87333' : '#8a8f98'}
-                  opacity={t2.layer === 'top' || t2.layer === 'bottom' ? 1 : 0.45}
-                  strokeWidth={Math.max(0.6, t2.w * PX_PER_MM)} strokeLinecap="round" />
-              ))}
+              {doc.tracks.map((t2, i) => {
+                const hot = selectedNet != null && t2.net === selectedNet;
+                const dim = selectedNet != null && !hot;
+                return (
+                  <g key={'tk' + i}>
+                    {/* 命中网络的走线加宽高亮（iBOM 风格）；其余压暗让高亮网络一眼可辨 */}
+                    {hot && (
+                      <line x1={ORIGIN.x + t2.x1 * PX_PER_MM} y1={ORIGIN.y + t2.y1 * PX_PER_MM} x2={ORIGIN.x + t2.x2 * PX_PER_MM} y2={ORIGIN.y + t2.y2 * PX_PER_MM}
+                        stroke="#ef4444" strokeWidth={Math.max(2.4, t2.w * PX_PER_MM + 2.4)} strokeLinecap="round" opacity={0.5} pointerEvents="none" />
+                    )}
+                    <line x1={ORIGIN.x + t2.x1 * PX_PER_MM} y1={ORIGIN.y + t2.y1 * PX_PER_MM} x2={ORIGIN.x + t2.x2 * PX_PER_MM} y2={ORIGIN.y + t2.y2 * PX_PER_MM}
+                      stroke={hot ? '#dc2626' : t2.layer === 'bottom' ? '#4a7fb5' : t2.layer === 'top' ? '#b87333' : '#8a8f98'}
+                      opacity={dim ? 0.18 : t2.layer === 'top' || t2.layer === 'bottom' ? 1 : 0.45}
+                      strokeWidth={Math.max(0.6, t2.w * PX_PER_MM)} strokeLinecap="round"
+                      style={{ cursor: t2.net ? 'pointer' : 'default' }}
+                      onClick={(e) => { if (t2.net) { e.stopPropagation(); selectNet(t2.net === selectedNet ? null : t2.net); } }}>
+                      {t2.net ? <title>{netName(t2.net)}</title> : null}
+                    </line>
+                  </g>
+                );
+              })}
               {(doc.vias ?? []).map((v, i) => (
-                <g key={'via' + i}>
+                <g key={'via' + i} style={{ cursor: v.net ? 'pointer' : 'default' }}
+                  opacity={selectedNet != null && v.net !== selectedNet ? 0.2 : 1}
+                  onClick={(e) => { if (v.net) { e.stopPropagation(); selectNet(v.net === selectedNet ? null : v.net); } }}>
                   <circle cx={ORIGIN.x + v.x * PX_PER_MM} cy={ORIGIN.y + v.y * PX_PER_MM} r={(v.size / 2) * PX_PER_MM} fill="#c9a24b" />
                   <circle cx={ORIGIN.x + v.x * PX_PER_MM} cy={ORIGIN.y + v.y * PX_PER_MM} r={(v.size / 4) * PX_PER_MM} fill="#fafaf6" />
                 </g>
@@ -198,6 +218,8 @@ export function BoardCanvas2D() {
               multi={multiSel.includes(c.instanceId)}
               overlap={overlaps.has(c.instanceId)}
               inactive={c.placement.side !== activeLayer}
+              selectedNet={selectedNet}
+              onPickNet={(n) => selectNet(n === selectedNet ? null : n)}
               hideRefDes={hideAllRefDes || !!c.refDesDisplay?.hidden}
               onMouseDown={(e) => onCompDown(e, c)}
               onRefDesDown={(e) => onRefDesDown(e, c)} />
@@ -243,8 +265,10 @@ function BoardOutline({ shape, x, y, w, h, board }: { shape: string; x: number; 
   return <rect x={x} y={y} width={w} height={h} rx={shape === 'rounded' ? 18 : 6} fill={fill} stroke={stroke} strokeWidth={2} />;
 }
 
-function ComponentGlyph({ comp, selected, multi, overlap, inactive, hideRefDes, onMouseDown, onRefDesDown }: {
+function ComponentGlyph({ comp, selected, multi, overlap, inactive, hideRefDes, selectedNet, onPickNet, onMouseDown, onRefDesDown }: {
   comp: PlacedComponent; selected: boolean; multi: boolean; overlap: boolean; inactive: boolean; hideRefDes: boolean;
+  /** iBOM 式网络高亮：当前网络号（null=未选）与点击焊盘时的回调 */
+  selectedNet: number | null; onPickNet: (net: number) => void;
   onMouseDown: (e: React.MouseEvent) => void; onRefDesDown: (e: React.MouseEvent) => void;
 }) {
   const [refHot, setRefHot] = useState(false);
@@ -277,10 +301,22 @@ function ComponentGlyph({ comp, selected, multi, overlap, inactive, hideRefDes, 
         {(selected || multi) && <rect x={exMinX - 4} y={exMinY - 4} width={exMaxX - exMinX + 8} height={exMaxY - exMinY + 8} rx={3} fill="none" stroke={multi ? '#f59e0b' : '#2563eb'} strokeWidth={1.5} strokeDasharray="5 3" />}
         <rect x={bcx - pads.bodyW * PX_PER_MM / 2} y={bcy - pads.bodyH * PX_PER_MM / 2} width={pads.bodyW * PX_PER_MM} height={pads.bodyH * PX_PER_MM} rx={2}
           fill={overlap ? 'rgba(239,68,68,.06)' : 'rgba(148,163,184,.08)'} stroke={bodyStroke} strokeWidth={selected ? 1.4 : 0.9} />
-        {pads.pads.map((p, i) => (
-          <rect key={i} x={(p.x - p.w / 2) * PX_PER_MM} y={(p.y - p.h / 2) * PX_PER_MM} width={p.w * PX_PER_MM} height={p.h * PX_PER_MM}
-            rx={p.round ? p.w * PX_PER_MM / 2 : 0.8} fill={copper} stroke={copperStroke} strokeWidth={0.3} />
-        ))}
+        {pads.pads.map((p, i) => {
+          // 该焊盘所属网络（来自导入的 netlist）；点击即高亮整条网络
+          const padNet = comp.display?.padNets?.[String(p.num)];
+          const hot = selectedNet != null && padNet === selectedNet;
+          const dim = selectedNet != null && !hot;
+          return (
+            <rect key={i} x={(p.x - p.w / 2) * PX_PER_MM} y={(p.y - p.h / 2) * PX_PER_MM} width={p.w * PX_PER_MM} height={p.h * PX_PER_MM}
+              rx={p.round ? p.w * PX_PER_MM / 2 : 0.8}
+              fill={hot ? '#dc2626' : copper} stroke={hot ? '#7f1d1d' : copperStroke} strokeWidth={hot ? 0.9 : 0.3}
+              opacity={dim ? 0.3 : 1}
+              style={{ cursor: padNet ? 'pointer' : 'grab' }}
+              onClick={(e) => { if (padNet) { e.stopPropagation(); onPickNet(padNet); } }}>
+              {padNet ? <title>{`${comp.reference} 引脚 ${p.num}`}</title> : null}
+            </rect>
+          );
+        })}
         {pads.pin1 && <circle cx={pads.pin1.x * PX_PER_MM} cy={pads.pin1.y * PX_PER_MM} r={1.6} fill="#dc2626" />}
         {/* 位号：可拖动、可隐藏；拖离本体时用虚线连回器件中心 */}
         {!hideRefDes && (

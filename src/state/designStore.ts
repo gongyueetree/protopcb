@@ -27,6 +27,9 @@ interface DesignState {
   /** 自动放置未找到合法位置的器件（instanceId → 违规明细）。UI 必须提示，禁止静默成功 */
   placementViolations: Record<string, PlacementViolation[]>;
   dismissPlacementViolations: () => void;
+  /** iBOM 式网络高亮：当前选中的网络号（null = 未选）。2D 画布与连接关系视图共用 */
+  selectedNet: number | null;
+  selectNet: (net: number | null) => void;
   /** 外壳协同参数（部分更新） */
   setEnclosure: (patch: Partial<NonNullable<CircuitCanvasDocument['enclosure']>>) => void;
   activeLayer: 'TOP' | 'BOTTOM';
@@ -112,6 +115,7 @@ export const useDesignStore = create<DesignState>()(
     multiSel: [],
     overlaps: new Set<string>(),
     placementViolations: {},
+    selectedNet: null,
     activeLayer: 'TOP' as const,
     hideAllRefDes: false,
     past: [],
@@ -160,6 +164,8 @@ export const useDesignStore = create<DesignState>()(
     setMultiSel: (ids) => set((s) => { s.multiSel = ids; }),
 
     dismissPlacementViolations: () => set((s) => { s.placementViolations = {}; }),
+
+    selectNet: (net) => set((s) => { s.selectedNet = net === 0 ? null : net; }),   // net 0 = 未连接，不高亮
 
     setEnclosure: (patch) =>
       set((s) => {

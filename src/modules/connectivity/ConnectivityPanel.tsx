@@ -16,7 +16,12 @@ interface NetNode { ref: string; pad: string; mpn: string }
 export function ConnectivityPanel() {
   const doc = useDesignStore((s) => s.doc);
   const selectComponent = useDesignStore((s) => s.select);
-  const [sel, setSel] = useState<number | null>(null);
+  const storeNet = useDesignStore((s) => s.selectedNet);
+  const selectNet = useDesignStore((s) => s.selectNet);
+  const [localSel, setLocalSel] = useState<number | null>(null);
+  // 与画布共享高亮：这里选中的网络切到 PCB 页后仍然是高亮的那条
+  const sel = storeNet ?? localSel;
+  const setSel = (n: number | null) => { setLocalSel(n); selectNet(n); };
   const [q, setQ] = useState('');
 
   const nets = useMemo(() => {

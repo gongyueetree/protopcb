@@ -7,7 +7,10 @@ import crypto from 'node:crypto';
 import { buildIceasyAuth, mapIceasyRows, buildOuricSignature, buildOuricRequestBody, mapOuricData } from '../_lib/vendor-auth.js';
 
 describe('Iceasy 认证算法（文档 3.3 固定样例）', () => {
-  const fixedNow = new Date(2026, 8, 11, 15, 30, 45);   // 本地时间 2026-09-11 15:30:45
+  // 文档样例的 date=20260911153045 是**北京时间**的墙上时钟。
+  // 我们的实现固定按 Asia/Shanghai 取时，所以这里用对应的 UTC 瞬时（07:30:45Z）构造，
+  // 这样无论 CI 进程 TZ 是什么，结果都必须等于样例 —— 同时验证了时区换算本身。
+  const fixedNow = new Date('2026-09-11T07:30:45Z');
 
   it('date 格式 yyyyMMddHHmmss', () => {
     const { date } = buildIceasyAuth('demo_account', 'DemoPassword123!', fixedNow);
@@ -106,9 +109,8 @@ describe('OURIC 响应映射（文档 4.5 示例结构）', () => {
     expect(o.priceBreaks).toHaveLength(4);
     expect(o.priceBreaks[3]).toEqual({ qty: 1000, price: 1.096 });
     expect(o.stock).toBe(17500);
-    expect(o.currency).toBeUndefined();               // 币种未确认，不虚构
-    expect(o.note).toContain('币种');
-    expect(o.note).toContain('MOQ 7500');
+    expect(o.currency).toBe('USD');                   // 已确认 OURIC 为美元计价
+    expect(o.note).toContain('MOQ 7500');            // 币种已确认，note 不再提示待确认
   });
 
   it('料号大小写不敏感精确匹配', () => {
