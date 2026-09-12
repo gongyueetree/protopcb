@@ -44,7 +44,7 @@ export function supplierOffersFor(mpn: string, basePrice = 1): { vendor: string;
   return [
     { vendor: 'DigiKey', price: { amount: +(basePrice * 1.35).toFixed(2), currency: 'CNY' }, stock: 12500, url: `https://www.digikey.cn/zh/products/result?keywords=${q}` },
     { vendor: 'Mouser', price: { amount: +(basePrice * 1.42).toFixed(2), currency: 'CNY' }, stock: 8300, url: `https://www.mouser.cn/c/?q=${q}` },
-    { vendor: 'CECPORT', price: { amount: +(basePrice * 1.1).toFixed(2), currency: 'CNY' }, stock: 3200, url: `https://www.cecport.com/search?keyword=${q}` },
+    { vendor: 'Iceasy', price: { amount: +(basePrice * 1.1).toFixed(2), currency: 'CNY' }, stock: 3200, url: `https://www.iceasy.com/search?keyword=${q}` },
   ];
 }
 

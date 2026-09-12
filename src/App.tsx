@@ -37,7 +37,6 @@ import { parseKicadSym } from './design-core/geometry/lib-file-registry';
 import type { PlacedComponent as PlacedComponentT } from './design-core/document/types';
 import { BoardCanvas2D } from './modules/board-editor/BoardCanvas2D';
 import { OverviewPanel } from './modules/report/OverviewPanel';
-import { ConnectivityPanel } from './modules/connectivity/ConnectivityPanel';
 import { NetInspector } from './modules/connectivity/NetInspector';
 import { EnclosurePanel } from './modules/enclosure/EnclosurePanel';
 import { ReviewPanel } from './modules/design-review/ReviewPanel';
@@ -51,10 +50,9 @@ import { COLORS, CATEGORY_DISPLAY, fmtMoney } from './shared/theme';
 import type { BoardShapeKind } from './design-core/document/types';
 
 /** 主视图页签 —— 与渲染稿一致的信息架构：各视图同级平铺，不再用底部抽屉 */
-type MainTab = 'overview' | 'connectivity' | 'schematic' | 'pcb' | 'enclosure' | 'bom' | 'block' | 'review';
+type MainTab = 'overview' | 'schematic' | 'pcb' | 'enclosure' | 'bom' | 'block' | 'review';
 const MAIN_TABS: { id: MainTab; label: string; icon: string }[] = [
   { id: 'overview', label: '方案概览', icon: '📋' },
-  { id: 'connectivity', label: '连接关系', icon: '🔗' },
   { id: 'block', label: '系统框图', icon: '📊' },
   { id: 'schematic', label: '原理图', icon: '⚡' },
   { id: 'pcb', label: 'PCB 布局', icon: '📐' },
@@ -183,8 +181,9 @@ export default function App() {
   // autosave
   useEffect(() => { autosave(doc); }, [doc]);
 
-  // 画布点中网络 → 右侧自动切到「网络」页签；取消高亮则回到「当前元件」
-  useEffect(() => { setRightTab(selectedNet != null ? 'net' : 'comp'); }, [selectedNet]);
+  // 画布点中网络 → 右侧自动切到「网络」页签（取消高亮时保留当前页签，
+  // 因为「网络」页在未选网络时会显示"与选中器件相连的器件"，仍然有用）
+  useEffect(() => { if (selectedNet != null) setRightTab('net'); }, [selectedNet]);
 
   // keyboard
   useEffect(() => {
@@ -475,7 +474,6 @@ export default function App() {
 
           <div style={{ flex: 1, position: 'relative', minHeight: 0, display: 'flex' }}>
             {mainTab === 'overview' ? <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}><OverviewPanel /></div>
-              : mainTab === 'connectivity' ? <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}><ConnectivityPanel /></div>
               : mainTab === 'schematic' ? <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', overflow: 'hidden' }}><SchematicPanel isFullscreen={false} onToggleFullscreen={() => setFullscreen('schematic')} /></div>
               : mainTab === 'bom' ? <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', overflow: 'hidden' }}><BomPanel onToggleFullscreen={() => setFullscreen('bom')} /></div>
               : mainTab === 'review' ? <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}><ReviewPanel /></div>
@@ -564,7 +562,7 @@ export default function App() {
         {/* Right */}
         <aside style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', borderLeft: '1px solid #e2e8f0' }}>
           <div style={{ background: COLORS.green, padding: '6px 8px 0', display: 'flex', gap: 4 }}>
-            {([['comp', '🔧 ' + t('当前元件')], ['net', '🔗 ' + t('网络')], ['advisor', '🤖 ' + t('AI顾问')]] as const).map(([id, label]) => (
+            {([['comp', '🔧 ' + t('当前元件')], ['net', '🔗 ' + t('连接')], ['advisor', '🤖 ' + t('AI顾问')]] as const).map(([id, label]) => (
               <button key={id} onClick={() => setRightTab(id)} style={{ flex: 1, padding: '9px 0', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', border: 'none', borderRadius: '6px 6px 0 0', background: rightTab === id ? '#fff' : 'rgba(255,255,255,.12)', color: rightTab === id ? COLORS.green : 'rgba(255,255,255,.85)' }}>{label}</button>
             ))}
           </div>
@@ -841,7 +839,7 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
           <div style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>DigiKey：{dkOffer === null ? tr('查询中… / 未配置') : tr('未收录该型号')}</div>
         )}
         {/* Mouser/Arrow/element14：配置了 Key → 实时数据；未配置 → 演示数据占位 */}
-        {['Mouser', 'Arrow', 'element14'].map((vendor) => {
+        {['Mouser', 'Arrow', 'element14', 'Iceasy', 'OURIC'].map((vendor) => {
           const real = supOffers.find((o) => o.vendor === vendor);
           if (real?.configured && real.found) {
             return (
@@ -856,7 +854,15 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
             );
           }
           if (real?.configured && !real.found) {
-            return <div key={vendor} style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>{vendor}：{tr('未收录该型号')}</div>;
+            return <div key={vendor} style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>{vendor}：{real.error ? tr('查询失败') : tr('未收录该型号')}</div>;
+          }
+          // Iceasy / OURIC 是真实对接渠道：未配凭据就如实说"未配置"，不用哈希编一个演示价
+          if (vendor === 'Iceasy' || vendor === 'OURIC') {
+            return (
+              <div key={vendor} style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>
+                {vendor}：{tr('未配置凭据')}（{vendor === 'Iceasy' ? 'ICEASY_ACCOUNT + ICEASY_PASSWORD' : 'OURIC_API_KEY + OURIC_API_SECRET'}）
+              </div>
+            );
           }
           const mock = mockOffers(c.mpn, vendor);
           return (
@@ -871,16 +877,6 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
             </a>
           );
         })}
-        {(() => { const m = mockOffers(c.mpn, 'CECPORT'); return (
-          <a href={m.url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', marginBottom: 4, borderRadius: 6, background: '#fff', border: '1px solid #e0f2fe', textDecoration: 'none', opacity: 0.8 }}>
-            <span style={{ fontSize: 11.5, fontWeight: 700, color: '#0369a1', width: 66 }}>CECPORT</span>
-            <span style={{ fontSize: 9, padding: '0 5px', borderRadius: 3, background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>{tr('演示')}</span>
-            <span style={{ fontSize: 11, color: '#059669', fontWeight: 600 }}>¥{m.price.toFixed(2)}</span>
-            <span style={{ fontSize: 10, color: '#64748b' }}>{tr('库存')} {m.stock.toLocaleString()}</span>
-            <span style={{ flex: 1 }} />
-            <span style={{ fontSize: 10, color: '#94a3b8' }}>{tr('跳转 ↗')}</span>
-          </a>
-        ); })()}
       </div>
       </>)}
 
@@ -971,7 +967,6 @@ function mockOffers(mpn: string, vendor: string): { price: number; stock: number
     Mouser: `https://www.mouser.cn/c/?q=${encodeURIComponent(mpn)}`,
     Arrow: `https://www.arrow.com/en/products/search?q=${encodeURIComponent(mpn)}`,
     element14: `https://cn.element14.com/search?st=${encodeURIComponent(mpn)}`,
-    CECPORT: `https://www.cecport.com/search?k=${encodeURIComponent(mpn)}`,
   };
   return { price: base * (0.92 + (h % 20) / 100), stock: 300 + (h % 42000), url: urls[vendor] ?? '#' };
 }

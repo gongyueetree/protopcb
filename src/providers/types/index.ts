@@ -69,7 +69,7 @@ export interface ComponentSearchResult {
   coreParams?: Record<string, string>;
 }
 
-/** 供应商报价（Digikey/Mouser/CECPORT 等，来自 ezPLM 供应链 API） */
+/** 供应商报价（DigiKey/Mouser/Iceasy 等，来自 ezPLM 供应链 API） */
 export interface SupplierOffer {
   vendor: string;
   price?: Money;

@@ -64,7 +64,7 @@ interface DesignState {
   moveRefDes: (instanceId: string, dx: number, dy: number) => void;
   toggleRefDesHidden: (instanceId: string) => void;
   toggleAllRefDes: () => void;
-  setComponentMpn: (instanceId: string, mpn: string) => void;
+  setComponentMpn: (instanceId: string, mpn: string, manufacturer?: string) => void;
   setCustomSymbol: (instanceId: string, svg: string) => void;
   /** 整体替换为库中器件（型号+符号+封装全部采用） */
   replaceComponentWith: (instanceId: string, src: ComponentSearchResult) => void;
@@ -328,12 +328,20 @@ export const useDesignStore = create<DesignState>()(
 
     toggleAllRefDes: () => set((s) => { s.hideAllRefDes = !s.hideAllRefDes; }),
 
-    setComponentMpn: (id, mpn) =>
+    setComponentMpn: (id, mpn, manufacturer) =>
       set((s) => {
         const c = s.doc.components.find((x) => x.instanceId === id);
         if (!c || !mpn.trim()) return;
         snapshot(s);
         c.mpn = mpn.trim();
+        if (manufacturer?.trim()) c.manufacturer = manufacturer.trim();
+        // 用户手工指定的型号：证据是"用户确认"，不是数据库精确匹配 —— 不标 VERIFIED
+        c.trust = {
+          level: 'CANDIDATE',
+          evidence: '用户从智能匹配候选中手工选定，未经器件库精确匹配核验',
+          source: 'ezplm-candidate',
+          verifiedAt: new Date().toISOString(),
+        };
         s.doc = touchDocument(refreshDerived(s.doc));
       }),
 

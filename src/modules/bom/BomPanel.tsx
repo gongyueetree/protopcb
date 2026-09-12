@@ -11,6 +11,8 @@ import { geminiComplete, extractJson } from '../../providers/gemini';
 import { isPriceable, whyNotPriceable, classifyByRefDes, pricingPriority, CLASS_LABEL } from './part-class';
 import { fetchDigikeyOffer, type DigikeyOffer } from '../../providers/digikey';
 import { fetchSupplierOffers } from '../../providers/suppliers';
+import { buildMatchQuery, rankCandidates, CLASS_LABEL as PART_CLASS_LABEL, type Candidate, type ScoredCandidate } from '../../design-core/part-matching';
+import { searchEzplmParts } from '../../providers/ezplm-live';
 
 export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: boolean; onToggleFullscreen?: () => void } = {}) {
   const bom = useDesignStore((s) => s.doc.bom);
@@ -25,18 +27,51 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   const [queried, setQueried] = useState<Record<string, true>>({});
   /** 无报价行的人工查价：模糊候选列表（用户点选后作为录入价） */
   const [market, setMarket] = useState<{ busy: boolean; low?: number; high?: number; typical?: number; basis?: string; msg?: string } | null>(null);
-  const [fuzzy, setFuzzy] = useState<{ line: BomLine; busy: boolean; items: { vendor: string; mpn: string; manufacturer: string; description?: string; price: number; currency?: string; stock?: number; url?: string }[]; msg?: string } | null>(null);
+  const [fuzzy, setFuzzy] = useState<{ line: BomLine; busy: boolean; items: ScoredCandidate[]; msg?: string; query?: ReturnType<typeof buildMatchQuery> } | null>(null);
+
+  /**
+   * 智能匹配：由位号（类别）+ 封装（族/尺寸）+ 型号或描述（值/关键词）构造检索计划，
+   * **先查 ezPLM 自有器件库，再查分销商**，合并打分排序后交用户确认。
+   * 候选永不自动写回设计 —— 与 AI trust 同一条原则。
+   */
   const openFuzzy = async (l: BomLine) => {
     setMarket(null);
-    setFuzzy({ line: l, busy: true, items: [] });
+    const query = buildMatchQuery({ reference: l.reference, mpn: l.mpn, footprint: l.footprint, description: l.description });
+    setFuzzy({ line: l, busy: true, items: [], query });
+    const pool: Candidate[] = [];
+    const notes: string[] = [];
+
+    // 1) ezPLM 优先：按检索计划前两条查询串各取若干
     try {
-      const qs = new URLSearchParams({ path: 'fuzzy', mpn: l.mpn ?? '', footprint: l.footprint ?? '', desc: l.description ?? '' });
+      for (const q of query.queries.slice(0, 2)) {
+        const r = await searchEzplmParts(q, 8);
+        if (!r.available) { notes.push('ezPLM 未连接'); break; }
+        for (const it of r.items) {
+          pool.push({
+            mpn: it.mpn, manufacturer: it.manufacturer, description: it.description,
+            footprint: it.defaultFootprintName, category: it.category, source: 'ezplm',
+          });
+        }
+        if (pool.length >= 8) break;
+      }
+    } catch { notes.push('ezPLM 查询失败'); }
+
+    // 2) 分销商补充（后端按关键词检索，未配 Key 时返回提示）
+    try {
+      const qs = new URLSearchParams({ path: 'fuzzy', mpn: l.mpn ?? '', footprint: l.footprint ?? '', desc: l.description ?? '', q: query.queries[0] ?? '' });
       const r = await fetch(`/api/suppliers?${qs}`);
       const j = await r.json();
-      setFuzzy({ line: l, busy: false, items: Array.isArray(j.items) ? j.items : [], msg: j.message });
-    } catch (e) {
-      setFuzzy({ line: l, busy: false, items: [], msg: (e as Error).message });
-    }
+      for (const it of (Array.isArray(j.items) ? j.items : [])) {
+        pool.push({
+          mpn: it.mpn, manufacturer: it.manufacturer, description: it.description, source: 'distributor',
+          vendor: it.vendor, price: it.price, currency: it.currency, stock: it.stock, url: it.url,
+        });
+      }
+      if (j.message) notes.push(String(j.message));
+    } catch (e) { notes.push((e as Error).message); }
+
+    const ranked = rankCandidates(query, pool).slice(0, 12);
+    setFuzzy({ line: l, busy: false, items: ranked, query, msg: ranked.length ? undefined : (notes.join(' · ') || '未找到相近器件') });
   };
 
   /** 网络参考价：AI 按公开市场行情给区间。明确标注为估算，必须人工确认后才落为录入价。 */
@@ -99,6 +134,19 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   useEffect(() => {
     try { localStorage.setItem('cc_manual_price_' + docId, JSON.stringify(manualPrices)); } catch { /* 空间不足忽略 */ }
   }, [manualPrices, docId]);
+  const setComponentMpn = useDesignStore((s) => s.setComponentMpn);
+  /**
+   * 采用候选型号：把该 BOM 行涉及的器件型号改为候选型号。
+   * trust 由 store 侧按"用户手工指定"处理，不会因为来自 ezPLM 搜索就标成 VERIFIED。
+   */
+  const adoptMpn = (line: BomLine, cand: ScoredCandidate) => {
+    for (const ref of String(line.reference).split(/[,、]\s*/)) {
+      const comp = components.find((c) => c.reference === ref.trim());
+      if (comp) setComponentMpn(comp.instanceId, cand.mpn, cand.manufacturer);
+    }
+    if (cand.price != null) setManualPrices((prev) => ({ ...prev, [cand.mpn]: cand.price as number }));
+  };
+
   const [editingMpn, setEditingMpn] = useState<string | null>(null);
   const manOf = (mpn: string): number | undefined => manualPrices[mpn];
   const total = bom.reduce((sum, l) => sum + (manOf(l.mpn) ?? dkOf(l.mpn)?.unitPrice ?? netOf(l.mpn)?.price ?? l.unitPrice?.amount ?? 0) * l.quantity, 0);
@@ -131,19 +179,40 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
         <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 2 }}>{tr('查找相近器件')} · {fuzzy.line.reference}</div>
         <div style={{ fontSize: 10.5, color: '#64748b', marginBottom: 10 }}>
           {[fuzzy.line.mpn, fuzzy.line.footprint].filter(Boolean).join(' · ')}
-          <span style={{ marginLeft: 6, color: '#b45309' }}>{tr('模糊匹配结果需人工确认后作为录入价')}</span>
+          {fuzzy.query && (
+            <span style={{ marginLeft: 6 }}>
+              → {tr('识别为')} <b>{tr(PART_CLASS_LABEL[fuzzy.query.partClass])}</b>
+              {fuzzy.query.footprint.size ? ` · ${fuzzy.query.footprint.size}` : ''}
+              {fuzzy.query.footprint.family ? ` · ${fuzzy.query.footprint.family}${fuzzy.query.footprint.pins ? '-' + fuzzy.query.footprint.pins : ''}` : ''}
+              {fuzzy.query.value.value ? ` · ${tr('值')} ${fuzzy.query.value.value}` : ''}
+            </span>
+          )}
+          <div style={{ marginTop: 3, color: '#b45309' }}>{tr('候选由位号类别 + 封装 + 值/关键词匹配得出，需人工确认后才写回设计')}</div>
         </div>
         {fuzzy.busy && <div style={{ fontSize: 11.5, color: '#64748b' }}>{tr('检索中…')}</div>}
         {!fuzzy.busy && !fuzzy.items.length && <div style={{ fontSize: 11.5, color: '#92400e' }}>{tr(fuzzy.msg || '未找到相近器件')}</div>}
         {fuzzy.items.map((it, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', marginBottom: 5, borderRadius: 7, border: '1px solid #e2e8f0' }}>
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', marginBottom: 5, borderRadius: 7, border: `1px solid ${it.source === 'ezplm' ? '#bbf7d0' : '#e2e8f0'}`, background: it.source === 'ezplm' ? '#f0fdf4' : '#fff' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontFamily: 'monospace', fontSize: 11.5, fontWeight: 700 }}>{it.mpn}</div>
-              <div style={{ fontSize: 10, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.manufacturer} · {it.description}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontFamily: 'monospace', fontSize: 11.5, fontWeight: 700 }}>{it.mpn}</span>
+                <span style={{ fontSize: 9, padding: '0 5px', borderRadius: 3, fontWeight: 700, background: it.source === 'ezplm' ? '#dcfce7' : '#e0f2fe', color: it.source === 'ezplm' ? '#166534' : '#0369a1' }}>
+                  {it.source === 'ezplm' ? 'ezPLM' : (it.vendor ?? tr('分销商'))}
+                </span>
+              </div>
+              <div style={{ fontSize: 10, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[it.manufacturer, it.description].filter(Boolean).join(' · ')}</div>
+              {!!it.reasons.length && <div style={{ fontSize: 9.5, color: '#15803d', marginTop: 2 }}>✓ {it.reasons.map((r) => tr(r)).join(' · ')}</div>}
             </div>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: '#059669' }}>{currencySym()}{it.price.toFixed(3)}</div>
-            <button onClick={() => { setManualPrices((prev) => ({ ...prev, [fuzzy.line.mpn]: it.price })); setFuzzy(null); }}
-              style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#1f5c3b', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{tr('采用')}</button>
+            {it.price != null && <div style={{ fontSize: 11.5, fontWeight: 700, color: '#059669' }}>{it.currency === 'USD' ? '$' : currencySym()}{it.price.toFixed(3)}</div>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {/* 采用型号：把 BOM 行对应器件的型号替换为该候选（用户确认动作） */}
+              <button onClick={() => { adoptMpn(fuzzy.line, it); setFuzzy(null); }}
+                style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: '#1f5c3b', color: '#fff', fontSize: 10, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>{tr('采用型号')}</button>
+              {it.price != null && (
+                <button onClick={() => { setManualPrices((prev) => ({ ...prev, [fuzzy.line.mpn]: it.price as number })); setFuzzy(null); }}
+                  style={{ padding: '3px 10px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', fontSize: 10, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>{tr('仅用价格')}</button>
+              )}
+            </div>
           </div>
         ))}
         {/* 网络参考价：非分销商实时报价，AI 依公开行情估算 */}

@@ -8,6 +8,8 @@ export interface SupplierOffer {
   price?: number;
   /** 币种；undefined = 上游文档未明确币种（如 OURIC），UI 显示裸数值并附 note */
   currency?: string;
+  /** 该渠道查询失败时的原因（后端已截断，仅用于提示） */
+  error?: string;
   stock?: number;
   url?: string;
   /** 阶梯价（qty 升序），Iceasy/OURIC 等提供 */
