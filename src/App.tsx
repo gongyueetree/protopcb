@@ -76,6 +76,7 @@ declare const __BUILD_STAMP__: string;
 
 export default function App() {
   useEffect(() => { console.info('%c硬件原型工坊 build ' + __BUILD_STAMP__, 'color:#1f5c3b;font-weight:bold'); }, []);
+  const buildStamp = __BUILD_STAMP__;
   const doc = useDesignStore((s) => s.doc);
   const selectedId = useDesignStore((s) => s.selectedId);
   const placementViolations = useDesignStore((s) => s.placementViolations);
@@ -394,7 +395,7 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 24 }}>⚡</span>
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
-            <span style={{ fontSize: 18, fontWeight: 700, color: COLORS.green }}>{t('硬件原型工坊')}</span>
+            <span title={`build ${buildStamp}`} style={{ fontSize: 18, fontWeight: 700, color: COLORS.green, cursor: 'help' }}>{t('硬件原型工坊')}</span>
             <span style={{ fontSize: 10, color: '#94a3b8' }}>{t('AI 方案生成、器件选型与 PCB 预布局')}</span>
           </div>
         </div>
@@ -439,7 +440,7 @@ export default function App() {
         </aside>
 
         {/* Center */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
           {/* Toolbar */}
           <div style={{ background: '#fff', borderBottom: '2px solid #E8F3EE', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
             <button onClick={undo} style={ibtn} title={t('撤销')} aria-label={t('撤销')}>↩</button>
@@ -513,7 +514,7 @@ export default function App() {
           </div>
 
           {/* Bottom bar：板参数（仅 PCB / 3D结构 页相关）+ 主视图页签 */}
-          <div style={{ display: 'flex', background: '#fff', borderTop: '1px solid #E8F3EE', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0, position: 'relative', zIndex: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', background: '#fff', borderTop: '1px solid #E8F3EE', flexShrink: 0, position: 'relative', zIndex: 4 }}>
             <div style={{ display: (mainTab === 'pcb' || mainTab === 'enclosure') ? 'flex' : 'none', alignItems: 'center', gap: 8, padding: '6px 16px', fontSize: 12 }}>
               <span style={{ fontWeight: 600, color: COLORS.green }}>📐 PCB</span>
               <NumInput value={doc.board.widthMm} onChange={(v) => setBoardSize(v, doc.board.heightMm)} label={t('板宽 (mm)')} />
@@ -544,11 +545,10 @@ export default function App() {
                 </span>
               )}
             </div>
-            <div style={{ flex: 1 }} />
-            <div style={{ display: 'flex', overflowX: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-start', width: '100%', overflowX: 'auto', borderTop: (mainTab === 'pcb' || mainTab === 'enclosure') ? '1px solid #f1f5f9' : 'none' }}>
               {MAIN_TABS.map((tb) => (
                 <button key={tb.id} onClick={() => setMainTab(mainTab === tb.id && tb.id !== 'pcb' ? 'pcb' : tb.id)} title={mainTab === tb.id && tb.id !== 'pcb' ? t('再次点击返回 PCB 布局') : t(tb.label)}
-                  style={{ padding: '8px 14px', border: 'none', whiteSpace: 'nowrap', background: mainTab === tb.id ? COLORS.greenBg : '#fff', color: mainTab === tb.id ? COLORS.green : '#2C3E50', fontSize: 12.5, fontWeight: mainTab === tb.id ? 700 : 500, cursor: 'pointer', borderTop: mainTab === tb.id ? `2px solid ${COLORS.green}` : '2px solid transparent' }}>
+                  style={{ padding: '8px 14px', border: 'none', whiteSpace: 'nowrap', background: mainTab === tb.id ? COLORS.greenBg : '#fff', color: mainTab === tb.id ? COLORS.green : '#2C3E50', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', borderTop: mainTab === tb.id ? `2px solid ${COLORS.green}` : '2px solid transparent' }}>
                   {tb.icon} {t(tb.label)}
                 </button>
               ))}
