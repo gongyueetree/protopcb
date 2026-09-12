@@ -200,6 +200,21 @@ function customSvgSymbol(svg: string): SymbolDef {
 
 /** ezPLM 真实 .kicad_sym 解析结果 → 符号（真实引脚名/编号，端口=引脚连接点，stubLen=0） */
 function parsedSymbol(ps: ParsedSymbol): SymbolDef {
+  // 字号自适应管脚间距：KiCad 符号的坐标单位随器件大小变化，固定 6.5 号字在
+  // 32 脚 QFN 这类密集符号上会把引脚名叠成一团（预览里糊成一片的根因）。
+  // 取同侧相邻管脚的最小间距，按 0.62 倍取字号并夹在合理区间。
+  const ysByX = new Map<number, number[]>();
+  for (const p of ps.pins) {
+    const k = Math.round(p.tipX);
+    ysByX.set(k, [...(ysByX.get(k) ?? []), p.tipY]);
+  }
+  let minGap = Infinity;
+  for (const ys of ysByX.values()) {
+    const sorted = [...ys].sort((a, b) => a - b);
+    for (let i = 1; i < sorted.length; i++) minGap = Math.min(minGap, sorted[i] - sorted[i - 1]);
+  }
+  const nameSize = Number.isFinite(minGap) && minGap > 0 ? Math.max(2.4, Math.min(6.5, minGap * 0.62)) : 6.5;
+  const numSize = Math.max(2, nameSize * 0.82);
   return {
     w: ps.w, h: ps.h, stubLen: 0,
     ports: ps.pins.map((p) => ({ x: p.tipX, y: p.tipY, name: p.name })),
@@ -211,8 +226,8 @@ function parsedSymbol(ps: ParsedSymbol): SymbolDef {
         {ps.pins.map((p, i) => (
           <g key={i}>
             <line x1={p.tipX} y1={p.tipY} x2={p.endX} y2={p.endY} stroke={PIN} strokeWidth={1.3} />
-            {p.name && <text x={p.nameX} y={p.nameY} textAnchor={p.endX >= p.tipX ? 'start' : 'end'} fontSize={6.5} fill={PIN} fontFamily="monospace">{p.name}</text>}
-            {p.number && <text x={p.numX} y={p.numY} textAnchor="middle" fontSize={5.5} fill="#94a3b8" fontFamily="monospace">{p.number}</text>}
+            {p.name && <text x={p.nameX} y={p.nameY} textAnchor={p.endX >= p.tipX ? 'start' : 'end'} fontSize={nameSize} fill={PIN} fontFamily="monospace">{p.name}</text>}
+            {p.number && <text x={p.numX} y={p.numY} textAnchor="middle" fontSize={numSize} fill="#94a3b8" fontFamily="monospace">{p.number}</text>}
           </g>
         ))}
         <text x={ps.w / 2} y={-5} textAnchor="middle" fontSize={9} fontWeight={700} fill="#0e7490" fontFamily="monospace">{ref}</text>

@@ -5,7 +5,7 @@
 import { tr, currencySym, curLang } from '../../shared/i18n';
 import { useDesignStore } from '../../state/designStore';
 import { fmtMoney, COLORS } from '../../shared/theme';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { BomLine } from '../../design-core/document/types';
 import { geminiComplete, extractJson } from '../../providers/gemini';
 import { isPriceable, whyNotPriceable, classifyByRefDes, pricingPriority, CLASS_LABEL } from './part-class';
@@ -28,8 +28,9 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   /** 无报价行的人工查价：模糊候选列表（用户点选后作为录入价） */
   const [market, setMarket] = useState<{ busy: boolean; low?: number; high?: number; typical?: number; basis?: string; msg?: string } | null>(null);
   const [fuzzy, setFuzzy] = useState<{ line: BomLine; busy: boolean; items: ScoredCandidate[]; msg?: string; query?: ReturnType<typeof buildMatchQuery>; searchMpn?: string } | null>(null);
-  /** 对话框里可改写的型号 —— 用户原始命名常常不完整（如 9012 → S9012、MachXO2-1200-QFN32 → LCMXO2-1200HC-4SG32C） */
-  const [editSearchMpn, setEditSearchMpn] = useState('');
+  /** 对话框里可改写的型号 —— 用户原始命名常常不完整（如 9012 → S9012、MachXO2-1200-QFN32 → LCMXO2-1200HC-4SG32C）。
+   *  用非受控 input + ref：受控写法会因每次按键触发整个面板重渲染，且易被祖先的 mousedown/keydown 处理器干扰。 */
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   /**
    * 智能匹配：由位号（类别）+ 封装（族/尺寸）+ 型号或描述（值/关键词）构造检索计划，
@@ -159,10 +160,10 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
    * trust 由 store 侧按"用户手工指定"处理，不会因为来自 ezPLM 搜索就标成 VERIFIED。
    */
   const adoptMpn = (line: BomLine, cand: ScoredCandidate) => {
-    for (const ref of String(line.reference).split(/[,、]\s*/)) {
-      const comp = components.find((c) => c.reference === ref.trim());
-      if (comp) setComponentMpn(comp.instanceId, cand.mpn, cand.manufacturer);
-    }
+    // BOM 行按型号聚合（位号列可能是 "R2, R3, R6 +5" 这种省略写法），
+    // 所以按型号找出全部器件实例，而不是解析位号串。
+    const targets = components.filter((c) => c.mpn === line.mpn);
+    for (const comp of targets) setComponentMpn(comp.instanceId, cand.mpn, cand.manufacturer);
     if (cand.price != null) setManualPrices((prev) => ({ ...prev, [cand.mpn]: cand.price as number }));
   };
 
@@ -212,12 +213,21 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 9px', marginBottom: 8, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
           <span style={{ fontSize: 10.5, color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>{tr('检索型号')}</span>
           <input
-            value={editSearchMpn}
-            placeholder={fuzzy.searchMpn || fuzzy.line.mpn}
-            onChange={(e) => setEditSearchMpn(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && editSearchMpn.trim()) openFuzzy(fuzzy.line, editSearchMpn.trim()); }}
+            ref={searchInputRef}
+            key={fuzzy.line.reference}
+            autoFocus
+            defaultValue={fuzzy.searchMpn ?? fuzzy.line.mpn}
+            placeholder={tr('填写完整的制造商料号后重新检索')}
+            onMouseDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();                       // 避免被上层快捷键处理器吞掉
+              if (e.key === 'Enter') {
+                const v = (e.target as HTMLInputElement).value.trim();
+                if (v) openFuzzy(fuzzy.line, v);
+              }
+            }}
             style={{ flex: 1, minWidth: 0, padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11.5, fontFamily: 'monospace', outline: 'none' }} />
-          <button onClick={() => openFuzzy(fuzzy.line, (editSearchMpn.trim() || fuzzy.line.mpn))} disabled={fuzzy.busy}
+          <button onClick={() => openFuzzy(fuzzy.line, (searchInputRef.current?.value.trim() || fuzzy.line.mpn))} disabled={fuzzy.busy}
             style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#1f5c3b', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: fuzzy.busy ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
             {fuzzy.busy ? '⟳' : tr('重新检索')}
           </button>
@@ -317,10 +327,17 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
                     ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#f1f5f9', color: '#64748b', fontWeight: 700 }}>ezPLM</span>
                     : (() => {
                       const why = whyNotPriceable(l.mpn, l.reference, l.footprint);
-                      return why
+                      // 结构件（测试点/安装孔）确实不需要采购；其余"值不是型号 / 型号不完整"的行
+                      // 照样可以按 参数 + 封装 + 类别 去 ezPLM / DigiKey / Mouser 匹配可采购料号，
+                      // 因此给出「按参数选型」入口，而不是只留一句灰字。
+                      const structural = why === '结构件无需采购';
+                      return structural
                         ? <span style={{ fontSize: 9.5, color: '#94a3b8' }} title={CLASS_LABEL[classifyByRefDes(l.reference, l.footprint, l.mpn)]}>{tr(why)}</span>
+                        : why
+                        ? <span onClick={() => openFuzzy(l)} title={tr(why) + ' — ' + tr('点击按参数/封装/类别匹配可采购型号')}
+                            style={{ fontSize: 9.5, color: '#0369a1', cursor: 'pointer', textDecoration: 'underline dotted' }}>{tr('按参数选型')}</span>
                         : queried[l.mpn]
-                        ? <span onClick={() => { setEditSearchMpn(''); openFuzzy(l); }} title={tr('点击按型号/封装/值模糊查找相近器件的价格')}
+                        ? <span onClick={() => openFuzzy(l)} title={tr('点击按型号/封装/值模糊查找相近器件的价格')}
                             style={{ fontSize: 9.5, color: '#0369a1', cursor: 'pointer', textDecoration: 'underline dotted' }}>{tr('查找相近')}</span>
                         : <span style={{ fontSize: 10, color: '#cbd5e1' }}>{tr('查询中…')}</span>;
                     })()}
