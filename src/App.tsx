@@ -11,7 +11,7 @@ import { FootprintLibraryPanel } from './modules/component-search/FootprintLibra
 import { LibraryPreview } from './modules/component-search/LibraryPreview';
 import { padFootprintFor as padFootprintForT } from './design-core/geometry/footprint-pads';
 import { downloadKicadPcb } from './modules/board-editor/pcbExport';
-import { getEzplmReferenceDesigns, isEzplmPart, type ReferenceDesign } from './providers/ezplm-live';
+import { ReferenceDesignSection } from './modules/component-search/ReferenceDesignSection';
 import { ensureFootprintFile, ensureSymbolFile, useLibFileStore } from './design-core/geometry/lib-file-registry';
 import { fetchDigikeyOffer, formatDkPrice, type DigikeyOffer } from './providers/digikey';
 import { fetchSupplierOffers, fmtOfferPrice, type SupplierOffer } from './providers/suppliers';
@@ -36,6 +36,10 @@ import { registerFootprintOverride, registerSymbolOverride, symbolOverrideFor, f
 import { parseKicadSym } from './design-core/geometry/lib-file-registry';
 import type { PlacedComponent as PlacedComponentT } from './design-core/document/types';
 import { BoardCanvas2D } from './modules/board-editor/BoardCanvas2D';
+import { OverviewPanel } from './modules/report/OverviewPanel';
+import { ConnectivityPanel } from './modules/connectivity/ConnectivityPanel';
+import { EnclosurePanel } from './modules/enclosure/EnclosurePanel';
+import { ReviewPanel } from './modules/design-review/ReviewPanel';
 import { BoardView3D } from './modules/board-editor/BoardView3D';
 import { BomPanel } from './modules/bom/BomPanel';
 import { AdvisorPanel } from './modules/design-review/AdvisorPanel';
@@ -44,6 +48,19 @@ import { SchematicPanel } from './modules/schematic/SchematicPanel';
 import { exportDocument, importDocumentFromFile, autosave, exportMarkdownReport } from './modules/report/persistence';
 import { COLORS, CATEGORY_DISPLAY, fmtMoney } from './shared/theme';
 import type { BoardShapeKind } from './design-core/document/types';
+
+/** 主视图页签 —— 与渲染稿一致的信息架构：各视图同级平铺，不再用底部抽屉 */
+type MainTab = 'overview' | 'connectivity' | 'schematic' | 'pcb' | 'enclosure' | 'bom' | 'block' | 'review';
+const MAIN_TABS: { id: MainTab; label: string; icon: string }[] = [
+  { id: 'overview', label: '方案概览', icon: '📋' },
+  { id: 'connectivity', label: '连接关系', icon: '🔗' },
+  { id: 'block', label: '系统框图', icon: '📊' },
+  { id: 'schematic', label: '原理图', icon: '⚡' },
+  { id: 'pcb', label: 'PCB 布局', icon: '📐' },
+  { id: 'enclosure', label: '3D 结构', icon: '🧰' },
+  { id: 'bom', label: 'BOM', icon: '🧾' },
+  { id: 'review', label: '设计审查', icon: '✅' },
+];
 
 const providers = getProviders();
 const ctx = { userId: 'demo-user', organizationId: 'org-demo' };
@@ -93,9 +110,11 @@ export default function App() {
   const placeScheme = useDesignStore((s) => s.placeScheme);
   const loadDocument = useDesignStore((s) => s.loadDocument);
 
+  // 主视图页签：方案概览 / 连接关系 / 原理图 / PCB / 3D结构 / BOM / 审查
+  const [mainTab, setMainTab] = useState<MainTab>('pcb');
+  // 画布视角由页签派生：PCB 页 = 2D，3D结构页 = 3D（原工具栏的 2D/3D 切换已由页签取代）
+  const view: '2d' | '3d' = mainTab === 'enclosure' ? '3d' : '2d';
   const [rightTab, setRightTab] = useState<'comp' | 'advisor'>('comp');
-  const [bottom, setBottom] = useState<'bom' | 'block' | 'schematic' | null>(null);
-  const [view, setView] = useState<'2d' | '3d'>('2d');
   const [fullscreen, setFullscreen] = useState<'bom' | 'block' | 'schematic' | null>(null);
   const [aiPrompt, setAiPrompt] = useState('');
   const [leftTab, setLeftTab] = useState<'model' | 'footprint' | 'custom'>('model');
@@ -429,11 +448,6 @@ export default function App() {
             }}>🧹</button>
             <button onClick={autoArrange} style={ibtn} title={t('自动整理') + ' — ' + t('按电气规则重新自动布局全部器件（可撤销）')} aria-label={t('自动整理')}>✨</button>
             <div style={{ width: 1, height: 18, background: '#E8F3EE', margin: '0 4px' }} />
-            <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #E8F3EE' }}>
-              {(['2d', '3d'] as const).map((v) => (
-                <button key={v} onClick={() => setView(v)} style={{ padding: '7px 14px', border: 'none', background: view === v ? COLORS.green : '#fff', color: view === v ? '#fff' : '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{v === '2d' ? t('2D 布局') : t('3D 视图')}</button>
-              ))}
-            </div>
             {view === '2d' && (
               <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #E8F3EE' }} title={tr('当前放置层（选中器件按 L 换层）')}>
                 {(['TOP', 'BOTTOM'] as const).map((l) => (
@@ -452,7 +466,19 @@ export default function App() {
           </div>
 
           <div style={{ flex: 1, position: 'relative', minHeight: 0, display: 'flex' }}>
-            {view === '2d' ? <BoardCanvas2D /> : <BoardView3D />}
+            {mainTab === 'overview' ? <div style={{ flex: 1, minWidth: 0 }}><OverviewPanel /></div>
+              : mainTab === 'connectivity' ? <div style={{ flex: 1, minWidth: 0 }}><ConnectivityPanel /></div>
+              : mainTab === 'schematic' ? <div style={{ flex: 1, minWidth: 0, display: 'flex' }}><SchematicPanel isFullscreen={false} onToggleFullscreen={() => setFullscreen('schematic')} /></div>
+              : mainTab === 'bom' ? <div style={{ flex: 1, minWidth: 0, display: 'flex' }}><BomPanel onToggleFullscreen={() => setFullscreen('bom')} /></div>
+              : mainTab === 'review' ? <div style={{ flex: 1, minWidth: 0 }}><ReviewPanel /></div>
+              : mainTab === 'block' ? <div style={{ flex: 1, minWidth: 0, display: 'flex' }}><BlockDiagramPanel isFullscreen={false} onToggleFullscreen={() => setFullscreen('block')} /></div>
+              : mainTab === 'enclosure' ? (
+                <>
+                  <BoardView3D />
+                  <div style={{ width: 316, flexShrink: 0, borderLeft: '1px solid #e2e8f0', overflow: 'hidden' }}><EnclosurePanel /></div>
+                </>
+              )
+              : <BoardCanvas2D />}
 
             {/* 自动放置违规提示：solvePlacementDetailed success=false 的器件绝不静默当作成功 */}
             {Object.keys(placementViolations).length > 0 && (
@@ -484,9 +510,9 @@ export default function App() {
             )}
           </div>
 
-          {/* Bottom bar */}
-          <div style={{ display: 'flex', background: '#fff', borderTop: '1px solid #E8F3EE', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', fontSize: 12 }}>
+          {/* Bottom bar：板参数（仅 PCB / 3D结构 页相关）+ 主视图页签 */}
+          <div style={{ display: 'flex', background: '#fff', borderTop: '1px solid #E8F3EE', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: (mainTab === 'pcb' || mainTab === 'enclosure') ? 'flex' : 'none', alignItems: 'center', gap: 8, padding: '6px 16px', fontSize: 12 }}>
               <span style={{ fontWeight: 600, color: COLORS.green }}>📐 PCB</span>
               <NumInput value={doc.board.widthMm} onChange={(v) => setBoardSize(v, doc.board.heightMm)} label={t('板宽 (mm)')} />
               <span style={{ color: '#cbd5e1' }}>×</span>
@@ -517,17 +543,15 @@ export default function App() {
               )}
             </div>
             <div style={{ flex: 1 }} />
-            {([['bom', '🧾 ' + t('BOM清单')], ['block', '📊 ' + t('系统框图')], ['schematic', '⚡ ' + t('原理图')]] as const).map(([id, label]) => (
-              <button key={id} onClick={() => setBottom(bottom === id ? null : id)} style={{ padding: '8px 16px', border: 'none', background: bottom === id ? COLORS.greenBg : '#fff', color: bottom === id ? COLORS.green : '#2C3E50', fontSize: 13, fontWeight: 500, cursor: 'pointer', borderTop: bottom === id ? `2px solid ${COLORS.green}` : '2px solid transparent' }}>{label}</button>
-            ))}
-          </div>
-          {bottom && bottom !== fullscreen && (
-            <div style={{ height: 340, borderTop: '1px solid #E8F3EE', background: '#fff', overflow: 'hidden', flexShrink: 0 }}>
-              {bottom === 'bom' && <BomPanel onToggleFullscreen={() => setFullscreen('bom')} />}
-              {bottom === 'block' && <BlockDiagramPanel isFullscreen={false} onToggleFullscreen={() => setFullscreen('block')} />}
-              {bottom === 'schematic' && <SchematicPanel isFullscreen={false} onToggleFullscreen={() => setFullscreen('schematic')} />}
+            <div style={{ display: 'flex', overflowX: 'auto' }}>
+              {MAIN_TABS.map((tb) => (
+                <button key={tb.id} onClick={() => setMainTab(tb.id)} title={t(tb.label)}
+                  style={{ padding: '8px 14px', border: 'none', whiteSpace: 'nowrap', background: mainTab === tb.id ? COLORS.greenBg : '#fff', color: mainTab === tb.id ? COLORS.green : '#2C3E50', fontSize: 12.5, fontWeight: mainTab === tb.id ? 700 : 500, cursor: 'pointer', borderTop: mainTab === tb.id ? `2px solid ${COLORS.green}` : '2px solid transparent' }}>
+                  {tb.icon} {t(tb.label)}
+                </button>
+              ))}
             </div>
-          )}
+          </div>
         </div>
 
         {/* Right */}
@@ -692,7 +716,6 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
   const [alts, setAlts] = useState<{ mpn: string; manufacturer: string; note: string; channel: string; footprint?: string; description?: string }[]>([]);
   const [, setOffers] = useState<{ vendor: string; price?: { amount: number; currency: string }; stock?: number; url: string }[]>([]);
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof providers.components.getComponentDetail>>>(null);
-  const [refDesigns, setRefDesigns] = useState<ReferenceDesign[]>([]);
   const [dkOffer, setDkOffer] = useState<DigikeyOffer | null>(null);
   const [supOffers, setSupOffers] = useState<SupplierOffer[]>([]);
   const [subItems, setSubItems] = useState<SubCircuitItem[] | null>(null);
@@ -717,7 +740,6 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
 
   useEffect(() => {
     if (!c) return;
-    setRefDesigns([]);
     setDkOffer(null);
     // 自建/占位器件的型号不是真实厂商料号，不查供应商（否则会匹配到无关器件的图片与价格）
     const isSynthetic = c.componentId?.startsWith('custom_') || c.componentId?.startsWith('fp_');
@@ -727,7 +749,6 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
     providers.components.getAlternatives(c.componentId, ctx).then(setAlts);
     providers.components.getSupplierOffers(c.componentId, ctx).then(setOffers);
     providers.components.getComponentDetail(c.componentId, ctx).then(setDetail);
-    if (isEzplmPart(c.componentId)) getEzplmReferenceDesigns(c.componentId).then(setRefDesigns);
   }, [c?.componentId]);
   if (!c) return null;
   const disp = CATEGORY_DISPLAY[c.category];
@@ -791,18 +812,8 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
 
       <LibraryPreview c={c} />
 
-      {/* 参考设计（ezPLM 实时） */}
-      {refDesigns.length > 0 && (
-        <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: '#f5f3ff', border: '1px solid #ddd6fe' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#6d28d9', marginBottom: 6 }}>{tr('📐 参考设计（来自 ezPLM）')}</div>
-          {refDesigns.map((rd, i) => (
-            <a key={i} href={rd.link} target="_blank" rel="noreferrer" style={{ display: 'block', padding: '6px 8px', marginBottom: 4, borderRadius: 6, background: '#fff', border: '1px solid #ede9fe', textDecoration: 'none' }}>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: '#4c1d95' }}>{rd.name} <span style={{ fontSize: 9, color: '#94a3b8' }}>↗</span></div>
-              {rd.description && <div style={{ fontSize: 10, color: '#64748b', marginTop: 1 }}>{rd.description}</div>}
-            </a>
-          ))}
-        </div>
-      )}
+      {/* 参考设计智能：应用项目 + 相关参考设计 + 功能块提取（统一模型/排序/诚实状态） */}
+      <ReferenceDesignSection c={c} />
 
       {/* 采购渠道：仅当型号明确（真实 MPN）时显示并查询；分销商侧已做精确匹配 */}
       {hasRealMpn(c.mpn) && (<>

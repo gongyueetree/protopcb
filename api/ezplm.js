@@ -17,11 +17,15 @@ import { fetchUpstream, UpstreamError } from './_lib/net.js';
  *   GET /api/ezplm?path=status                                  → { configured: boolean }（不消耗上游配额）
  *   GET /api/ezplm?path=parts&keyword=STM32&pageSize=20         → 透传 ezPLM 响应
  *   GET /api/ezplm?path=reference-designs&partlibId=xxx         → 透传 ezPLM 响应
+ *   GET /api/ezplm?path=application-projects&partlibId=xxx      → 透传（上游未开通时 404，前端显示 BACKEND_NOT_CONNECTED）
  */
 import crypto from 'node:crypto';
 
 const BASE_URL = 'https://www.ezplm.cn';
-const ALLOWED_PATHS = new Set(['parts', 'reference-designs']);
+// application-projects：ezPLM 网页端已有"应用项目"数据，但 API-Key 开放接口是否提供
+// 该端点尚未确认。此处放行透传：上游存在则直接接通；上游 404 由前端 Provider 映射为
+// BACKEND_NOT_CONNECTED 如实展示（绝不返回假项目数据）。
+const ALLOWED_PATHS = new Set(['parts', 'reference-designs', 'application-projects']);
 
 /** 与官方 demo 相同的 query 规范化：过滤空值 → 字典序排序 → encodeURIComponent 拼接 */
 export function canonicalQuery(params) {

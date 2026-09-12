@@ -6,6 +6,7 @@
  */
 import * as THREE from 'three';
 import { padFootprintFor } from '../../design-core/geometry/footprint-pads';
+import { componentBodyHeight } from '../../design-core/enclosure';
 import { stepModelFor, ensureStepModel, bodyColorForFootprint } from './step-loader';
 import type { PlacedComponent } from '../../design-core/document/types';
 
@@ -158,16 +159,9 @@ function makeFromPads(fp: import('../../design-core/geometry/footprint-pads').Pa
   const isBall = fp.pads.every((p) => p.round) && /(WLCSP|BGA|CSP)/.test(N);
   // 高度：datasheet 机械图提取的真实高度（fp.heightMm，定制器件向导写入）优先；
   // 没有真实数据时才按封装类型+尺寸启发式估计。真实 STEP 加载成功后整体替换本模型。
-  const minDim = Math.min(fp.bodyW, fp.bodyH);
-  const hasTht = fp.pads.some((pd) => pd.round && pd.w >= 1.2);
-  const bodyT = fp.heightMm && fp.heightMm > 0 ? Math.min(fp.heightMm, 40)
-    : isBall ? 0.6
-    : /(QFN|DFN|SON)/.test(N) ? 0.9
-    : /(SOIC|SOP|SSOP|TSSOP|SOT|QFP)/.test(N) ? 1.6
-    : /(MODULE|FEATHER|ESP|BOARD|SHIELD)/.test(N) ? 3.2
-    : /(CRYSTAL|OSC|XTAL)/.test(N) ? Math.min(minDim * 0.8, 13.5)
-    : /(POT|SWITCH|BUTTON|RELAY|CONN|SOCKET|HEADER|USB)/.test(N) ? Math.min(Math.max(minDim * 0.6, 3), 12)
-    : Math.min(Math.max(minDim * (hasTht ? 0.5 : 0.3), 1.2), 10);
+  // 高度真值统一由 design-core/enclosure 提供：3D 渲染与外壳干涉检查必须用同一套数字，
+  // 否则"3D 看着装得下、检查说装不下"这种矛盾迟早出现。
+  const bodyT = componentBodyHeight(fpName).bodyMm;
   // 本体按封装族取基色：STEP 加载失败时兜底模型也有层次，而非整板黑盒
   const body = new THREE.Mesh(new THREE.BoxGeometry(fp.bodyW, bodyT, fp.bodyH), bodyMatFor(fpName));
   body.position.x = fp.bodyCx ?? 0;

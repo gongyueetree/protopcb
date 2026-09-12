@@ -119,6 +119,23 @@ ZIP 解压经 `safe-unzip.ts` 限制压缩包体积、解压总量、单文件�
 - 设计审查仍以「方案完整度检查」为主，不是专业 ERC/DFM
 
 
+## Reference Design Intelligence（本轮新增，P0 范围）
+
+- **统一模型**：`src/providers/reference-design/schema.ts`（ReferenceDesign / CircuitFragment，全 Zod）。
+  应用项目（私有：USER/ORGANIZATION/EZPLM_PROJECT）与公开参考设计严格区分来源类别。
+- **Provider**：`EzplmReferenceDesignProvider`。相关参考设计走已上线的 ezPLM 端点（真实接通）；
+  应用项目的 API contract 与解析已就绪，**ezPLM 开放接口尚未确认提供该端点** —— 上游 404 时
+  UI 如实显示 BACKEND_NOT_CONNECTED，绝不渲染假项目。私有数据仅本会话内存缓存。
+- **排序**：来源优先级（用户项目 > 组织 > 量产 > 原型 > 厂商 > 仿真 > 公开工程 > PDF > AI）
+  + anchor MPN 精确命中 + 资产完整度 + 置信度，纯函数可解释（`ranking.ts`）。
+- **功能块提取**：`design-core/fragment/extract.ts` 在导入 KiCad 工程的真实净表上做图遍历
+  （电源/地网不作桥、高扇出总线不扩张、连接器排除），产出 CircuitFragment（器件/网络/边界端口）。
+  画布手搭方案暂无连接性数据，提取会如实提示。
+- **供应商渠道**：Iceasy 与 OURIC 已按官方对接文档真实实现（`api/_lib/vendor-auth.js`，
+  认证算法有离线固定样例回归），配好凭据即启用；OURIC 价格币种文档未明确，UI 不冒充币种。
+- **尚未实现**（方案 P1–P3）：VirtualHardwareBlock、CircuitCompositionEngine、Composition ERC、
+  PlacementPattern 提取、PDF Reference Extractor、Simulation IR/Ngspice —— 均未开工，不存在假实现。
+
 ## 工程边界（诚实声明）
 
 - **ProtoPCB 定位**：AI Hardware Design Front-End / PCB 原型设计工具。不是 KiCad，

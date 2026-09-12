@@ -168,6 +168,15 @@ export const documentSchema = z.object({
   })).optional(),
   /** 导入工程的铜层栈（KiCad 层名，按栈顺序） */
   copperLayers: z.array(z.string()).optional(),
+  enclosure: z.object({
+    enabled: z.boolean(),
+    wallMm: z.number().finite().positive().max(20),
+    sideClearanceMm: z.number().finite().min(0).max(50),
+    standoffMm: z.number().finite().min(0).max(60),
+    topClearanceMm: z.number().finite().min(0).max(60),
+    bottomClearanceMm: z.number().finite().min(0).max(60),
+    lidMm: z.number().finite().positive().max(20),
+  }).optional(),
   /** KiCad 工程导入的原理图原样视图（只读渲染：实例坐标/连线/结点/标签） */
   schematicSheet: z.object({
     instances: z.array(z.object({

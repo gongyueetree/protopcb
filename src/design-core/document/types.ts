@@ -195,6 +195,11 @@ export interface CircuitCanvasDocument {
    * 禁止导出时用 size*0.5 之类重新猜测 drill。
    */
   vias?: { x: number; y: number; size: number; drill?: number; net?: number; layers?: [string, string]; viaType?: 'blind' | 'micro' }[];
+  /** 外壳协同设计参数（参数化包络 + 确定性干涉检查；见 design-core/enclosure） */
+  enclosure?: {
+    enabled: boolean; wallMm: number; sideClearanceMm: number; standoffMm: number;
+    topClearanceMm: number; bottomClearanceMm: number; lidMm: number;
+  };
   /**
    * 导入工程的铜层栈（KiCad 层名，按栈顺序，如 ["F.Cu","In1.Cu","In2.Cu","B.Cu"]）。
    * 未导入/新建设计时缺省视为双层 F.Cu/B.Cu。导出层表按此生成。

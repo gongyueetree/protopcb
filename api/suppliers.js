@@ -1,5 +1,6 @@
 import { acquire, checkBodySize, deny } from './_lib/guard.js';
 import { fetchWithTimeout, readResponseLimited } from './_lib/net.js';
+import { buildIceasyAuth, mapIceasyRows, buildOuricRequestBody, mapOuricData } from './_lib/vendor-auth.js';
 /** 统一出站通道（本文件所有上游请求走这里）：超时 + 响应体上限 */
 async function tfetch(url, init = {}) {
   const { res, done } = await fetchWithTimeout(url, { timeoutMs: init.timeoutMs ?? 20_000, ...init });
@@ -22,6 +23,10 @@ async function tfetch(url, init = {}) {
  *   ELEMENT14_API_KEY                   — element14/Farnell Product Search
  *   CECPORT_API_KEY                     — 中电港（国产渠道，预留：配置后自动启用）
  *   B1B_API_KEY                         — 百芯（国产渠道，预留：配置后自动启用）
+ *   ICEASY_ACCOUNT + ICEASY_PASSWORD    — Iceasy 接口账号/密码（两个都要；按 2026-09-11 对接文档实现）
+ *   ICEASY_PRODUCT_DETAIL_URL           — 可选，默认 https://www.iceasy.com/api/ezplm/product/list
+ *   OURIC_API_KEY + OURIC_API_SECRET    — OURIC 开放 API 双密钥（两个都要；按 v1.0 对接文档实现）
+ *   OURIC_PRODUCTS_URL                  — 可选，默认 https://manage.ouric.uk/admin/openapi/products
  *
  * GET /api/suppliers?path=status → { mouser, arrow, element14 }（各自是否已配置）
  * GET /api/suppliers?mpn=XXX     → { offers: [{vendor, configured, found, price, currency, stock, url}] }
@@ -56,6 +61,41 @@ async function queryB1b(key, mpn) {
   const p = (j?.data ?? j?.items ?? [])[0];
   if (!p) return { found: false };
   return { found: true, price: num(p.price), currency: 'CNY', stock: num(p.stock), url: p.url };
+}
+
+/* ---------- Iceasy（真实对接：iceasy-api-integration.md 2026-09-11）---------- */
+async function queryIceasy(account, password, mpn) {
+  const endpoint = (process.env.ICEASY_PRODUCT_DETAIL_URL ?? '').trim() || 'https://www.iceasy.com/api/ezplm/product/list';
+  const { date, key } = buildIceasyAuth(account, password);       // 每次请求重新生成（文档 3.2）
+  // 表单编码必须用 URLSearchParams：Base64 的 + / = 手拼会被解析成空格（文档第 2 节）
+  const body = new URLSearchParams({ partNoList: mpn, account, date, key });
+  const r = await tfetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+    timeoutMs: 5_000,                                              // 文档示例口径；含响应体读取
+  });
+  if (!r.ok) throw new Error(`iceasy HTTP ${r.status}`);
+  const j = await r.json();
+  // 文档第 6 节：rows 缺失/类型错误 ≠ 空结果，需按格式异常处理，不能断定料号不存在
+  if (!Array.isArray(j?.data?.rows)) throw new Error('iceasy 响应缺少 data.rows（需核对业务状态或格式）');
+  return mapIceasyRows(j.data.rows, mpn);
+}
+
+/* ---------- OURIC（真实对接：OURIC_API对接文档 v1.0）---------- */
+async function queryOuric(apiKey, apiSecret, mpn) {
+  const endpoint = (process.env.OURIC_PRODUCTS_URL ?? '').trim() || 'https://manage.ouric.uk/admin/openapi/products';
+  const body = buildOuricRequestBody(apiKey, apiSecret, { partNumber: mpn, pageNum: 1, pageSize: 10 });
+  const r = await tfetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    timeoutMs: 8_000,
+  });
+  if (!r.ok) throw new Error(`ouric HTTP ${r.status}`);
+  const j = await r.json();
+  if (j?.success !== true) throw new Error(`ouric 业务失败：${String(j?.code ?? '')} ${String(j?.message ?? '')}`.slice(0, 100));
+  return mapOuricData(j?.data, mpn);
 }
 
 /* ---------- Mouser ---------- */
@@ -139,9 +179,13 @@ export default async function handler(req, res) {
   const e14Key = t(process.env.ELEMENT14_API_KEY);
   const cecKey = t(process.env.CECPORT_API_KEY);
   const b1bKey = t(process.env.B1B_API_KEY);
+  const iceasyAcc = t(process.env.ICEASY_ACCOUNT);
+  const iceasyPwd = t(process.env.ICEASY_PASSWORD);
+  const ouricKey = t(process.env.OURIC_API_KEY);
+  const ouricSecret = t(process.env.OURIC_API_SECRET);
 
   if (path === 'status') {
-    return res.status(200).send(JSON.stringify({ mouser: !!mouserKey, arrow: !!(arrowLogin && arrowKey), element14: !!e14Key, cecport: !!cecKey, b1b: !!b1bKey }));
+    return res.status(200).send(JSON.stringify({ mouser: !!mouserKey, arrow: !!(arrowLogin && arrowKey), element14: !!e14Key, cecport: !!cecKey, b1b: !!b1bKey, iceasy: !!(iceasyAcc && iceasyPwd), ouric: !!(ouricKey && ouricSecret) }));
   }
   // ── 关键词检索：给"网络" Tab 用（返回候选列表，含封装描述供映射） ──
   if (path === 'search') {
@@ -268,6 +312,9 @@ export default async function handler(req, res) {
 
   const jobs = [
     { vendor: 'Mouser', configured: !!mouserKey, run: () => queryMouser(mouserKey, String(mpn)) },
+    // 国产现货渠道（真实对接，按各自文档实现；未配凭据时 configured=false 不发请求）
+    { vendor: 'Iceasy', configured: !!(iceasyAcc && iceasyPwd), run: () => queryIceasy(iceasyAcc, iceasyPwd, String(mpn)) },
+    { vendor: 'OURIC', configured: !!(ouricKey && ouricSecret), run: () => queryOuric(ouricKey, ouricSecret, String(mpn)) },
     // 国产渠道（预留骨架）：配置 Key 后按各家真实响应字段校准 map 函数即可启用
     { vendor: 'CECPort', configured: !!cecKey, run: () => queryCecport(cecKey, String(mpn)) },
     { vendor: 'B1B', configured: !!b1bKey, run: () => queryB1b(b1bKey, String(mpn)) },

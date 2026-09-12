@@ -12,6 +12,7 @@ import type { ComponentSearchResult } from '../providers/types';
 import { searchResultToPlaced, nextReference, buildBom, runDesignReview } from '../design-core/document/services';
 import { resolveAffinity, signalFlowRank, isCore } from '../design-core/placement/affinity';
 import { solvePlacementDetailed, DEFAULT_PLACEMENT_RULES, autoPlaceAllDetailed, type PlacementViolation } from '../design-core/placement';
+import { DEFAULT_ENCLOSURE } from '../design-core/enclosure';
 import { clampComponentToBoard, findOverlaps, BOARD_MARGIN_MM } from '../design-core/collision';
 import { appConfig } from '../config';
 
@@ -26,6 +27,8 @@ interface DesignState {
   /** 自动放置未找到合法位置的器件（instanceId → 违规明细）。UI 必须提示，禁止静默成功 */
   placementViolations: Record<string, PlacementViolation[]>;
   dismissPlacementViolations: () => void;
+  /** 外壳协同参数（部分更新） */
+  setEnclosure: (patch: Partial<NonNullable<CircuitCanvasDocument['enclosure']>>) => void;
   activeLayer: 'TOP' | 'BOTTOM';
   hideAllRefDes: boolean;
   // history
@@ -157,6 +160,12 @@ export const useDesignStore = create<DesignState>()(
     setMultiSel: (ids) => set((s) => { s.multiSel = ids; }),
 
     dismissPlacementViolations: () => set((s) => { s.placementViolations = {}; }),
+
+    setEnclosure: (patch) =>
+      set((s) => {
+        s.doc.enclosure = { ...DEFAULT_ENCLOSURE, ...(s.doc.enclosure ?? {}), ...patch };
+        s.doc = touchDocument(s.doc);
+      }),
 
     autoArrange: () =>
       set((s) => {

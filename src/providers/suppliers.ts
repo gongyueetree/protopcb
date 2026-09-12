@@ -6,9 +6,16 @@ export interface SupplierOffer {
   configured: boolean;
   found: boolean;
   price?: number;
+  /** 币种；undefined = 上游文档未明确币种（如 OURIC），UI 显示裸数值并附 note */
   currency?: string;
   stock?: number;
   url?: string;
+  /** 阶梯价（qty 升序），Iceasy/OURIC 等提供 */
+  priceBreaks?: { qty: number; price: number }[];
+  /** 口径备注：币种待确认 / 虚拟库存 / MOQ 等 */
+  note?: string;
+  warehouse?: string;
+  deliveryTime?: string;
 }
 
 const cache = new Map<string, SupplierOffer[]>();
@@ -31,6 +38,7 @@ export async function fetchSupplierOffers(mpn: string): Promise<SupplierOffer[]>
 
 export function fmtOfferPrice(o: SupplierOffer): string {
   if (o.price == null) return '见官网';
-  const sym = o.currency === 'CNY' ? '¥' : o.currency === 'USD' ? '$' : (o.currency ?? '') + ' ';
+  // currency 未确认（如 OURIC 文档未标币种）时显示裸数值，不冒充某种货币
+  const sym = o.currency === 'CNY' ? '¥' : o.currency === 'USD' ? '$' : o.currency ? o.currency + ' ' : '';
   return `${sym}${o.price < 1 ? o.price.toFixed(4) : o.price.toFixed(2)}`;
 }

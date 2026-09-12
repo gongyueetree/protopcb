@@ -15,6 +15,7 @@ import { lshapeRoundedSegments } from '../../design-core/geometry/board-outline'
 import { useLibFileStore } from '../../design-core/geometry/lib-file-registry';
 import { stepStats } from './step-loader';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
+import { DEFAULT_ENCLOSURE, heightEnvelope, computeEnclosureDims, PCB_THICKNESS_MM } from '../../design-core/enclosure';
 
 export function BoardView3D() {
   const doc = useDesignStore((s) => s.doc);
@@ -141,7 +142,7 @@ export function BoardView3D() {
     const st = stateRef.current;
     if (!st.boardGroup) return;
     rebuildBoard(st.boardGroup, doc);
-  }, [doc.board.widthMm, doc.board.heightMm, doc.board.shape, doc.board.mountingHolesEnabled, doc.components, libVersion]);
+  }, [doc.board.widthMm, doc.board.heightMm, doc.board.shape, doc.board.mountingHolesEnabled, doc.components, doc.enclosure, libVersion]);
 
   return (
     <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
@@ -293,6 +294,10 @@ function rebuildBoard(group: THREE.Group, doc: CircuitCanvasDocument) {
     }
     group.add(model);
   }
+
+  // 外壳协同：半透明参数化外壳（由 PCB 外形 + 器件高度包络推出，与干涉检查同一套几何）
+  if (doc.enclosure?.enabled) addEnclosureMesh(group, doc);
+
 }
 
 function roundedRectShape(s: THREE.Shape, w: number, h: number, r: number) {
@@ -326,3 +331,52 @@ function disposeObj(obj: THREE.Object3D) {
 }
 
 const mini: React.CSSProperties = { width: 26, height: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 5, border: '1px solid #dbe6dd', background: '#fff', fontSize: 11, fontWeight: 700, color: '#334155', cursor: 'pointer', padding: 0 };
+
+
+/**
+ * 半透明参数化外壳（底壳 + 顶盖）。几何来自 design-core/enclosure 的同一套推导，
+ * 保证"看到的"和"检查结论"一致。坐标系：板中心原点、y 向上、PCB 上表面 y=0。
+ */
+function addEnclosureMesh(group: THREE.Group, doc: CircuitCanvasDocument) {
+  const spec = { ...DEFAULT_ENCLOSURE, ...(doc.enclosure ?? {}) };
+  const env = heightEnvelope(doc.components);
+  const d = computeEnclosureDims(doc.board, env, spec);
+
+  const shellMat = new THREE.MeshStandardMaterial({
+    color: 0x2f3b45, roughness: 0.55, metalness: 0.05,
+    transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const g = new THREE.Group();
+  // PCB 上表面 y=0 → PCB 下表面 -PCB_THICKNESS_MM → 内腔底面再低 standoff
+  const innerFloorY = -PCB_THICKNESS_MM - spec.standoffMm;
+  const outerFloorY = innerFloorY - spec.wallMm;
+  const innerTopY = innerFloorY + d.innerDepth;
+
+  const wall = (w: number, h: number, t: number, x: number, y: number, z: number) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, t), shellMat);
+    m.position.set(x, y, z);
+    g.add(m);
+  };
+  const innerH = d.innerDepth;
+  const midY = innerFloorY + innerH / 2;
+  // 底板
+  wall(d.outerW, spec.wallMm, d.outerH, 0, outerFloorY + spec.wallMm / 2, 0);
+  // 四面侧壁
+  wall(spec.wallMm, innerH, d.outerH, -(d.innerW + spec.wallMm) / 2, midY, 0);
+  wall(spec.wallMm, innerH, d.outerH, (d.innerW + spec.wallMm) / 2, midY, 0);
+  wall(d.innerW, innerH, spec.wallMm, 0, midY, -(d.innerH + spec.wallMm) / 2);
+  wall(d.innerW, innerH, spec.wallMm, 0, midY, (d.innerH + spec.wallMm) / 2);
+  // 顶盖
+  wall(d.outerW, spec.lidMm, d.outerH, 0, innerTopY + spec.lidMm / 2, 0);
+  // 支柱（对齐定位孔位置；无孔位时不画，避免凭空发明结构）
+  const holes = mountingHoleCenters(doc.board);
+  for (const c of holes) {
+    const post = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.6, 3.2, spec.standoffMm, 20),
+      new THREE.MeshStandardMaterial({ color: 0x2f3b45, roughness: 0.6, transparent: true, opacity: 0.4 }),
+    );
+    post.position.set(c.x - doc.board.widthMm / 2, innerFloorY + spec.standoffMm / 2, c.y - doc.board.heightMm / 2);
+    g.add(post);
+  }
+  group.add(g);
+}
