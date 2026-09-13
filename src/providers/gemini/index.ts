@@ -12,6 +12,7 @@ import type { AiModelProvider, AiSchemeRequest, AiSchemeResult, AccessContext, C
 import { searchEzplmParts, ezplmLiveAvailable } from '../ezplm-live';
 import type { ComponentCategory } from '../../design-core/document/types';
 import { AiSchemeSchema, validateAi, assessTrust, type AiComponent } from '../ai-schema';
+import { kicadPassiveDefaults } from '../../design-core/geometry/kicad-passive-defaults';
 
 /* ---------- 可用性与通用补全（代理） ---------- */
 let availableCache: boolean | null = null;
@@ -143,12 +144,15 @@ export class GeminiAiProvider implements AiModelProvider {
               candidate: { componentId: candidateHit.componentId, mpn: candidateHit.mpn, manufacturer: candidateHit.manufacturer },
             }
           : { level: 'PLACEHOLDER', evidence: '仅由模型建议，数据库未收录，需人工核对 datasheet', source: 'ai-only', verifiedAt: now() };
+        // 无源件统一用 KiCad 官方符号/封装：同一种电容在画布上只有一种画法
+        const passive = kicadPassiveDefaults('', sc.mpn ?? '', sc.reason ?? '', sc.footprint ?? '');
         mapped = {
           componentId: `fp_${sc.mpn}_${Math.random().toString(36).slice(2, 7)}`,
           mpn: sc.mpn || '未命名器件',
           manufacturer: sc.manufacturer ?? '—',
           category: cat,
-          defaultFootprintName: sc.footprint || (cat === 'passive' ? '0402' : 'SOIC-8'),
+          defaultFootprintName: passive?.footprint || sc.footprint || (cat === 'passive' ? 'C_0402_1005Metric' : 'SOIC-8'),
+          symbolFromMpn: passive?.symbol,
           family: 'Footprint',
           description: `${sc.reason ?? ''}（${candidateHit ? `候选：${candidateHit.mpn}，待确认` : '未映射到 ezPLM，以封装占位'}）`.trim(),
           pins: 2,

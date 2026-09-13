@@ -11,7 +11,6 @@ import { FootprintLibraryPanel } from './modules/component-search/FootprintLibra
 import { LibraryPreview } from './modules/component-search/LibraryPreview';
 import { padFootprintFor as padFootprintForT } from './design-core/geometry/footprint-pads';
 import { downloadKicadPcb } from './modules/board-editor/pcbExport';
-import { ReferenceDesignSection } from './modules/component-search/ReferenceDesignSection';
 import { ensureFootprintFile, ensureSymbolFile, useLibFileStore } from './design-core/geometry/lib-file-registry';
 import { fetchDigikeyOffer, formatDkPrice, type DigikeyOffer } from './providers/digikey';
 import { fetchSupplierOffers, fmtOfferPrice, type SupplierOffer } from './providers/suppliers';
@@ -48,6 +47,7 @@ import { SchematicPanel } from './modules/schematic/SchematicPanel';
 import { SchemeWorkspace, type SchemeProposal } from './modules/scheme/SchemeWorkspace';
 import { PipelineBar } from './modules/scheme/PipelineBar';
 import { PcbViewControls } from './modules/board-editor/PcbViewControls';
+import { exportBomCsv } from './modules/bom/bom-csv';
 import { usePcbViewStore } from './state/pcbViewStore';
 import { exportDocument, importDocumentFromFile, autosave, exportMarkdownReport } from './modules/report/persistence';
 import { COLORS, CATEGORY_DISPLAY } from './shared/theme';
@@ -83,6 +83,21 @@ export default function App() {
   const doc = useDesignStore((s) => s.doc);
   const selectedId = useDesignStore((s) => s.selectedId);
   const placementViolations = useDesignStore((s) => s.placementViolations);
+  /**
+   * 窄屏自适应：两侧面板按窗口宽度收窄，很窄时直接折叠，把空间让给画布。
+   * 手机/分屏上原来两侧各占 330/320px，1000px 宽的窗口只剩 350px 画布，没法用。
+   */
+  const [winW, setWinW] = useState(typeof window === 'undefined' ? 1600 : window.innerWidth);
+  useEffect(() => {
+    const on = () => setWinW(window.innerWidth);
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
+  const sideW = winW < 1100 ? { left: 250, right: 250 } : winW < 1400 ? { left: 290, right: 280 } : { left: 330, right: 320 };
+  const [leftManual, setLeftManual] = useState<boolean | null>(null);
+  const [rightManual, setRightManual] = useState<boolean | null>(null);
+  const leftOpen = leftManual ?? winW >= 900;      // 900px 以下默认收起左栏
+  const rightOpen = rightManual ?? winW >= 1000;   // 1000px 以下默认收起右栏
   // PCB 视图状态（纯 UI，不入文档/undo）
   const pcbMode = usePcbViewStore((s) => s.mode);
   const hidden3d = usePcbViewStore((s) => s.hidden3dIds);
@@ -464,9 +479,8 @@ export default function App() {
             style={{ fontSize: 10, color: '#94a3b8', alignSelf: 'center', marginRight: 4 }}>✓ {t('已自动保存')} {savedAt}</span>}
           <button onClick={toggleLang} title={lang === 'zh' ? 'Switch to English' : tr('切换为中文')}
             style={{ ...hbtn, fontWeight: 800 }}>{lang === 'zh' ? tr('中 | EN') : tr('EN | 中')}</button>
-          <button onClick={() => { if (ensureProjectName()) setPcbExportOpen(true); }} style={hbtn}>🏭 {t('导出PCB')}</button>
-          <button onClick={() => exportMarkdownReport(doc)} style={hbtn}>📄 {t('方案报告')}</button>
-          <button onClick={() => { if (ensureProjectName()) exportDocument(useDesignStore.getState().doc); }} style={hbtn}>⬇ {t('导出设计')}</button>
+          {/* 「导出PCB」与「导出设计」合并为一个导出中心：PCB 工程 / 设计文件 / BOM / 报告 一处给全 */}
+          <button onClick={() => { if (ensureProjectName()) setPcbExportOpen(true); }} style={hbtn}>⬇ {t('导出设计')}</button>
           <button onClick={() => fileRef.current?.click()} style={hbtn}>⬆ {t('导入设计')}</button>
           <input ref={fileRef} type="file" accept=".json,.kicad_pcb,.kicad_sch,.sch,.zip" style={{ display: 'none' }} onChange={onImport} />
         </div>
@@ -474,7 +488,7 @@ export default function App() {
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Left */}
-        <aside style={{ width: 330, flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#f4f7f5', borderRight: '1px solid #dbe6dd' }}>
+        <aside style={{ width: sideW.left, flexShrink: 0, display: leftOpen ? 'flex' : 'none', flexDirection: 'column', background: '#f4f7f5', borderRight: '1px solid #dbe6dd' }}>
           <div style={{ padding: 12, overflow: 'auto', flex: 1 }}>
             {/* AI scheme */}
             <div style={{ marginBottom: 12, padding: 10, borderRadius: 10, border: '1px solid #c6e2d0', background: '#f7fcf9' }}>
@@ -517,6 +531,7 @@ export default function App() {
             }}>🧹</button>
             <button onClick={autoArrange} style={ibtn} title={t('自动整理') + ' — ' + t('按电气规则重新自动布局全部器件（可撤销）')} aria-label={t('自动整理')}>✨</button>
             <div style={{ width: 1, height: 18, background: '#E8F3EE', margin: '0 4px' }} />
+            <button onClick={() => setLeftManual(!leftOpen)} title={t('折叠/展开左侧器件栏')} style={ibtn}>{leftOpen ? '◧' : '▶'}</button>
             {view === '2d' && mainTab === 'pcb' && <PcbViewControls />}
             {view === '2d' && (
               <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #E8F3EE' }} title={tr('当前放置层（选中器件按 L 换层）')}>
@@ -533,6 +548,7 @@ export default function App() {
             </div>
             <div style={{ flex: 1 }} />
             <span style={{ fontSize: 11, color: '#94a3b8' }}>{view === '3d' ? t('拖拽旋转 · 滚轮缩放') : t('R 旋转 · L 换层 · Delete 删除 · Shift+拖拽框选 · 拖位号可移动')}</span>
+            <button onClick={() => setRightManual(!rightOpen)} title={t('折叠/展开右侧面板')} style={ibtn}>{rightOpen ? '◨' : '◀'}</button>
           </div>
 
           <div style={{ flex: 1, position: 'relative', minHeight: 0, display: 'flex' }}>
@@ -637,7 +653,7 @@ export default function App() {
         </div>
 
         {/* Right */}
-        <aside style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', borderLeft: '1px solid #e2e8f0' }}>
+        <aside style={{ width: sideW.right, flexShrink: 0, display: rightOpen ? 'flex' : 'none', flexDirection: 'column', background: '#fff', borderLeft: '1px solid #e2e8f0' }}>
           <div style={{ background: COLORS.green, padding: '6px 8px 0', display: 'flex', gap: 4 }}>
             {([['comp', '🔧 ' + t('当前元件')], ['net', '🔗 ' + t('连接')], ['advisor', '🤖 ' + t('AI顾问')]] as const).map(([id, label]) => (
               <button key={id} onClick={() => setRightTab(id)} style={{ flex: 1, padding: '9px 0', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', border: 'none', borderRadius: '6px 6px 0 0', background: rightTab === id ? '#fff' : 'rgba(255,255,255,.12)', color: rightTab === id ? COLORS.green : 'rgba(255,255,255,.85)' }}>{label}</button>
@@ -659,8 +675,26 @@ export default function App() {
       {pcbExportOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }} onClick={() => setPcbExportOpen(false)}>
           <div style={{ width: '100%', maxWidth: 560, background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 24px 80px rgba(0,0,0,.25)' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: COLORS.green, marginBottom: 4 }}>{tr('🏭 导出 PCB 布局文件')}</div>
-            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>{tr('含板框（Edge.Cuts）、定位孔（非金属化孔）、全部器件真实焊盘与 Top/Bottom 层信息')}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: COLORS.green, marginBottom: 4 }}>{tr('⬇ 导出设计')}</div>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>{tr('PCB 工程、设计文件、BOM、方案报告在这里一次取全')}</div>
+
+            {/* 其余产物：一键下载，不再散落在顶栏 */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 8, marginBottom: 12 }}>
+              {([
+                ['📦 ' + t('设计文件 (JSON)'), t('完整设计，可再次导入本工具'), () => exportDocument(useDesignStore.getState().doc)],
+                ['📄 ' + t('方案报告 (MD)'), t('需求、器件清单、审查结论'), () => exportMarkdownReport(doc)],
+                ['🧾 ' + t('BOM (CSV)'), t('位号、型号、封装、数量、单价'), () => exportBomCsv(doc)],
+              ] as const).map(([label, hint, fn]) => (
+                <button key={label} onClick={() => fn()} title={hint}
+                  style={{ padding: '9px 10px', borderRadius: 8, border: '1px solid #E8F3EE', background: '#fff', textAlign: 'left', cursor: 'pointer' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.green }}>{label}</div>
+                  <div style={{ fontSize: 9.5, color: '#94a3b8', marginTop: 2 }}>{hint}</div>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: '#334155', marginBottom: 4 }}>{tr('🏭 PCB 布局文件')}</div>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 10 }}>{tr('含板框（Edge.Cuts）、定位孔（非金属化孔）、全部器件真实焊盘与 Top/Bottom 层信息')}</div>
 
             {/* 未验证器件告警：AI 建议的型号不能不加提示地流入生产文件 */}
             {(() => {
@@ -849,8 +883,7 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
 
       <LibraryPreview c={c} />
 
-      {/* 参考设计智能：应用项目 + 相关参考设计 + 功能块提取（统一模型/排序/诚实状态） */}
-      <ReferenceDesignSection c={c} />
+      {/* 参考设计智能已移到右侧「AI 顾问 → 配套电路推荐」，与 AI 推断合并在一处 */}
 
       {/* 采购渠道：仅当型号明确（真实 MPN）时显示并查询；分销商侧已做精确匹配 */}
       {hasRealMpn(c.mpn) && (<>

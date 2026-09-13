@@ -13,6 +13,7 @@ import { searchResultToPlaced, nextReference, buildBom, runDesignReview } from '
 import { resolveAffinity, signalFlowRank, isCore } from '../design-core/placement/affinity';
 import { solvePlacementDetailed, DEFAULT_PLACEMENT_RULES, autoPlaceAllDetailed, type PlacementViolation } from '../design-core/placement';
 import { DEFAULT_ENCLOSURE } from '../design-core/enclosure';
+import { kicadPassiveDefaults } from '../design-core/geometry/kicad-passive-defaults';
 import { clampComponentToBoard, findOverlaps, BOARD_MARGIN_MM } from '../design-core/collision';
 import { appConfig } from '../config';
 
@@ -212,18 +213,21 @@ export const useDesignStore = create<DesignState>()(
           for (let i = 0; i < it.qty; i++) flat.push(it);
         }
         for (const it of flat) {
+          // 推荐出来的附属器件同样统一到 KiCad 官方符号/封装
+          const pv = kicadPassiveDefaults('', it.mpn ?? it.value, it.role, it.footprint);
+          const fpName = pv?.footprint ?? it.footprint;
           const placed = searchResultToPlaced({
             componentId: `sub_${core.reference}_${it.role}`.replace(/[^\w-]/g, '_') + '_' + placedCount,
             mpn: it.mpn ?? it.value,
             manufacturer: '—',
             category: it.category,
-            defaultFootprintName: it.footprint,
+            defaultFootprintName: fpName,
             family: /^C_/.test(it.footprint) ? 'MLCC' : /^R_/.test(it.footprint) ? 'Resistor' : /^L_/.test(it.footprint) ? 'Inductor' : /^LED/.test(it.footprint) ? 'LED' : /^D_/.test(it.footprint) ? 'Diode' : /Crystal/i.test(it.footprint) ? 'Crystal' : '子电路',
             description: `${it.role} · 接 ${core.reference}.${it.connectsTo}`,
             pins: 2,
           } as ComponentSearchResult, nextReference({ category: it.category, mpn: it.mpn ?? it.value, defaultFootprintName: it.footprint, description: it.role }, s.doc.components));
           placed.placement.side = core.placement.side;
-          placed.display = { ...(placed.display ?? {}), anchorRef: core.reference };
+          placed.display = { ...(placed.display ?? {}), anchorRef: core.reference, ...(pv ? { symbolFromMpn: pv.symbol } : {}) };
           const sameLayer = s.doc.components.filter((c) => c.placement.side === core.placement.side);
           const out = solvePlacementDetailed(placed, { board: s.doc.board, existing: sameLayer, rules: DEFAULT_PLACEMENT_RULES });
           placed.placement.xMm = out.position.x;

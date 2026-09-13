@@ -164,8 +164,9 @@ export function AdvisorPanel() {
         )}
       </Section>
 
-      {/* 按类别的通用配套建议 */}
-      <Section title={"📦 " + tr('配套器件建议')} badge={cats.length || undefined}>
+      {/* 按类别的通用配套建议：与上面的「配套电路推荐」同属一件事，
+          放在同一区的下半部分，避免用户在两处看同一个问题 */}
+      <Section title={"📦 " + tr('按类别的通用建议')} badge={cats.length || undefined}>
         {doc.components.length === 0 ? <Empty text={tr('添加器件后推荐配套子电路')} /> :
           cats.map((cat) => (
             <div key={cat} style={{ marginTop: 8 }}>
