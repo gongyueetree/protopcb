@@ -7,11 +7,12 @@ import { useDesignStore } from '../../state/designStore';
 import { fmtMoney, COLORS } from '../../shared/theme';
 import { useEffect, useRef, useState } from 'react';
 import type { BomLine } from '../../design-core/document/types';
-import { geminiComplete, extractJson } from '../../providers/gemini';
+import { geminiComplete, extractJson, geminiAvailable } from '../../providers/gemini';
 import { isPriceable, whyNotPriceable, classifyByRefDes, pricingPriority, CLASS_LABEL } from './part-class';
 import { fetchDigikeyOffer, type DigikeyOffer } from '../../providers/digikey';
 import { fetchSupplierOffers } from '../../providers/suppliers';
 import { buildMatchQuery, rankCandidates, parseConstraints, CLASS_LABEL as PART_CLASS_LABEL, type Candidate, type ScoredCandidate } from '../../design-core/part-matching';
+import { autoMatchBom, summarizeMatches, type BomMatchResult } from './auto-match';
 import { searchEzplmParts } from '../../providers/ezplm-live';
 
 export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: boolean; onToggleFullscreen?: () => void } = {}) {
@@ -31,6 +32,68 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   /** 对话框里可改写的型号 —— 用户原始命名常常不完整（如 9012 → S9012、MachXO2-1200-QFN32 → LCMXO2-1200HC-4SG32C）。
    *  用非受控 input + ref：受控写法会因每次按键触发整个面板重渲染，且易被祖先的 mousedown/keydown 处理器干扰。 */
   const searchInputRef = useRef<HTMLInputElement>(null);
+  /** 批量关联：结果按位号索引，供表格逐行展示 */
+  const [autoRes, setAutoRes] = useState<Record<string, BomMatchResult>>({});
+  const [autoBusy, setAutoBusy] = useState<{ done: number; total: number } | null>(null);
+  const abortRef = useRef<{ aborted: boolean }>({ aborted: false });
+
+  /**
+   * 一键关联：ezPLM → 分销商 → AI 估价。
+   * 只填充"匹配结果与价格"，**不自动改写设计里的型号** —— 近似料必须人工确认。
+   */
+  const runAutoMatch = async () => {
+    if (autoBusy) { abortRef.current.aborted = true; return; }
+    const signal = { aborted: false };
+    abortRef.current = signal;
+    setAutoBusy({ done: 0, total: bom.length });
+    const aiOk = await geminiAvailable().catch(() => false);
+    const results = await autoMatchBom(
+      bom.map((l) => ({ reference: l.reference, mpn: l.mpn, footprint: l.footprint, description: l.description, quantity: l.quantity })),
+      {
+        searchEzplm: async (q, limit) => {
+          const r = await searchEzplmParts(q, limit);
+          return r.available ? r.items.map((it) => ({
+            mpn: it.mpn, manufacturer: it.manufacturer, description: it.description,
+            footprint: it.defaultFootprintName, category: it.category, source: 'ezplm' as const,
+          })) : [];
+        },
+        searchDistributors: async (q) => {
+          const out: Candidate[] = [];
+          for (const url of [`/api/digikey?path=fuzzy&q=${encodeURIComponent(q)}`, `/api/suppliers?path=fuzzy&q=${encodeURIComponent(q)}&mpn=${encodeURIComponent(q)}`]) {
+            try {
+              const j = await (await fetch(url)).json();
+              for (const it of (Array.isArray(j.items) ? j.items : [])) {
+                out.push({ mpn: it.mpn, manufacturer: it.manufacturer, description: it.description,
+                  source: 'distributor', vendor: it.vendor, price: it.price, currency: it.currency, stock: it.stock, url: it.url });
+              }
+              if (out.length) break;
+            } catch { /* 换下一家 */ }
+          }
+          return out;
+        },
+        // AI 估价只在前两步都没有价格时触发，结果显式标注为估算
+        estimatePrice: aiOk ? async (l) => {
+          const txt = await geminiComplete(
+            `估算该电子元件在国内小批量（100 片）采购的单价，只回一个 JSON：{"cny":数字,"note":"20字内依据"}\n` +
+            `位号 ${l.reference} · 型号/值 ${l.mpn} · 封装 ${l.footprint ?? '未知'}`);
+          const m = txt.match(/\{[\s\S]*\}/);
+          if (!m) return null;
+          const j = JSON.parse(m[0]) as { cny?: number; note?: string };
+          return typeof j.cny === 'number' && j.cny > 0 ? { amount: j.cny, currency: 'CNY', note: j.note ?? 'AI 估算' } : null;
+        } : undefined,
+      },
+      {
+        concurrency: 3,
+        signal,
+        onProgress: (done, total, last) => {
+          setAutoBusy({ done, total });
+          if (last) setAutoRes((prev) => ({ ...prev, [last.reference]: last }));
+        },
+      },
+    );
+    setAutoRes(Object.fromEntries(results.map((r) => [r.reference, r])));
+    setAutoBusy(null);
+  };
   /** 用户补充的选型约束（国产优先 / 1元以内 / 不要阵列…），确定性解析后参与打分与过滤 */
   const consInputRef = useRef<HTMLInputElement>(null);
 
@@ -320,6 +383,21 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <span style={{ fontSize: 15, fontWeight: 700 }}>🧾 {tr('BOM清单')} <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400 }}>{tr('共')} {bom.length} {tr('项')}</span></span>
         <div style={{ display: 'flex', gap: 6 }}>
+          {Object.keys(autoRes).length > 0 && (() => {
+            const sm = summarizeMatches(Object.values(autoRes), Object.fromEntries(bom.map((l) => [l.reference, l.quantity])));
+            return (
+              <span style={{ fontSize: 10.5, color: '#475569', marginRight: 8 }}>
+                {tr('精确')} {sm.exact} · {tr('近似')} {sm.candidate} · {tr('未找到')} {sm.none}
+                {sm.quoted ? ` · ${tr('报价合计')} ¥${sm.totalQuoted.toFixed(2)}` : ''}
+                {sm.estimated ? ` · ${tr('估算合计')} ≈¥${sm.totalEstimated.toFixed(2)}` : ''}
+              </span>
+            );
+          })()}
+          <button onClick={runAutoMatch}
+            title={tr('按位号性质 + 描述/值 + 封装，先查 ezPLM 再查分销商，都没有才用 AI 估价；结果需人工确认后才写回设计')}
+            style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: autoBusy ? '#b45309' : COLORS.green, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginRight: 6 }}>
+            {autoBusy ? `⟳ ${autoBusy.done}/${autoBusy.total}（${tr('点击停止')}）` : '🔗 ' + tr('一键关联')}
+          </button>
           <button onClick={exportCsv} style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #c6e2d0', background: COLORS.greenBg, color: COLORS.green, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{tr('导出 CSV')}</button>
           {onToggleFullscreen && <button onClick={onToggleFullscreen} style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{isFullscreen ? tr('↙ 退出全屏') : tr('⛶ 全屏')}</button>}
         </div>
@@ -347,6 +425,27 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
                     : srcOf(l.reference) === 'EZPLM'
                     ? <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#f1f5f9', color: '#64748b', fontWeight: 700 }}>ezPLM</span>
                     : (() => {
+                      // 批量关联结果优先展示（它已经把 ezPLM/分销商/AI 估价都跑过一遍）
+                      const am = autoRes[l.reference];
+                      if (am) {
+                        const tone = am.level === 'EXACT' ? { bg: '#dcfce7', fg: '#166534', label: '精确匹配' }
+                          : am.level === 'CANDIDATE' ? { bg: '#fef3c7', fg: '#92400e', label: '近似待确认' }
+                          : { bg: '#f1f5f9', fg: '#64748b', label: '未找到' };
+                        return (
+                          <span title={am.detail + (am.best ? ` → ${am.best.mpn}` : '')}
+                            onClick={() => am.best && openFuzzy(l)}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: am.best ? 'pointer' : 'default' }}>
+                            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, fontWeight: 700, background: tone.bg, color: tone.fg }}>{tr(tone.label)}</span>
+                            {am.best && <span style={{ fontSize: 9.5, fontFamily: 'monospace', color: '#475569', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{am.best.mpn}</span>}
+                            {am.price && (
+                              <span style={{ fontSize: 9.5, fontWeight: 700, color: am.price.kind === 'estimate' ? '#b45309' : '#059669' }}
+                                title={am.price.kind === 'estimate' ? tr('AI 估算，不是真实报价') : `${am.price.vendor ?? ''} ${tr('报价')}`}>
+                                {am.price.kind === 'estimate' ? '≈' : ''}{am.price.currency === 'USD' ? '$' : '¥'}{am.price.amount.toFixed(3)}
+                              </span>
+                            )}
+                          </span>
+                        );
+                      }
                       const why = whyNotPriceable(l.mpn, l.reference, l.footprint);
                       // 结构件（测试点/安装孔）确实不需要采购；其余"值不是型号 / 型号不完整"的行
                       // 照样可以按 参数 + 封装 + 类别 去 ezPLM / DigiKey / Mouser 匹配可采购料号，
