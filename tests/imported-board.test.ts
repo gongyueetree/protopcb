@@ -147,3 +147,34 @@ $EndSCHEMATC`;
     expect(r.busEntries).toHaveLength(1);
   });
 });
+
+describe('字段方向矩阵变换（与 KiCad 自身渲染一致）', () => {
+  const mk = (matLine: string, fields: string) => `EESchema Schematic File Version 4
+$Comp
+L eedevice:C C2
+P 2600 1100
+${fields}
+	1    2600 1100
+	${matLine}
+$EndComp
+$EndSCHEMATC`;
+
+  it('矩阵 (1,0,0,-1)：位号在上、值在下', async () => {
+    const { parseLegacySch } = await import('../src/design-core/geometry/kicad-sch-legacy');
+    const r = parseLegacySch(mk('1    0    0    -1  ',
+      'F 0 "C2" H 2691 1146 50  0000 L CNN\nF 1 "1uF" H 2691 1055 50  0000 L CNN'));
+    const c = r.comps[0];
+    expect(c.refField!.y).toBeLessThan(c.y);      // 位号在上
+    expect(c.valueField!.y).toBeGreaterThan(c.y); // 值在下
+  });
+
+  it('矩阵 (-1,0,0,1)：y 不翻转，且左右对齐镜像', async () => {
+    const { parseLegacySch } = await import('../src/design-core/geometry/kicad-sch-legacy');
+    const r = parseLegacySch(mk('-1   0    0    1   ',
+      'F 0 "C2" H 2480 1040 50  0000 L CNN\nF 1 "1uF" H 2480 1160 50  0000 L CNN'));
+    const c = r.comps[0];
+    expect(c.refField!.y).toBeLessThan(c.y);      // 1040 < 1100，y 不翻转
+    expect(c.refField!.x).toBeGreaterThan(c.x);   // x 镜像到右侧
+    expect(c.refField!.just).toBe('R');           // 左对齐镜像成右对齐
+  });
+});

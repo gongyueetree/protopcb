@@ -158,6 +158,26 @@ export function parseLegacySch(text: string): LegacySchResult {
           continue;
         }
       }
+      // ── 字段坐标要按器件方向矩阵变换 ──
+      // .sch 里 F 行的 x/y 是**相对器件原点的局部坐标**，需用方向矩阵 (a,b,c,d) 变换：
+      //   dx = fx - Px, dy = fy - Py;  x' = Px + a*dx + b*dy;  y' = Py + c*dx + d*dy
+      // 实证：C2 矩阵 (1,0,0,-1) → 位号在上；R7 矩阵 (-1,0,0,1) → 位号在上、标注在右，
+      // 与 KiCad 自己导出的 PDF 完全一致。此前直接当绝对坐标用，位号与值上下颠倒。
+      if (mat) {
+        const [a, b, c, dd] = mat;
+        const xf = (f: Field | undefined): Field | undefined => {
+          if (!f) return undefined;
+          const dx = f.x - x, dy = f.y - y;
+          const nx = x + a * dx + b * dy;
+          const ny = y + c * dx + dd * dy;
+          // 左右镜像时水平对齐也要翻转，否则文字整体偏移半个宽度
+          const just = a < 0 ? (f.just === 'L' ? 'R' : f.just === 'R' ? 'L' : 'C') : f.just;
+          return { ...f, x: nx, y: ny, just };
+        };
+        refField = xf(refField);
+        valueField = xf(valueField);
+      }
+
       if (ref) {
         // 电源/接地符号（#PWR…）也要渲染——它们是原理图的一部分；
         // 只是不进 BOM，故不写入 refToFootprint。

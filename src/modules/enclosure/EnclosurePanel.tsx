@@ -5,6 +5,7 @@
  */
 import { useMemo } from 'react';
 import { useDesignStore } from '../../state/designStore';
+import { useLibFileStore } from '../../design-core/geometry/lib-file-registry';
 import { tr } from '../../shared/i18n';
 import { COLORS } from '../../shared/theme';
 import {
@@ -22,6 +23,10 @@ export function EnclosurePanel() {
   const doc = useDesignStore((s) => s.doc);
   const setEnclosure = useDesignStore((s) => s.setEnclosure);
   const spec = { ...DEFAULT_ENCLOSURE, ...(doc.enclosure ?? {}) };
+  // 工程导入后封装是**异步**匹配上的（KiCad 官方库/内嵌定义注册进来会 bump libVersion）。
+  // 开孔位置、器件高度、内腔尺寸全都依赖真实封装，所以必须跟着 libVersion 重算，
+  // 否则一直停在导入瞬间用名字猜出来的那套几何上（开孔对不上连接器的根因）。
+  const libVersion = useLibFileStore((s) => s.version);
 
   const { env, dims, issues, openings, mounting } = useMemo(() => {
     const e = heightEnvelope(doc.components);
@@ -30,7 +35,7 @@ export function EnclosurePanel() {
       openings: deriveOpenings(doc), mounting: deriveMounting(doc.board),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, spec.wallMm, spec.sideClearanceMm, spec.standoffMm, spec.topClearanceMm, spec.bottomClearanceMm, spec.lidMm]);
+  }, [doc, libVersion, spec.wallMm, spec.sideClearanceMm, spec.standoffMm, spec.topClearanceMm, spec.bottomClearanceMm, spec.lidMm]);
 
   const field = (label: string, key: keyof typeof spec, hint: string, step = 0.1) => (
     <div style={row} title={hint}>
