@@ -375,6 +375,40 @@ function addEnclosureMesh(group: THREE.Group, doc: CircuitCanvasDocument) {
   const outerFloorY = innerFloorY - spec.wallMm;
   const innerTopY = innerFloorY + d.innerDepth;
 
+  const openings = deriveOpenings(doc);
+  /**
+   * 带开孔的板片：用 Shape + holes 挤出，开孔是**真正挖穿的**（不是画个红框示意）。
+   * plane: 'xz' 顶盖/底板（水平面），'yz'/'xy' 侧壁（竖直面）。
+   * holes 里的坐标是该面局部坐标（u=面内横向，v=面内纵向）。
+   */
+  const panel = (
+    uSize: number, vSize: number, thick: number,
+    holes: { u: number; v: number; w: number; h: number; circle?: boolean }[],
+    place: (mesh: THREE.Mesh) => void,
+  ) => {
+    const shape = new THREE.Shape();
+    shape.moveTo(-uSize / 2, -vSize / 2);
+    shape.lineTo(uSize / 2, -vSize / 2);
+    shape.lineTo(uSize / 2, vSize / 2);
+    shape.lineTo(-uSize / 2, vSize / 2);
+    shape.closePath();
+    for (const o of holes) {
+      const path = new THREE.Path();
+      if (o.circle) path.absarc(o.u, o.v, Math.max(o.w, o.h) / 2, 0, Math.PI * 2, true);
+      else {
+        path.moveTo(o.u - o.w / 2, o.v - o.h / 2);
+        path.lineTo(o.u - o.w / 2, o.v + o.h / 2);
+        path.lineTo(o.u + o.w / 2, o.v + o.h / 2);
+        path.lineTo(o.u + o.w / 2, o.v - o.h / 2);
+        path.closePath();
+      }
+      shape.holes.push(path);
+    }
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false });
+    const m = new THREE.Mesh(geo, shellMat);
+    place(m);
+    g.add(m);
+  };
   const wall = (w: number, h: number, t: number, x: number, y: number, z: number) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, t), shellMat);
     m.position.set(x, y, z);
@@ -384,13 +418,33 @@ function addEnclosureMesh(group: THREE.Group, doc: CircuitCanvasDocument) {
   const midY = innerFloorY + innerH / 2;
   // 底板
   wall(d.outerW, spec.wallMm, d.outerH, 0, outerFloorY + spec.wallMm / 2, 0);
-  // 四面侧壁
-  wall(spec.wallMm, innerH, d.outerH, -(d.innerW + spec.wallMm) / 2, midY, 0);
-  wall(spec.wallMm, innerH, d.outerH, (d.innerW + spec.wallMm) / 2, midY, 0);
-  wall(d.innerW, innerH, spec.wallMm, 0, midY, -(d.innerH + spec.wallMm) / 2);
-  wall(d.innerW, innerH, spec.wallMm, 0, midY, (d.innerH + spec.wallMm) / 2);
-  // 顶盖
-  wall(d.outerW, spec.lidMm, d.outerH, 0, innerTopY + spec.lidMm / 2, 0);
+  // ── 四面侧壁（连接器开孔真正挖穿）──
+  // 面内坐标：u 沿墙长度方向、v 为高度（以墙中心为原点）；开孔 cy 是 PCB 上表面之上的高度
+  const holesOn = (face: 'left' | 'right' | 'front' | 'back') =>
+    openings.filter((o) => o.face === face).map((o) => ({
+      u: face === 'left' || face === 'front' ? o.cx : -o.cx,   // 该面从外侧看时横向翻转
+      v: (0 + o.cy) - midY,                                     // PCB 上表面 y=0
+      w: o.w, h: o.h, circle: o.shape === 'circle',
+    }));
+  panel(d.outerH, innerH, spec.wallMm, holesOn('left'), (m) => {
+    m.rotation.y = -Math.PI / 2;
+    m.position.set(-(d.innerW + spec.wallMm) / 2 - spec.wallMm / 2, midY, 0);
+  });
+  panel(d.outerH, innerH, spec.wallMm, holesOn('right'), (m) => {
+    m.rotation.y = Math.PI / 2;
+    m.position.set((d.innerW + spec.wallMm) / 2 - spec.wallMm / 2, midY, 0);
+  });
+  panel(d.innerW, innerH, spec.wallMm, holesOn('front'), (m) => {
+    m.position.set(0, midY, -(d.innerH + spec.wallMm) / 2 - spec.wallMm / 2);
+  });
+  panel(d.innerW, innerH, spec.wallMm, holesOn('back'), (m) => {
+    m.rotation.y = Math.PI;
+    m.position.set(0, midY, (d.innerH + spec.wallMm) / 2 + spec.wallMm / 2);
+  });
+  // ── 顶盖（显示屏/按键/LED 开窗真正挖穿）──
+  panel(d.outerW, d.outerH, spec.lidMm,
+    openings.filter((o) => o.face === 'top').map((o) => ({ u: o.cx, v: -o.cy, w: o.w, h: o.h, circle: o.shape === 'circle' })),
+    (m) => { m.rotation.x = -Math.PI / 2; m.position.set(0, innerTopY, 0); });
   // 支柱（对齐定位孔位置；无孔位时不画，避免凭空发明结构）
   const holes = mountingHoleCenters(doc.board);
   for (const c of holes) {
@@ -402,11 +456,11 @@ function addEnclosureMesh(group: THREE.Group, doc: CircuitCanvasDocument) {
     g.add(post);
   }
 
-  // ── 开孔标记：在对应墙面/顶盖上画红色轮廓，直观看到孔开在哪、给谁开的 ──
-  // （三角网格里不做真实挖孔——布尔运算需要 OCCT，那是 CadQuery 脚本的职责）
+  // ── 开孔轮廓高亮：孔已经真正挖穿（见上方 panel），这里再描一圈红边，
+  //    便于在半透明外壳里一眼看到孔的位置与归属器件 ──
   const markMat = new THREE.LineBasicMaterial({ color: 0xef4444 });
   const rectPts = (w: number, h: number): [number, number][] => [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2], [-w / 2, -h / 2]];
-  for (const o of deriveOpenings(doc)) {
+  for (const o of openings) {
     const pts: THREE.Vector3[] = [];
     if (o.face === 'top') {
       const y = innerTopY + spec.lidMm + 0.05;

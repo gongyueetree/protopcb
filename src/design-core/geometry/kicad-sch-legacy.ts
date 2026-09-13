@@ -18,6 +18,9 @@ const MIL_TO_MM = 0.0254;
 export interface LegacySchComp {
   ref: string;
   value: string;
+  /** 位号/值字段的绝对位置（mm）；隐藏字段为 undefined，渲染时应跳过 */
+  refField?: { x: number; y: number; vertical: boolean };
+  valueField?: { x: number; y: number; vertical: boolean };
   libId: string;
   footprint?: string;
   x: number; y: number;      // mm
@@ -102,6 +105,8 @@ export function parseLegacySch(text: string): LegacySchResult {
       let x = 0, y = 0, unit = 1, rot = 0;
       let mirror: 'x' | 'y' | undefined;
       let mat: [number, number, number, number] | undefined;
+      let refField: { x: number; y: number; vertical: boolean } | undefined;
+      let valueField: { x: number; y: number; vertical: boolean } | undefined;
       for (i++; i < lines.length && !lines[i].startsWith('$EndComp'); i++) {
         const l = lines[i];
         // L 库:符号名 位号
@@ -113,12 +118,28 @@ export function parseLegacySch(text: string): LegacySchResult {
         // P x y（mil）
         const mP = l.match(/^P\s+(-?\d+)\s+(-?\d+)/);
         if (mP) { x = mm(parseInt(mP[1], 10)); y = mm(parseInt(mP[2], 10)); continue; }
-        // F 0 "位号" / F 1 "值" / F 2 "封装"
-        const mF = l.match(/^F\s+(\d+)\s+"((?:[^"\\]|\\.)*)"/);
+        // F n "文本" 朝向 x y 字号 标志位 水平对齐 垂直对齐
+        //   标志位第 4 位为 1 表示该字段隐藏（如 F 2 封装通常是 0001）
+        //   x/y 是**绝对坐标**（mil），不是相对器件的偏移 —— 之前忽略了它，
+        //   于是位号/值一律画在符号上下固定位置，压在连线上。
+        const mF = l.match(/^F\s+(\d+)\s+"((?:[^"\\]|\\.)*)"\s+([HV])\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)/);
         if (mF) {
           const idx = parseInt(mF[1], 10);
           const val = mF[2];
-          if (idx === 0 && val) ref = val;   // F 0 为权威位号（L 行可能是未标注的 R?）
+          const fx = mm(parseInt(mF[4], 10)), fy = mm(parseInt(mF[5], 10));
+          const vertical = mF[3] === 'V';
+          const hidden = /1$/.test(mF[7]);
+          if (idx === 0 && val) { ref = val; if (!hidden) refField = { x: fx, y: fy, vertical }; }
+          else if (idx === 1) { value = val; if (!hidden) valueField = { x: fx, y: fy, vertical }; }
+          else if (idx === 2 && val) footprint = val.includes(':') ? val.split(':').pop()! : val;
+          continue;
+        }
+        // 兼容没有位置字段的简写行
+        const mF2 = l.match(/^F\s+(\d+)\s+"((?:[^"\\]|\\.)*)"/);
+        if (mF2) {
+          const idx = parseInt(mF2[1], 10);
+          const val = mF2[2];
+          if (idx === 0 && val) ref = val;
           else if (idx === 1) value = val;
           else if (idx === 2 && val) footprint = val.includes(':') ? val.split(':').pop()! : val;
           continue;
@@ -135,14 +156,19 @@ export function parseLegacySch(text: string): LegacySchResult {
       if (ref) {
         // 电源/接地符号（#PWR…）也要渲染——它们是原理图的一部分；
         // 只是不进 BOM，故不写入 refToFootprint。
-        comps.push({ ref, value, libId, footprint: footprint || undefined, x, y, unit, rot, mirror, mat });
+        comps.push({ ref, value, libId, footprint: footprint || undefined, x, y, unit, rot, mirror, mat, refField, valueField });
         if (footprint && !ref.startsWith('#')) refToFootprint[ref] = footprint;
       }
       continue;
     }
 
-    // ── 总线：Wire Bus Line / Entry Wire Bus，格式同连线（下一行四坐标）──
-    if (/^Wire\s+Bus\s+Line/.test(line) || /^Entry\s+Wire\s+Bus/.test(line) || /^Entry\s+Bus\s+Bus/.test(line)) {
+    // ── 总线与总线入口（下一行四坐标）──
+    //   Wire Bus Line  = 总线本体
+    //   Entry Wire Line / Entry Wire Bus = 导线接入总线的斜向入口（KiCad 5 实际写的是前者）
+    //   Entry Bus Bus  = 总线接入总线
+    //   ⚠ 此前只认 Entry Wire Bus/Entry Bus Bus，导致 KiCad 5 工程的入口线全部丢失，
+    //     总线看起来"没连接任何东西"。
+    if (/^Wire\s+Bus\s+Line/.test(line) || /^Entry\s+Wire\s+(Bus|Line)/.test(line) || /^Entry\s+Bus\s+Bus/.test(line)) {
       const nb = lines[i + 1] ?? '';
       const mb = nb.match(/(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)/);
       if (mb) {

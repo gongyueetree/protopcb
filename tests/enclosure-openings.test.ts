@@ -161,3 +161,24 @@ describe('本体包围盒', () => {
     expect(b.h).toBeCloseTo(a.w, 5);
   });
 });
+
+describe('侧壁开孔的面内坐标（3D 挖孔用）', () => {
+  it('左墙开孔的面内横坐标取板 y 向偏移，纵坐标为器件高度中心', () => {
+    const doc = createDocument({ name: 'enc' });
+    doc.board.widthMm = 60; doc.board.heightMm = 40;
+    place(doc, 'J1', 'TEST_USBC', 'USB-C', 'connector', 4.5, 25);   // 靠左，板中心偏下
+    const [o] = deriveOpenings(doc);
+    expect(o.face).toBe('left');
+    expect(o.cx).toBeCloseTo(25 - 20, 5);      // y - H/2
+    expect(o.cy).toBeCloseTo(3.2 / 2, 5);      // 器件高度中心（PCB 上表面为 0）
+  });
+
+  it('前后墙开孔的面内横坐标取板 x 向偏移', () => {
+    const doc = createDocument({ name: 'enc' });
+    doc.board.widthMm = 60; doc.board.heightMm = 40;
+    place(doc, 'J1', 'TEST_USBC', 'USB-C', 'connector', 15, 4);     // 贴前边
+    const [o] = deriveOpenings(doc);
+    expect(o.face).toBe('front');
+    expect(o.cx).toBeCloseTo(15 - 30, 5);
+  });
+});

@@ -329,7 +329,12 @@ export default function App() {
       if (g) registerSymbolOverride(`PRJSYM:${cp.ref}`, legacyToParsedSymbol(g));
     }
     setSchematicSheet({
-      instances: r.comps.map((c) => ({ ref: c.ref, libId: c.libId, value: c.value, x: c.x, y: c.y, rot: c.rot, mirror: c.mirror, unit: c.unit, mat: c.mat })),
+      // 位号/值按 .sch 里的绝对字段位置渲染（此前固定画在符号上下，会压在连线上）
+      instances: r.comps.map((c) => ({
+        ref: c.ref, libId: c.libId, value: c.value, x: c.x, y: c.y, rot: c.rot, mirror: c.mirror, unit: c.unit, mat: c.mat,
+        refPos: c.refField ? { x: c.refField.x, y: c.refField.y, rot: c.refField.vertical ? 90 : 0, hidden: false } : undefined,
+        valPos: c.valueField ? { x: c.valueField.x, y: c.valueField.y, rot: c.valueField.vertical ? 90 : 0, hidden: false } : undefined,
+      })),
       wires: r.wires,
       buses: r.buses,
       busEntries: r.busEntries,
