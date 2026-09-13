@@ -75,12 +75,14 @@ export function PcbProjection3DLayer({ activeLayer }: { activeLayer: 'TOP' | 'BO
       const w = host.clientWidth, h = host.clientHeight;
       if (!w || !h) return;
       sizeRef.current = { w, h };
-      renderer.setSize(w, h, false);
+      // updateStyle 必须为 true：否则 canvas 的 CSS 尺寸不设置，
+      // 在 DPR=2 的屏上会以 2 倍尺寸显示，模型整体放大并向右下偏移
+      renderer.setSize(w, h);
       requestRender();
     });
     ro.observe(host);
     sizeRef.current = { w: host.clientWidth, h: host.clientHeight };
-    renderer.setSize(sizeRef.current.w || 1, sizeRef.current.h || 1, false);
+    renderer.setSize(sizeRef.current.w || 1, sizeRef.current.h || 1);
 
     return () => {
       ro.disconnect();
@@ -114,7 +116,9 @@ export function PcbProjection3DLayer({ activeLayer }: { activeLayer: 'TOP' | 'BO
     if (!cam || !w || !h) return;
     const p = orthoCameraParams(w, h, doc.board.widthMm, doc.board.heightMm, viewport);
     cam.left = -p.halfWmm; cam.right = p.halfWmm;
-    cam.top = -p.halfHmm; cam.bottom = p.halfHmm;   // up = -z，故上下取反
+    // up 已经取 (0,0,-1)：相机的 y 轴就是世界 -z，屏幕向下 = 板坐标 y 增大。
+    // 这里再把 top/bottom 取反等于翻第二次，整张图会上下颠倒（模型飞到板外的根因之一）。
+    cam.top = p.halfHmm; cam.bottom = -p.halfHmm;
     cam.near = 0.1; cam.far = 2000;
     cam.position.set(p.centerXmm, 500, p.centerZmm);
     cam.lookAt(p.centerXmm, 0, p.centerZmm);

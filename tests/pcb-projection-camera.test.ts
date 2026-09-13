@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { boardMmToScreenPx, screenPxToBoardMm, orthoCameraParams, BOARD_ORIGIN_PX, pxPerMmAt } from '../src/modules/board-editor/board-view-constants';
 import { PX_PER_MM } from '../src/design-core/geometry';
+import * as THREE from 'three';
 
 const VPS = [
   { zoom: 0.2, panX: 0, panY: 0 },
@@ -33,18 +34,24 @@ describe('世界 ↔ 屏幕映射', () => {
   });
 });
 
-describe('正交相机参数', () => {
+describe('正交相机参数（用真实 Three.js 投影验证）', () => {
   const W = 900, H = 600, BW = 100, BH = 80;
 
-  /** 用相机参数把板坐标换算回画布像素（模拟 WebGL 投影） */
+  /**
+   * 用**真正的 THREE.OrthographicCamera** 投影，而不是重算一遍我自己的公式 ——
+   * 只测自己的公式会漏掉 up 向量、top/bottom 约定这类"公式对但相机设错"的 bug
+   * （实测就漏掉过一次上下翻转）。
+   */
   function projectViaCamera(xMm: number, yMm: number, vp: { zoom: number; panX: number; panY: number }) {
     const p = orthoCameraParams(W, H, BW, BH, vp);
-    // 场景坐标（板中心为原点）
-    const sx = xMm - BW / 2, sz = yMm - BH / 2;
-    // 正交投影 → NDC → 画布像素（相机 up=-z，故 z 方向与屏幕 y 同向）
-    const ndcX = (sx - p.centerXmm) / p.halfWmm;
-    const ndcY = (sz - p.centerZmm) / p.halfHmm;
-    return { x: (ndcX * 0.5 + 0.5) * W, y: (ndcY * 0.5 + 0.5) * H };
+    const cam = new THREE.OrthographicCamera(-p.halfWmm, p.halfWmm, p.halfHmm, -p.halfHmm, 0.1, 2000);
+    cam.up.set(0, 0, -1);
+    cam.position.set(p.centerXmm, 500, p.centerZmm);
+    cam.lookAt(p.centerXmm, 0, p.centerZmm);
+    cam.updateProjectionMatrix();
+    cam.updateMatrixWorld(true);
+    const v = new THREE.Vector3(xMm - BW / 2, 0, yMm - BH / 2).project(cam);
+    return { x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H };
   }
 
   it('各缩放级别下，投影像素与 SVG 像素误差 < 1px', () => {
@@ -63,5 +70,21 @@ describe('正交相机参数', () => {
     const b = orthoCameraParams(W, H, BW, BH, { zoom: 2, panX: 0, panY: 0 });
     expect(a.halfWmm / b.halfWmm).toBeCloseTo(2, 6);
     expect(pxPerMmAt(2) / pxPerMmAt(1)).toBeCloseTo(2, 9);
+  });
+});
+
+describe('画布尺寸与设备像素比', () => {
+  it('renderer.setSize 必须更新 CSS 尺寸（否则 DPR=2 时画布按两倍显示）', async () => {
+    const src = await import('node:fs').then((fs) =>
+      fs.readFileSync(new URL('../src/modules/board-editor/PcbProjection3DLayer.tsx', import.meta.url), 'utf8'));
+    // 不能出现 setSize(w, h, false) —— 第三个参数 false 会跳过 CSS 尺寸设置
+    expect(src).not.toMatch(/setSize\([^)]*,\s*false\)/);
+    expect(src).toMatch(/setPixelRatio\(Math\.min\(window\.devicePixelRatio,\s*2\)\)/);
+  });
+
+  it('相机 top/bottom 用常规约定（up=-z 已经完成一次翻转）', async () => {
+    const src = await import('node:fs').then((fs) =>
+      fs.readFileSync(new URL('../src/modules/board-editor/PcbProjection3DLayer.tsx', import.meta.url), 'utf8'));
+    expect(src).toMatch(/cam\.top = p\.halfHmm;\s*cam\.bottom = -p\.halfHmm;/);
   });
 });
