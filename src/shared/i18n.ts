@@ -657,6 +657,8 @@ const DICT: Record<string, string> = {
   '近似': 'Approx',
   '报价合计': 'Quoted total',
   '估算合计': 'Estimated total',
+  '请先选择封装库': 'Select a footprint library first',
+  '请先选择符号库': 'Select a symbol library first',
   '包内无原理图，符号用名字解析': 'No schematic in package; symbols resolved by name',
   '区间': 'range',
   '单价': 'Unit price',

@@ -1082,10 +1082,18 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
       setKfItems(j.items ?? []);
     } catch { setKfMsg(tr('封装列表加载失败')); }
   };
-  const kfPick = async (name: string) => {
+  /**
+   * @param libOverride 从搜索结果点进来时显式传库名。
+   * 此前写法是 `setKfLib(h.lib); kfPick(h.name)` —— setState 是异步的，
+   * kfPick 里读到的还是上一次渲染的 kfLib（首次为空串），请求变成 lib= 空 → HTTP 400 bad params，
+   * 再点一次才因为 state 已更新而成功。这就是"第一次总是失败、第二次才好"的原因。
+   */
+  const kfPick = async (name: string, libOverride?: string) => {
+    const lib = libOverride ?? kfLib;
+    if (!lib) { setKfMsg(tr('请先选择封装库')); return; }
     setKfMsg(tr('加载封装…'));
     try {
-      const r = await fetch(`/api/kicadlib?path=mod&lib=${encodeURIComponent(kfLib)}&name=${encodeURIComponent(name)}`);
+      const r = await fetch(`/api/kicadlib?path=mod&lib=${encodeURIComponent(lib)}&name=${encodeURIComponent(name)}`);
       if (!r.ok) { let d = ''; try { d = String((await r.json())?.error ?? ''); } catch { /* */ } throw new Error(`HTTP ${r.status}${d ? ' · ' + d : ''}`); }
       const text = await r.text();
       const fp = parseKicadMod(text);
@@ -1126,10 +1134,13 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
     try { const j = await fetch(`/api/kicadlib?path=symlist&lib=${encodeURIComponent(lib)}`).then((r) => r.json()); setKsItems(j.items ?? []); }
     catch { setKsMsg(tr('网络错误，无法访问 KiCad 官方库')); }
   };
-  const ksPick = async (name: string, isRetry = false) => {
+  /** libOverride 同 kfPick：避免读到尚未提交的 setState 值（首次点击 lib 为空 → 400） */
+  const ksPick = async (name: string, isRetry = false, libOverride?: string) => {
+    const lib = libOverride ?? ksLib;
+    if (!lib) { setKsMsg(tr('请先选择符号库')); return; }
     setKsMsg(tr('加载符号…'));
     try {
-      const r = await fetch(`/api/kicadlib?path=sym&lib=${encodeURIComponent(ksLib)}&name=${encodeURIComponent(name)}`);
+      const r = await fetch(`/api/kicadlib?path=sym&lib=${encodeURIComponent(lib)}&name=${encodeURIComponent(name)}`);
       if (!r.ok) {
         let d = '';
         try { d = String((await r.json())?.error ?? ''); } catch { /* 非 JSON */ }
@@ -1147,7 +1158,7 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
       setKsMsg(`✓ ${tr('已关联符号')} ${name}`);
       setKsOpen(false);
     } catch (e) {
-      if (!isRetry) { ksPick(name, true); return; }   // 首次可能命中过期分支引用，自动换正确 ref 重试一次
+      if (!isRetry) { ksPick(name, true, lib); return; }   // 首次可能命中过期分支引用，自动换正确 ref 重试一次
  setKsMsg(tr('添加失败：') + (e as Error).message); }
   };
   const ksFiltered = ksKw.trim() ? ksItems.filter((n) => n.toLowerCase().includes(ksKw.trim().toLowerCase())) : ksItems;
@@ -1255,7 +1266,7 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
               <div style={{ maxHeight: 160, overflow: 'auto', marginBottom: 5, border: '1px solid #e0f2fe', borderRadius: 5, padding: 4 }}>
                 <div style={{ fontSize: 9.5, color: '#0369a1', fontWeight: 700, marginBottom: 3 }}>{tr('搜索结果')}（{ksHits.length}）</div>
                 {ksHits.map((h) => (
-                  <div key={h.lib + '/' + h.name} onClick={() => { setKsLib(h.lib); ksPick(h.name); }}
+                  <div key={h.lib + '/' + h.name} onClick={() => { setKsLib(h.lib); ksPick(h.name, false, h.lib); }}
                     style={{ padding: '4px 8px', marginBottom: 3, borderRadius: 5, background: '#f0f9ff', fontSize: 10.5, fontFamily: 'monospace', cursor: 'pointer' }} title={h.lib + ' / ' + h.name}>
                     <span style={{ color: '#0891b2' }}>{h.lib}</span> / {h.name}
                   </div>
@@ -1306,7 +1317,7 @@ function FootprintPartEditor({ c, onBuild }: { c: PlacedComponentT; onBuild?: (m
               <div style={{ maxHeight: 160, overflow: 'auto', marginBottom: 5, border: '1px solid #fde68a', borderRadius: 5, padding: 4 }}>
                 <div style={{ fontSize: 9.5, color: '#92400e', fontWeight: 700, marginBottom: 3 }}>{tr('搜索结果')}（{kfHits.length}）</div>
                 {kfHits.map((h) => (
-                  <div key={h.lib + '/' + h.name} onClick={() => { setKfLib(h.lib); kfPick(h.name); }}
+                  <div key={h.lib + '/' + h.name} onClick={() => { setKfLib(h.lib); kfPick(h.name, h.lib); }}
                     style={{ padding: '4px 8px', marginBottom: 3, borderRadius: 5, background: '#fffdf5', fontSize: 10.5, fontFamily: 'monospace', cursor: 'pointer' }} title={h.lib + ' / ' + h.name}>
                     <span style={{ color: '#b45309' }}>{h.lib}</span> / {h.name}
                   </div>

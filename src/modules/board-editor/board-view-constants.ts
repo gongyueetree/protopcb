@@ -4,6 +4,8 @@
  * 这是投影不漂移的前提：任何一边私藏一份常量，缩放后就会错位。
  */
 import { PX_PER_MM } from '../../design-core/geometry';
+import { padFootprintFor } from '../../design-core/geometry/footprint-pads';
+import type { PlacedComponent } from '../../design-core/document/types';
 
 /** 板框左上角在 SVG 中的像素偏移（未缩放） */
 export const BOARD_ORIGIN_PX = { x: 60, y: 40 } as const;
@@ -58,4 +60,24 @@ export function orthoCameraParams(
     halfWmm: canvasW / 2 / scale,
     halfHmm: canvasH / 2 / scale,
   };
+}
+
+/**
+ * 选中框几何（px，未缩放）——基础层与顶层 overlay 必须用同一份，
+ * 否则混合视图下会出现两个错位的虚线框（overlay 用 body 矩形、基础层用焊盘外沿）。
+ */
+export function selectionBoxPx(comp: PlacedComponent): { cx: number; cy: number; rot: number; mirror: boolean; x: number; y: number; w: number; h: number } | null {
+  const fp = padFootprintFor(comp.footprint.name);
+  const cx = BOARD_ORIGIN_PX.x + comp.placement.xMm * PX_PER_MM;
+  const cy = BOARD_ORIGIN_PX.y + comp.placement.yMm * PX_PER_MM;
+  if (!fp || !fp.pads.length) {
+    const g = comp.footprint.geometry;
+    const w = g.bodyWidthMm * PX_PER_MM, h = g.bodyHeightMm * PX_PER_MM;
+    return { cx, cy, rot: comp.placement.rotation, mirror: comp.placement.side === 'BOTTOM', x: -w / 2 - 4, y: -h / 2 - 4, w: w + 8, h: h + 8 };
+  }
+  const xs = fp.pads.map((p) => [p.x - p.w / 2, p.x + p.w / 2]).flat().concat([(fp.bodyCx ?? 0) - fp.bodyW / 2, (fp.bodyCx ?? 0) + fp.bodyW / 2]);
+  const ys = fp.pads.map((p) => [p.y - p.h / 2, p.y + p.h / 2]).flat().concat([(fp.bodyCy ?? 0) - fp.bodyH / 2, (fp.bodyCy ?? 0) + fp.bodyH / 2]);
+  const x0 = Math.min(...xs) * PX_PER_MM, x1 = Math.max(...xs) * PX_PER_MM;
+  const y0 = Math.min(...ys) * PX_PER_MM, y1 = Math.max(...ys) * PX_PER_MM;
+  return { cx, cy, rot: comp.placement.rotation, mirror: comp.placement.side === 'BOTTOM', x: x0 - 4, y: y0 - 4, w: x1 - x0 + 8, h: y1 - y0 + 8 };
 }

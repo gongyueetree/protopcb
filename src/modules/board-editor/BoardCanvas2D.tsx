@@ -7,13 +7,13 @@ import { useT, tr } from '../../shared/i18n';
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDesignStore } from '../../state/designStore';
 import { PX_PER_MM, footprintBodyRect } from '../../design-core/geometry';
-import { BOARD_ORIGIN_PX } from './board-view-constants';
+import { BOARD_ORIGIN_PX, selectionBoxPx } from './board-view-constants';
 import { PcbProjection3DLayer } from './PcbProjection3DLayer';
 import { usePcbViewStore } from '../../state/pcbViewStore';
 import { padFootprintFor } from '../../design-core/geometry/footprint-pads';
 import { mountingHoleCenters, HOLE_DIAMETER_MM, lshapeCut } from '../../design-core/collision';
 import { lshapeRoundedPathD } from '../../design-core/geometry/board-outline';
-import { CATEGORY_DISPLAY, COLORS } from '../../shared/theme';
+import { CATEGORY_DISPLAY } from '../../shared/theme';
 import type { PlacedComponent } from '../../design-core/document/types';
 
 // 板框原点常量已抽到 board-view-constants，供 3D 投影层共用（两边各存一份必然错位）
@@ -263,13 +263,13 @@ export function BoardCanvas2D() {
           {mode !== '2d' && doc.components
             .filter((c) => c.instanceId === selectedId || multiSel.includes(c.instanceId))
             .map((c) => {
-              const r = footprintBodyRect(c.footprint.geometry, { x: c.placement.xMm, y: c.placement.yMm }, c.placement.rotation);
+              const b = selectionBoxPx(c);
+              if (!b) return null;
               return (
-                <rect key={'sel' + c.instanceId}
-                  x={ORIGIN.x + r.x * PX_PER_MM - 3} y={ORIGIN.y + r.y * PX_PER_MM - 3}
-                  width={r.width * PX_PER_MM + 6} height={r.height * PX_PER_MM + 6}
-                  rx={3} fill="none" stroke={multiSel.includes(c.instanceId) ? '#2563eb' : COLORS.green}
-                  strokeWidth={1.6} strokeDasharray="5 3" />
+                <g key={'sel' + c.instanceId} transform={`translate(${b.cx},${b.cy}) rotate(${-b.rot})${b.mirror ? ' scale(-1,1)' : ''}`}>
+                  <rect x={b.x} y={b.y} width={b.w} height={b.h} rx={3} fill="none"
+                    stroke={multiSel.includes(c.instanceId) ? '#f59e0b' : '#2563eb'} strokeWidth={1.6} strokeDasharray="5 3" />
+                </g>
               );
             })}
         </g>
@@ -312,6 +312,7 @@ function BoardOutline({ shape, x, y, w, h, board }: { shape: string; x: number; 
 
 /** 位号统一配色：顶层深灰蓝、底层蓝（此前按器件类别取色，一块板上位号五颜六色） */
 const REFDES_COLOR = '#334155';
+
 
 function ComponentGlyph({ comp, selected, multi, overlap, inactive, hideRefDes, showPads = true, showBody = true, selectedNet, onPickNet, onMouseDown, onRefDesDown }: {
   comp: PlacedComponent; selected: boolean; multi: boolean; overlap: boolean; inactive: boolean; hideRefDes: boolean;
