@@ -8,6 +8,7 @@ import { analyzeArchitecture, layoutArchBlocks, colorForKind } from './arch-anal
 import type { ConnectionStyle } from '../../design-core/document/types';
 import { useRef, useEffect, useState } from 'react';
 import { useDesignStore } from '../../state/designStore';
+import { blocksFromNetlist, layoutNetBlocks } from '../../design-core/block-diagram/from-netlist';
 import { bdShapes, BdShape } from './shapes';
 import type { FunctionalBlock } from '../../design-core/document/types';
 
@@ -27,6 +28,34 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [archBusy, setArchBusy] = useState(false);
   const [archMsg, setArchMsg] = useState('');
+  /** 按真实网表生成：核心器件成块、共享网络成连线 —— 比按类别聚合信息量高得多 */
+  const genFromNets = () => {
+    const doc = useDesignStore.getState().doc;
+    const { blocks: nb, links } = blocksFromNetlist(doc);
+    if (!nb.length) { setArchMsg(tr('画布上没有核心器件')); return; }
+    const pos = layoutNetBlocks(nb);
+    const colors: Record<string, string> = { mcu: '#1a6b3c', power: '#b45309', interface: '#6d28d9', ic: '#0e7490', clock: '#0369a1', other: '#4b5563' };
+    setBlocks(nb.map((b) => ({
+      id: b.id,
+      label: b.label,
+      sublabel: `${b.sublabel}${b.componentIds.length > 1 ? ` +${b.componentIds.length - 1}` : ''}`,
+      shape: 'rounded' as const,
+      x: pos[b.id].x, y: pos[b.id].y, w: 150, h: 68,
+      color: colors[b.kind] ?? '#4b5563',
+      componentIds: b.componentIds,
+    })));
+    setConns(links.map((l, i) => ({
+      id: `nl_${i}`, fromId: l.from, toId: l.to, label: l.label,
+      // 电源用单向实线，信号用双向（总线性质的多网络连接用 bus 线型）
+      style: l.kind === 'power' ? ('single' as const) : l.nets.length > 2 ? ('bus' as const) : ('double' as const),
+      dir: l.kind === 'power' ? ('forward' as const) : ('both' as const),
+      color: l.kind === 'power' ? '#dc2626' : undefined,
+    })));
+    setArchMsg(links.length
+      ? `✓ ${nb.length} ${tr('个功能块')} · ${links.length} ${tr('条连线（来自真实网表）')}`
+      : `✓ ${nb.length} ${tr('个功能块')}；${tr('未导入 netlist，块间连线无法推导')}`);
+  };
+
   const runArchAI = async () => {
     if (archBusy) return;
     setArchBusy(true); setArchMsg('');
@@ -210,6 +239,10 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
         <button onClick={addNode} style={tb}>+ {tr('模块')}</button>
         <button onClick={() => setConnecting(connecting ? null : '__pick__')} style={{ ...tb, ...(connecting ? { background: '#f0fdf4', color: '#16a34a', borderColor: '#22c55e' } : {}) }}>{connecting ? '✕ ' + tr('取消连线') : '+ ' + tr('连线')}</button>
         <button onClick={del} disabled={!sel} style={{ ...tb, opacity: sel ? 1 : 0.5 }}>{tr('🗑 删除')}</button>
+        <button onClick={genFromNets} style={{ ...tb, borderColor: '#1f5c3b', color: '#1f5c3b', fontWeight: 700 }}
+          title={tr('每颗核心器件一个功能块，块间连线来自真实网表（需已导入 KiCad 工程）')}>
+          🔗 {tr('按连接关系生成')}
+        </button>
         <button onClick={regen} style={tb}>🔄 {tr('按类别生成')}</button>
         <button onClick={runArchAI} disabled={archBusy} title={tr('由 AI 分析器件与网络，划分真实的功能子系统与信号流')}
           style={{ ...tb, background: archBusy ? '#d6d3d1' : '#1a6b3c', color: '#fff', border: 'none', fontWeight: 700 }}>

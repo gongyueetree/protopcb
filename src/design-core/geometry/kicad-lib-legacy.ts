@@ -83,9 +83,12 @@ export function parseLegacyLib(text: string): Record<string, LegacySymGeom> {
       const X = l.match(/^X\s+(\S+)\s+(\S+)\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+([UDLR])/);
       if (X) {
         const px = +X[3], py = +X[4], len = +X[5], dir = X[6];
-        // KiCad 5 中 (x,y) 是管脚"连接端"，方向指向本体外侧
-        const ex = dir === 'L' ? px + len : dir === 'R' ? px - len : px;
-        const ey = dir === 'U' ? py - len : dir === 'D' ? py + len : py;
+        // KiCad 5：(x,y) 是管脚**连接端**，方向字母表示引脚从连接端**朝哪个方向延伸到本体**。
+        // 例：`X VIN 1 -400 100 100 R` + 本体矩形 S -300 -200 300 200
+        //     → 连接端 (-400,100)，朝右延伸 100 → 本体端 (-300,100)，正好落在矩形左边。
+        // 此前四个方向全部取反，引脚被画到本体外侧、且偏了两倍长度（管脚不接触符号框的根因）。
+        const ex = dir === 'R' ? px + len : dir === 'L' ? px - len : px;
+        const ey = dir === 'U' ? py + len : dir === 'D' ? py - len : py;
         g.pins.push({
           x: mm(px), y: mm(-py),
           ex: mm(ex), ey: mm(-ey),
