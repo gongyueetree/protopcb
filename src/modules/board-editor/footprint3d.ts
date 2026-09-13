@@ -102,23 +102,27 @@ function makeUsbC(): THREE.Group {
   shellShape.quadraticCurveTo(-shellW / 2, shellH / 2, -shellW / 2, shellH / 2 - r);
   shellShape.lineTo(-shellW / 2, -shellH / 2 + r);
   shellShape.quadraticCurveTo(-shellW / 2, -shellH / 2, -shellW / 2 + r, -shellH / 2);
+  // shape 的 x = 壳体宽、y = 壳体高，ExtrudeGeometry 沿 +z 挤出 = 伸向板边方向。
+  // ⚠ 此前多做了一次 rotateX(-90°)，把挤出方向从"水平伸出"扳成了"竖直向上"，
+  // 于是 USB-C 在板上立成一根 7mm 高的柱子。场景 y 已经朝上，这里不需要任何旋转。
   const shellGeo = new THREE.ExtrudeGeometry(shellShape, { depth: shellD, bevelEnabled: false });
-  shellGeo.rotateX(-Math.PI / 2);
   const shell = new THREE.Mesh(shellGeo, MAT.metalCan);
-  shell.position.set(0, shellH / 2 + 0.05, shellD / 2); // 朝 +z（板边）方向延伸
+  // 本体在 z 向以封装原点居中；底面抬到板面之上 0.05mm
+  shell.position.set(0, shellH / 2 + 0.05, -shellD / 2);
   g.add(shell);
+  const zFront = shellD / 2;                       // 插口朝向（+z 为板外）
   // 内部黑色舌片（Type-C 中间的舌头）
   const tongue = new THREE.Mesh(new THREE.BoxGeometry(6.5, 0.7, 4), MAT.blackBody);
-  tongue.position.set(0, shellH / 2 + 0.05, shellD - 1.5);
+  tongue.position.set(0, shellH / 2 + 0.05, zFront - 2.2);
   g.add(tongue);
   // 开口处的黑色内衬
   const innerLip = new THREE.Mesh(new THREE.BoxGeometry(shellW - 1, shellH - 0.8, 0.6), MAT.darkBody);
-  innerLip.position.set(0, shellH / 2 + 0.05, shellD - 0.3);
+  innerLip.position.set(0, shellH / 2 + 0.05, zFront - 0.3);
   g.add(innerLip);
   // 焊接固定脚
   for (const sx of [-1, 1]) {
     const leg = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.3, 1.8), MAT.lead);
-    leg.position.set(sx * 4.3, 0.15, 1);
+    leg.position.set(sx * 4.3, 0.15, -shellD / 2 + 1);
     g.add(leg);
   }
   return g;

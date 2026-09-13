@@ -13,6 +13,7 @@ import { recommendLayers } from '../../design-core/document/services';
 import { CATEGORY_DISPLAY, COLORS } from '../../shared/theme';
 import type { PeripheralCircuitRecommendation } from '../../providers/types';
 import type { ComponentCategory, ReviewLevel } from '../../design-core/document/types';
+import { SubCircuitSection } from './SubCircuitSection';
 
 const providers = getProviders();
 const ctx = { userId: 'demo-user', organizationId: 'org-demo' };
@@ -157,8 +158,13 @@ export function AdvisorPanel() {
         )}
       </Section>
 
-      {/* 子电路推荐 */}
-      <Section title={"🧩 " + tr('子电路推荐')} badge={cats.length || undefined}>
+      {/* 选中器件的子电路推荐（从"当前元件"页移来）：围绕核心器件的典型应用电路 */}
+      <Section title={"🧩 " + tr('子电路推荐')}>
+        <SubCircuitSection />
+      </Section>
+
+      {/* 按类别的通用配套建议 */}
+      <Section title={"📦 " + tr('配套器件建议')} badge={cats.length || undefined}>
         {doc.components.length === 0 ? <Empty text={tr('添加器件后推荐配套子电路')} /> :
           cats.map((cat) => (
             <div key={cat} style={{ marginTop: 8 }}>

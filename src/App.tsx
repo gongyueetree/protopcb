@@ -28,10 +28,8 @@ import { ProjectPersistenceService } from './design-core/document/persistence-se
 import { useProjectPersistence } from './modules/report/useProjectPersistence';
 import { safeUnzipOffThread } from './design-core/geometry/safe-unzip-worker';
 import { parseKicadMod } from './design-core/geometry/kicad-file-parser';
-import { recommendSubCircuit, type SubCircuitItem } from './modules/component-search/sub-circuit';
 import { TRUST_META } from './providers/ai-schema';
 import { diffSchemes } from './design-core/scheme-workspace';
-import { ensureKicadSymbolByMpn } from './design-core/geometry/lib-file-registry';
 import { autoKicadFootprint } from './design-core/geometry/auto-kicad-footprint';
 import { useT, useLangStore, useTranslated, tr, syncDocumentLang } from './shared/i18n';
 import { registerFootprintOverride, registerSymbolOverride, symbolOverrideFor, footprintOverrideFor } from './design-core/geometry/lib-file-registry';
@@ -742,39 +740,6 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof providers.components.getComponentDetail>>>(null);
   const [dkOffer, setDkOffer] = useState<DigikeyOffer | null>(null);
   const [supOffers, setSupOffers] = useState<SupplierOffer[]>([]);
-  const [subItems, setSubItems] = useState<SubCircuitItem[] | null>(null);
-  const [subBusy, setSubBusy] = useState(false);
-  const [subMsg, setSubMsg] = useState('');
-  const placeSubCircuit = useDesignStore((s2) => s2.placeSubCircuit);
-  const reoptimizeGroup = useDesignStore((s2) => s2.reoptimizeGroup);
-  const allComps = useDesignStore((s2) => s2.doc.components);
-  /** 本器件是否是别人的子电路附属件；以及它自己带了几个附属件 */
-  const isSatellite = !!c?.display?.anchorRef;
-  const satCount = c ? allComps.filter((x) => x.display?.anchorRef === c.reference).length : 0;
-  const runSubCircuit = async () => {
-    if (!c || subBusy) return;
-    setSubBusy(true); setSubMsg(''); setSubItems(null);
-    try {
-      const items = await recommendSubCircuit({ mpn: c.mpn, manufacturer: c.manufacturer, description: c.display?.description });
-      setSubItems(items);
-    } catch (e) { setSubMsg((e as Error).message); }
-    setSubBusy(false);
-  };
-  const loadSubCircuit = () => {
-    if (!c || !subItems?.length) return;
-    const n = placeSubCircuit(c.instanceId, subItems);
-    setSubMsg(`✓ ${tr('已上画布')} ${n} ${tr('个器件（围绕')} ${c.reference}${tr('），正在关联 KiCad 官方封装与符号…')}`);
-    // 子电路器件多为无源件：ezPLM 通常不收录，直接到 KiCad 官方库取精确焊盘/3D/符号
-    const uniqueFps = [...new Set(subItems.map((x) => x.footprint).filter(Boolean))];
-    Promise.allSettled(uniqueFps.map(async (fp) => {
-      const stepUrl = await autoKicadFootprint(fp);
-      if (stepUrl) useDesignStore.getState().setStepUrlByFootprint(fp, stepUrl);
-    })).then(() => setSubMsg(`✓ ${tr('已上画布')} ${n} ${tr('个器件，封装/3D 已按 KiCad 官方库关联')}`));
-    // 符号：按型号到官方符号库检索（命中才用，不命中保持按名字解析）
-    for (const it of subItems) ensureKicadSymbolByMpn(it.mpn ?? it.value);
-    setSubItems(null);
-  };
-
   useEffect(() => {
     if (!c) return;
     setDkOffer(null);
@@ -910,48 +875,9 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
       </div>
       </>)}
 
-      {/* 子电路推荐：大模型提取典型应用电路 → 一键上画布（锚定核心、管脚序排布） */}
-      <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: subItems?.length || subMsg ? 6 : 0 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d' }}>🧩 {tr('子电路推荐')}</span>
-          <span style={{ fontSize: 9.5, color: '#4d7c0f' }}>
-            {isSatellite ? tr('该器件是子电路的一部分') : tr('优先用参考设计，无参考才由 AI 推断')}
-          </span>
-          <span style={{ flex: 1 }} />
-          {/* 已有附属器件的核心：提供"重排"；本身是附属器件的：不再推荐子电路（避免无限套娃） */}
-          {satCount > 0 && (
-            <button onClick={() => { const r = reoptimizeGroup(c.instanceId); setSubMsg(`✓ ${tr('已重排')} ${r.moved} ${tr('个附属器件')}${r.violations ? `（${r.violations} ${tr('个仍有冲突')}）` : ''}`); }}
-              title={tr('保持围绕核心的相对关系重新摆放，避开定位孔与其它器件')}
-              style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #bbf7d0', background: '#fff', color: '#15803d', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>
-              ↻ {tr('重排附属器件')}（{satCount}）
-            </button>
-          )}
-          {!isSatellite && (
-            <button onClick={runSubCircuit} disabled={subBusy} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: subBusy ? '#d6d3d1' : '#15803d', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: subBusy ? 'default' : 'pointer' }}>
-              {subBusy ? '⟳ ' + tr('分析中…') : '🤖 ' + tr('推荐')}
-            </button>
-          )}
-        </div>
-        {subMsg && <div style={{ fontSize: 10, color: subMsg.startsWith('✓') ? '#15803d' : '#b45309', marginBottom: 4 }}>{subMsg}</div>}
-        {!!subItems?.length && (
-          <>
-            {/* 列表限高内滚：17 个器件的推荐此前会撑破信息框 */}
-            <div style={{ maxHeight: 260, overflowY: 'auto', paddingRight: 2 }}>
-            {subItems.map((it, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '4px 8px', marginBottom: 3, borderRadius: 5, background: '#fff', border: '1px solid #dcfce7', fontSize: 10.5 }}>
-                <span style={{ fontWeight: 700, color: '#166534', minWidth: 72 }}>{it.role}</span>
-                <span style={{ fontFamily: 'monospace' }}>{it.value}{it.qty > 1 ? ` ×${it.qty}` : ''}</span>
-                <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: '#f1f5f9', color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{it.footprint}</span>
-                <span style={{ flex: 1 }} />
-                <span style={{ fontSize: 9.5, color: '#64748b', whiteSpace: 'nowrap' }}>→ {it.connectsTo}</span>
-              </div>
-            ))}
-            </div>
-            <button onClick={loadSubCircuit} style={{ width: '100%', marginTop: 4, padding: '6px 0', borderRadius: 6, border: 'none', background: '#16a34a', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-              ⬇ {tr('一键上画布')}（{subItems.reduce((a, b) => a + b.qty, 0)} {tr('个器件，围绕')} {c.reference}）
-            </button>
-          </>
-        )}
+      {/* 子电路推荐已移至右侧「AI 顾问」页（避免两处并存），这里只留入口提示 */}
+      <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: 10.5, color: '#4d7c0f', lineHeight: 1.6 }}>
+        🧩 {tr('子电路推荐与「重排附属器件」已移到右上角「AI 顾问」页。')}
       </div>
 
       {/* 替代料（本组织映射） */}

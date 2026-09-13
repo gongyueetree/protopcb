@@ -55,7 +55,17 @@ export function hasOverlap(target: PlacedComponent, others: PlacedComponent[], g
 }
 
 /** 返回所有存在重叠的器件 instanceId 集合（仅同层比较）。 */
-export function findOverlaps(components: PlacedComponent[], gap = DEFAULT_GAP_MM): Set<string> {
+/**
+ * 判定"真正的重叠"用的间距。
+ *
+ * ⚠ 不要用 DEFAULT_GAP_MM（3mm）—— 那是**自动布局的目标间距**，是审美/可制造性偏好，
+ * 不是冲突阈值。真实量产板上 0402 之间常常只有 0.3~0.5mm，用 3mm 判定会把整块
+ * 导入的板子全部标成"重叠"（88 个器件全红），提示就完全失去意义了。
+ * 这里用 0：courtyard 真正相交才算重叠 —— courtyard 本身已经含了工艺间距。
+ */
+export const OVERLAP_GAP_MM = 0;
+
+export function findOverlaps(components: PlacedComponent[], gap = OVERLAP_GAP_MM): Set<string> {
   const set = new Set<string>();
   for (let i = 0; i < components.length; i++) {
     for (let j = i + 1; j < components.length; j++) {

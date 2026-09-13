@@ -259,8 +259,30 @@ function rebuildBoard(group: THREE.Group, doc: CircuitCanvasDocument) {
       }
       geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     }
-    // 组 0 = 上下端面，组 1 = 侧壁（含孔壁）
-    boardMesh = new THREE.Mesh(geo, [faceMat(texTop), edgeMat]);
+    // ExtrudeGeometry 默认把**上下两个端面放进同一个 group**，于是底面也会贴顶层图，
+    // 从板下看到的是镜像的顶层丝印与焊盘（"底层出现顶层焊盘"的根因）。
+    // 这里按三角面法向的 y 符号把端面拆成两组：朝上 → 顶层贴图，朝下 → 底层贴图。
+    {
+      const capGroup = geo.groups.find((g) => g.materialIndex === 0);
+      if (capGroup) {
+        const pos = geo.attributes.position;
+        const a = new THREE.Vector3(), b = new THREE.Vector3(), c3 = new THREE.Vector3();
+        const ab = new THREE.Vector3(), ac = new THREE.Vector3(), nrm = new THREE.Vector3();
+        const rest = geo.groups.filter((g) => g !== capGroup);
+        const runs: { start: number; count: number; materialIndex: number }[] = [];
+        for (let i = capGroup.start; i < capGroup.start + capGroup.count; i += 3) {
+          a.fromBufferAttribute(pos, i); b.fromBufferAttribute(pos, i + 1); c3.fromBufferAttribute(pos, i + 2);
+          ab.subVectors(b, a); ac.subVectors(c3, a); nrm.crossVectors(ab, ac);
+          const mi = nrm.y >= 0 ? 0 : 2;                       // 0 = 顶层贴图，2 = 底层贴图
+          const last = runs[runs.length - 1];
+          if (last && last.materialIndex === mi && last.start + last.count === i) last.count += 3;
+          else runs.push({ start: i, count: 3, materialIndex: mi });
+        }
+        geo.clearGroups();
+        for (const r of [...runs, ...rest]) geo.addGroup(r.start, r.count, r.materialIndex);
+      }
+    }
+    boardMesh = new THREE.Mesh(geo, [faceMat(texTop), edgeMat, faceMat(texBot)]);
     boardMesh.position.y = 0;
   }
   group.add(boardMesh);
