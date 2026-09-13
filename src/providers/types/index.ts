@@ -140,6 +140,12 @@ export interface ProjectProvider {
 /* ---------- AI ---------- */
 export interface AiSchemeRequest {
   prompt: string;
+  /**
+   * 多轮修改：把上一版方案与用户的修改意见一起给模型，
+   * 让它在既有方案上增删改，而不是每轮从零重画。
+   */
+  previous?: { summary?: string; components: { mpn: string; qty?: number; group?: string; core?: boolean; reason?: string }[] };
+  feedback?: string;
 }
 /** 器件映射的显式验证结果：从 mapping 层传入，不允许按 componentId 前缀（ez_*）推断 */
 export interface ComponentTrust {
@@ -155,7 +161,10 @@ export interface AiSchemeResult {
   componentIds: string[];
   rationale: string;
   /** Gemini 真实链路：完整器件对象（含 ezPLM 映射来源），存在时优先于 componentIds */
-  items?: (ComponentSearchResult & { mapSource?: string; trust?: ComponentTrust })[];
+  items?: (ComponentSearchResult & { mapSource?: string; trust?: ComponentTrust; group?: string; core?: boolean; qty?: number })[];
+  /** 方案框图（块 + 块间连接） */
+  blocks?: { id: string; label: string; core?: string; kind: string }[];
+  blockLinks?: { from: string; to: string; label?: string; kind: string }[];
   /** 结果来源与回退原因（UI 数据源徽标用） */
   source?: 'gemini' | 'mock';
   fallbackReason?: string;

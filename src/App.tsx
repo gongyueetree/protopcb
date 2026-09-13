@@ -30,6 +30,7 @@ import { safeUnzipOffThread } from './design-core/geometry/safe-unzip-worker';
 import { parseKicadMod } from './design-core/geometry/kicad-file-parser';
 import { recommendSubCircuit, type SubCircuitItem } from './modules/component-search/sub-circuit';
 import { TRUST_META } from './providers/ai-schema';
+import { diffSchemes } from './design-core/scheme-workspace';
 import { autoKicadFootprint } from './design-core/geometry/auto-kicad-footprint';
 import { useT, useLangStore, useTranslated, tr, syncDocumentLang } from './shared/i18n';
 import { registerFootprintOverride, registerSymbolOverride, symbolOverrideFor, footprintOverrideFor } from './design-core/geometry/lib-file-registry';
@@ -45,8 +46,10 @@ import { BomPanel } from './modules/bom/BomPanel';
 import { AdvisorPanel } from './modules/design-review/AdvisorPanel';
 import { BlockDiagramPanel } from './modules/block-diagram/BlockDiagramPanel';
 import { SchematicPanel } from './modules/schematic/SchematicPanel';
+import { SchemeWorkspace, type SchemeProposal } from './modules/scheme/SchemeWorkspace';
+import { PipelineBar } from './modules/scheme/PipelineBar';
 import { exportDocument, importDocumentFromFile, autosave, exportMarkdownReport } from './modules/report/persistence';
-import { COLORS, CATEGORY_DISPLAY, fmtMoney } from './shared/theme';
+import { COLORS, CATEGORY_DISPLAY } from './shared/theme';
 import type { BoardShapeKind } from './design-core/document/types';
 
 /** 主视图页签 —— 与渲染稿一致的信息架构：各视图同级平铺，不再用底部抽屉 */
@@ -206,7 +209,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedId, undo, redo, rotate, remove, flipLayer]);
 
-  const [aiProposal, setAiProposal] = useState<{ rationale: string; source?: string; fallbackReason?: string; details: (NonNullable<Awaited<ReturnType<typeof providers.components.getComponentDetail>>> & { mapSource?: string; trust?: import('./providers/types').ComponentTrust })[] } | null>(null);
+  const [aiProposal, setAiProposal] = useState<SchemeProposal | null>(null);
   const [coreOnly, setCoreOnly] = useState(false);
   useEffect(() => { if (aiProposal) setCoreOnly(false); }, [aiProposal != null]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -217,7 +220,11 @@ export default function App() {
       const result = await providers.ai.generateScheme({ prompt: aiPrompt }, ctx);
       // Gemini 真实链路：直接携带完整器件（已完成 ezPLM 云端映射 / 封装占位）
       if (result.items?.length) {
-        setAiProposal({ rationale: result.rationale, source: result.source, fallbackReason: result.fallbackReason, details: result.items as unknown as NonNullable<typeof aiProposal>['details'] });
+        setAiProposal({
+          rationale: result.rationale, source: result.source, fallbackReason: result.fallbackReason,
+          details: result.items as unknown as SchemeProposal['details'],
+          blocks: result.blocks, blockLinks: result.blockLinks, round: 1,
+        });
         setAiBusy(false);
         return;
       }
@@ -239,10 +246,41 @@ export default function App() {
     setAiBusy(false);
   };
 
-  const confirmScheme = () => {
+  /**
+   * 多轮修改：把上一版方案 + 用户意见交给模型重算，
+   * 然后用确定性 diff 得出"本轮实际变更"（不采信模型自述）。
+   */
+  const reviseScheme = async (feedback: string) => {
     if (!aiProposal) return;
-    const details = coreOnly ? aiProposal.details.filter((x) => x.category !== 'passive') : aiProposal.details;
-    placeScheme(details, { requirement: aiPrompt, rationale: aiProposal.rationale });
+    setAiBusy(true);
+    const prevDetails = aiProposal.details;
+    try {
+      const result = await providers.ai.generateScheme({
+        prompt: aiPrompt,
+        previous: {
+          summary: aiProposal.rationale,
+          components: prevDetails.map((d) => ({ mpn: d.mpn, group: d.group, core: d.core, reason: d.description })),
+        },
+        feedback,
+      }, ctx);
+      if (!result.items?.length) throw new Error(tr('模型未返回器件清单'));
+      const details = result.items as unknown as SchemeProposal['details'];
+      setAiProposal({
+        rationale: result.rationale, source: result.source, fallbackReason: result.fallbackReason,
+        details, blocks: result.blocks, blockLinks: result.blockLinks,
+        changes: diffSchemes(prevDetails, details),
+        round: (aiProposal.round ?? 1) + 1,
+      });
+    } catch (err) {
+      alert(tr('重新生成失败：') + (err as Error).message);
+    }
+    setAiBusy(false);
+  };
+
+  const confirmScheme = (picked?: SchemeProposal['details']) => {
+    if (!aiProposal) return;
+    const details = picked ?? (coreOnly ? aiProposal.details.filter((x) => x.category !== 'passive') : aiProposal.details);
+    placeScheme(details as never, { requirement: aiPrompt, rationale: aiProposal.rationale });
     setAiProposal(null);
     // 无源器件/连接器：ezPLM 未收录 → 异步按封装名自动关联 KiCad 官方库（精确焊盘 + 真实 3D）
     setTimeout(() => {
@@ -452,6 +490,8 @@ export default function App() {
 
         {/* Center */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
+          {/* 流程状态条：每格状态由文档事实推导，不是装饰 */}
+          <PipelineBar />
           {/* Toolbar */}
           <div style={{ background: '#fff', borderBottom: '2px solid #E8F3EE', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
             <button onClick={undo} style={ibtn} title={t('撤销')} aria-label={t('撤销')}>↩</button>
@@ -632,75 +672,44 @@ export default function App() {
 
       {/* AI 方案确认对话框 */}
       {aiProposal && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }} onClick={() => setAiProposal(null)}>
-          <div style={{ width: '100%', maxWidth: 520, background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 24px 80px rgba(0,0,0,.25)' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 15, fontWeight: 700, color: COLORS.green }}>🤖 {tr('AI 方案建议 · 请确认')}</span>
-              {aiProposal.source === 'gemini'
-                ? <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 5, background: '#dcfce7', color: '#166534', fontWeight: 700 }}>{tr('✓ Gemini 生成')}</span>
-                : <span title={aiProposal.fallbackReason} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 5, background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>{tr('演示引擎')}{aiProposal.fallbackReason ? ` · ${aiProposal.fallbackReason.slice(0, 46)}` : ''}</span>}
-            </div>
-            <div style={{ fontSize: 12, color: '#475569', padding: '8px 10px', background: '#f7fcf9', borderRadius: 8, marginBottom: 10 }}><TrSpan text={aiProposal.rationale} /></div>
-            <div style={{ maxHeight: 260, overflow: 'auto', marginBottom: 12 }}>
-              {aiProposal.details.map((d) => (
-                <div key={d.componentId} style={{ padding: '7px 10px', borderBottom: '1px solid #f1f5f9', fontSize: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontFamily: 'monospace', fontWeight: 700, flex: 1 }}>{d.mpn}</span>
-                    {d.mapSource && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, fontWeight: 700, background: d.mapSource === tr('本组织') ? '#dcfce7' : d.mapSource === tr('ezPLM云端') ? '#e0f2fe' : '#fef3c7', color: d.mapSource === tr('本组织') ? '#166534' : d.mapSource === tr('ezPLM云端') ? '#0369a1' : '#92400e' }}>{tr(d.mapSource ?? '')}</span>}
-                    {d.trust && <span title={d.trust.evidence} style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, fontWeight: 700, background: TRUST_META[d.trust.level].bg, color: TRUST_META[d.trust.level].color, cursor: 'help' }}>{tr(TRUST_META[d.trust.level].label)}</span>}
-                    <span style={{ color: '#64748b' }}>{d.defaultFootprintName}</span>
-                    <span style={{ color: '#059669', fontWeight: 600 }}>{fmtMoney(d.unitPrice?.amount)}</span>
-                    {d.mapSource === tr('封装占位') && (
-                      <button onClick={() => {
-                        const open = linkRow === d.componentId;
-                        setLinkRow(open ? null : d.componentId);
-                        if (!open) { setLinkKw(''); setLinkResults([]); autoRecommend(d.mpn, (d as { footprintName?: string; defaultFootprintName?: string }).footprintName ?? (d as { defaultFootprintName?: string }).defaultFootprintName); }
-                      }}
-                        title={tr('在 ezPLM 库中搜索并关联到真实器件')}
-                        style={{ border: '1px solid #bae6fd', background: '#f0f9ff', color: '#0369a1', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>🔗 {tr('关联库器件')}</button>
-                    )}
-                    {d.mapSource === tr('封装占位') && (
-                      <button onClick={() => setWizard({ open: true, mpn: d.mpn })} title={tr('用构建向导创建该器件（AI 提取或手工填写）')}
-                        style={{ border: '1px solid #ddd6fe', background: '#f5f3ff', color: '#6d28d9', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>🛠 {tr('创建')}</button>
-                    )}
-                    <button onClick={() => setAiProposal({ ...aiProposal, details: aiProposal.details.filter((x) => x.componentId !== d.componentId) })}
-                      style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 14 }}>×</button>
-                  </div>
-                  <div style={{ fontSize: 10.5, color: '#64748b', marginTop: 2 }}><TrSpan text={d.description ?? ''} /></div>
-                  {linkRow === d.componentId && (
-                    <div style={{ marginTop: 6, padding: 8, borderRadius: 6, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-                      <input autoFocus placeholder={tr('搜索 ezPLM 型号…')} value={linkKw}
-                        onChange={(e) => { setLinkKw(e.target.value); setLinkIsRec(false); searchLink(e.target.value); }}
-                        style={{ width: '100%', padding: '5px 8px', borderRadius: 5, border: '1px solid #e2e8f0', fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
-                      {linkBusy && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>{tr('搜索中…')}</div>}
-                      {!linkBusy && linkResults.length > 0 && linkIsRec && !linkKw.trim() && (
-                        <div style={{ fontSize: 10, color: '#0369a1', marginTop: 4, fontWeight: 700 }}>💡 {tr('按型号词干与封装找到的近似料，点击选用：')}</div>
-                      )}
-                      {!linkBusy && (linkKw.trim() || linkIsRec) && !linkResults.length && <div style={{ fontSize: 10, color: '#b45309', marginTop: 4 }}>{tr('ezPLM 库中无匹配 —— 可点「🛠 创建」自行构建该器件')}</div>}
-                      {linkResults.map((r) => (
-                        <div key={r.componentId} onClick={() => {
-                          setAiProposal({ ...aiProposal, details: aiProposal.details.map((x) => x.componentId === d.componentId ? ({ ...r, mapSource: tr('ezPLM云端') } as unknown as typeof x) : x) });
-                          setLinkRow(null); setLinkKw(''); setLinkResults([]);
-                        }} style={{ padding: '5px 8px', marginTop: 4, borderRadius: 5, background: '#fff', border: '1px solid #e0f2fe', cursor: 'pointer', fontSize: 11 }}>
-                          <b style={{ fontFamily: 'monospace' }}>{r.mpn}</b> <span style={{ color: '#94a3b8' }}>{r.manufacturer} · {r.defaultFootprintName}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+        <SchemeWorkspace
+          proposal={aiProposal}
+          busy={aiBusy}
+          onRevise={(fb) => reviseScheme(fb)}
+          onRemove={(cid) => setAiProposal({ ...aiProposal, details: aiProposal.details.filter((x) => x.componentId !== cid) })}
+          onLink={(cid, mpn, fp) => { setLinkRow(cid); setLinkKw(mpn); autoRecommend(mpn, fp); }}
+          linkPanel={(cid) => (cid && linkRow === cid ? (
+            <div style={{ padding: '8px 10px', background: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                <input value={linkKw} autoFocus
+                  onChange={(e) => { setLinkKw(e.target.value); setLinkIsRec(false); searchLink(e.target.value); }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  placeholder={t('搜索 ezPLM 器件库…')}
+                  style={{ flex: 1, padding: '4px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11, outline: 'none' }} />
+                <button onClick={() => setLinkRow(null)} style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}>×</button>
+              </div>
+              {linkIsRec && <div style={{ fontSize: 9.5, color: '#7c3aed', marginBottom: 4 }}>{t('按型号逐级截短自动推荐，需人工确认')}</div>}
+              {linkBusy && <div style={{ fontSize: 10, color: '#94a3b8' }}>{t('检索中…')}</div>}
+              {linkResults.map((r) => (
+                <div key={r.componentId} onClick={() => {
+                  setAiProposal((prev) => prev ? {
+                    ...prev,
+                    details: prev.details.map((d) => d.componentId === cid
+                      ? { ...d, ...r, mapSource: tr('ezPLM云端'), group: d.group, core: d.core,
+                          trust: { level: 'CANDIDATE' as const, evidence: '用户在方案评审中手工关联，未经型号精确匹配核验', source: 'ezplm-candidate' as const, verifiedAt: new Date().toISOString() } }
+                      : d),
+                  } : prev);
+                  setLinkRow(null);
+                }}
+                  style={{ padding: '5px 8px', marginBottom: 3, borderRadius: 6, background: '#fff', border: '1px solid #e2e8f0', cursor: 'pointer', fontSize: 10.5 }}>
+                  <b style={{ fontFamily: 'monospace' }}>{r.mpn}</b> <span style={{ color: '#64748b' }}>{r.manufacturer} · {r.defaultFootprintName}</span>
                 </div>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
-              <label title={t('勾选后确认时跳过电阻/电容/电感等无源器件')}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${coreOnly ? '#b45309' : '#fde68a'}`, background: coreOnly ? '#fef3c7' : '#fffbeb', color: '#b45309', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginRight: 'auto', userSelect: 'none' }}>
-                <input type="checkbox" checked={coreOnly} onChange={(e) => setCoreOnly(e.target.checked)} style={{ accentColor: '#b45309' }} />
-                {t('仅加载核心器件')}{coreOnly ? ` ✓ ${t('已开启')}` : ''}
-              </label>
-              <button onClick={() => setAiProposal(null)} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', fontSize: 13, cursor: 'pointer' }}>{t('取消')}</button>
-              <button onClick={confirmScheme} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: COLORS.green, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{tr('确认上画布')} ({(coreOnly ? aiProposal.details.filter((x) => x.category !== 'passive') : aiProposal.details).length})</button>
-            </div>
-          </div>
-        </div>
+          ) : null)}
+          onConfirm={(items) => confirmScheme(items)}
+          onClose={() => setAiProposal(null)}
+        />
       )}
 
       {wizard?.open && (

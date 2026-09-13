@@ -25,16 +25,44 @@ export const AiComponentSchema = z.object({
   footprint: z.string().max(80).optional(),
   qty: z.number().int().min(1).max(64).catch(1),
   reason: z.string().max(200).optional(),
+  /**
+   * 功能分组：以核心器件为组名（如 "STM32F103C8T6"、"电源"），
+   * 该组的附属器件（去耦、上拉、晶振…）挂在同一组名下。
+   */
+  group: z.string().max(48).optional(),
+  /** 是否为该组的核心器件（每组至多一个） */
+  core: z.boolean().optional(),
 });
 export type AiComponent = z.infer<typeof AiComponentSchema>;
 
 /** AI 方案：整体设计建议 */
+/** 方案框图：功能块与块间连接（与器件分组一一对应） */
+export const AiBlockSchema = z.object({
+  id: z.string().min(1).max(40),
+  label: z.string().min(1).max(40),
+  /** 该块的核心器件型号（对应 components[].group） */
+  core: z.string().max(64).optional(),
+  kind: z.enum(['power', 'mcu', 'sensor', 'interface', 'storage', 'rf', 'display', 'other']).catch('other'),
+});
+export const AiBlockLinkSchema = z.object({
+  from: z.string().min(1).max(40),
+  to: z.string().min(1).max(40),
+  /** 连接性质：总线名或电源轨，如 I2C / SPI / 3V3 */
+  label: z.string().max(24).optional(),
+  kind: z.enum(['power', 'signal', 'bus']).catch('signal'),
+});
+
 export const AiSchemeSchema = z.object({
   summary: z.string().max(600).optional(),
   boardWidthMm: z.number().positive().max(500).optional(),
   boardHeightMm: z.number().positive().max(500).optional(),
   components: z.array(AiComponentSchema).min(1).max(60),
+  /** 方案框图（可选；模型未给出时由分组结果推导） */
+  blocks: z.array(AiBlockSchema).max(20).optional(),
+  blockLinks: z.array(AiBlockLinkSchema).max(40).optional(),
 });
+export type AiBlock = z.infer<typeof AiBlockSchema>;
+export type AiBlockLink = z.infer<typeof AiBlockLinkSchema>;
 export type AiScheme = z.infer<typeof AiSchemeSchema>;
 
 /** AI 审查建议 */

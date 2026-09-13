@@ -58,17 +58,31 @@ const normMpn = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 export class GeminiAiProvider implements AiModelProvider {
   async generateScheme(req: AiSchemeRequest, _ctx: AccessContext): Promise<AiSchemeResult> {
-    const prompt = `你是资深硬件工程师。用户需求：「${req.prompt}」
+    // 多轮：带上一版方案 + 用户修改意见，让模型在既有方案上增删改
+    const revision = req.previous && req.feedback
+      ? `\n\n【上一版方案】\n${req.previous.summary ?? ''}\n器件清单：\n${req.previous.components.map((c) => `- ${c.mpn}${c.qty && c.qty > 1 ? ` ×${c.qty}` : ''}${c.group ? `（组：${c.group}${c.core ? '，核心' : ''}）` : ''}${c.reason ? ` — ${c.reason}` : ''}`).join('\n')}\n\n【用户修改意见】\n${req.feedback}\n\n请在上一版方案基础上按意见调整：保留未被提及的部分，只增删改必要的器件，并说明调整了什么。`
+      : '';
 
-请设计一个完整可工作的电路方案，输出器件清单。要求：
+    const prompt = `你是资深硬件工程师。用户需求：「${req.prompt}」${revision}
+
+请设计一个完整可工作的电路方案，输出器件清单与方案框图。要求：
+
 1. 主控/电源/接口等有源器件给出真实可购买的具体型号（如 STM32C011F4P6、AMS1117-3.3）
 2. 无源器件（电阻/电容/电感）给出通用值型号（如 RC0402FR-0710KL）与封装
 3. footprint 用 KiCad 命名规范（如 TSSOP-20_4.4x6.5mm_P0.65mm、R_0402_1005Metric、SOT-223）
-4. category 取值：mcu / power / passive / connector / ic
-5. 至多 12 个条目；summary 为 80 字内的方案思路
+4. category 取值：mcu / power / passive / connector / ic / sensor / rf / electromech
+5. **按功能分组**：每个功能模块以一颗核心器件为中心，该模块的附属器件（去耦电容、
+   上拉电阻、晶振及负载电容、限流电阻等）与核心器件用同一个 group 名（即核心器件的型号）；
+   核心器件标 "core": true，每组至多一个核心器件。纯连接器可自成一组。
+6. **方案框图**：blocks 是功能块（与分组一一对应），blockLinks 描述块之间的电源与信号走向；
+   kind 取值 blocks: power|mcu|sensor|interface|storage|rf|display|other，links: power|signal|bus
+7. 至多 12 个有源器件条目；summary 为 120 字内的方案思路
 
 严格输出 JSON（勿输出其它任何文字）：
-{"summary":"…","components":[{"mpn":"…","footprint":"…","category":"…","reason":"用途简述","qty":1}]}`;
+{"summary":"…",
+ "components":[{"mpn":"…","footprint":"…","category":"…","reason":"用途简述","qty":1,"group":"核心器件型号","core":true}],
+ "blocks":[{"id":"mcu","label":"主控","core":"STM32C011F4P6","kind":"mcu"}],
+ "blockLinks":[{"from":"power","to":"mcu","label":"3V3","kind":"power"}]}`;
 
     const text = await geminiComplete(prompt);
     // ── 主链路：extractJson → Zod(AiSchemeSchema) → 语义校验 → DB 验证 → trust ──
@@ -98,7 +112,7 @@ export class GeminiAiProvider implements AiModelProvider {
     const now = () => new Date().toISOString();
     for (const sc of comps) {
       const qty = Math.max(1, Math.min(8, sc.qty ?? 1));
-      let mapped: (ComponentSearchResult & { mapSource?: string; trust?: ComponentTrust }) | null = null;
+      let mapped: (ComponentSearchResult & { mapSource?: string; trust?: ComponentTrust; group?: string; core?: boolean; qty?: number }) | null = null;
       let candidateHit: ComponentSearchResult | undefined;
       if (liveOk && sc.mpn) {
         const live = await searchEzplmParts(sc.mpn, 5).catch(() => ({ available: false, items: [] as ComponentSearchResult[] }));
@@ -143,9 +157,17 @@ export class GeminiAiProvider implements AiModelProvider {
         } as ComponentSearchResult & { mapSource?: string; trust?: ComponentTrust };
       }
       if (sc.reason && !mapped.description?.includes(sc.reason)) mapped = { ...mapped, description: `${sc.reason} · ${mapped.description ?? ''}` };
-      for (let k = 0; k < qty; k++) items.push(mapped);
+      // 分组信息随器件带下去：UI 按「核心器件 + 附属器件」分组展示，上画布后用于成组布局
+      mapped = { ...mapped!, group: sc.group?.trim() || undefined, core: sc.core === true, qty };
+      for (let k = 0; k < qty; k++) items.push(mapped!);
     }
 
-    return { componentIds: [], rationale: checked.data.summary ?? 'Gemini 方案', items };
+    return {
+      componentIds: [],
+      rationale: checked.data.summary ?? 'Gemini 方案',
+      items,
+      blocks: checked.data.blocks,
+      blockLinks: checked.data.blockLinks,
+    };
   }
 }
