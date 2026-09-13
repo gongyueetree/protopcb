@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { buildStudioEnvironment } from './studio-env';
 import { useDesignStore } from '../../state/designStore';
 import { buildComponent3D, MAT } from './footprint3d';
+import { applyComponent3DTransform } from './component-3d-transform';
 import { buildBoardTexture } from './board-texture';
 import { mountingHoleCenters, HOLE_DIAMETER_MM, lshapeCut } from '../../design-core/collision';
 import { lshapeRoundedSegments } from '../../design-core/geometry/board-outline';
@@ -303,18 +304,8 @@ function rebuildBoard(group: THREE.Group, doc: CircuitCanvasDocument) {
   // 器件：2D 坐标 (xMm,yMm) 是相对板左上角；转成以板中心为原点
   for (const comp of doc.components) {
     const model = buildComponent3D(comp);
-    const localX = comp.placement.xMm - W / 2;
-    const localZ = comp.placement.yMm - H / 2;
-    const zOff = comp.display?.zOffsetMm ?? 0;
-    if (comp.placement.side === 'BOTTOM') {
-      // 底层：翻到板下方（绕 X 轴翻转 180°），旋转取镜像
-      model.position.set(localX, -boardThk - zOff, localZ);
-      model.rotation.x = Math.PI;
-      model.rotation.y = -(comp.placement.rotation * Math.PI) / 180;
-    } else {
-      model.position.set(localX, zOff, localZ);
-      model.rotation.y = (comp.placement.rotation * Math.PI) / 180;
-    }
+    // 摆位规则与 2D 投影层共用同一实现，避免两处各写一套导致 Top/Bottom 不一致
+    applyComponent3DTransform(model, comp, doc.board, { boardThicknessMm: boardThk });
     group.add(model);
   }
 

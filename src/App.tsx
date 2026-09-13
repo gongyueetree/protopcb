@@ -47,6 +47,8 @@ import { BlockDiagramPanel } from './modules/block-diagram/BlockDiagramPanel';
 import { SchematicPanel } from './modules/schematic/SchematicPanel';
 import { SchemeWorkspace, type SchemeProposal } from './modules/scheme/SchemeWorkspace';
 import { PipelineBar } from './modules/scheme/PipelineBar';
+import { PcbViewControls } from './modules/board-editor/PcbViewControls';
+import { usePcbViewStore } from './state/pcbViewStore';
 import { exportDocument, importDocumentFromFile, autosave, exportMarkdownReport } from './modules/report/persistence';
 import { COLORS, CATEGORY_DISPLAY } from './shared/theme';
 import type { BoardShapeKind } from './design-core/document/types';
@@ -81,6 +83,13 @@ export default function App() {
   const doc = useDesignStore((s) => s.doc);
   const selectedId = useDesignStore((s) => s.selectedId);
   const placementViolations = useDesignStore((s) => s.placementViolations);
+  // PCB 视图状态（纯 UI，不入文档/undo）
+  const pcbMode = usePcbViewStore((s) => s.mode);
+  const hidden3d = usePcbViewStore((s) => s.hidden3dIds);
+  const solo3d = usePcbViewStore((s) => s.solo3dId);
+  const toggle3D = usePcbViewStore((s) => s.toggleComponent3D);
+  const solo3D = usePcbViewStore((s) => s.soloComponent3D);
+  const clearSolo = usePcbViewStore((s) => s.clearSolo3D);
   const selectedNet = useDesignStore((s) => s.selectedNet);
   const dismissPlacementViolations = useDesignStore((s) => s.dismissPlacementViolations);
   const undo = useDesignStore((s) => s.undo);
@@ -508,6 +517,7 @@ export default function App() {
             }}>🧹</button>
             <button onClick={autoArrange} style={ibtn} title={t('自动整理') + ' — ' + t('按电气规则重新自动布局全部器件（可撤销）')} aria-label={t('自动整理')}>✨</button>
             <div style={{ width: 1, height: 18, background: '#E8F3EE', margin: '0 4px' }} />
+            {view === '2d' && mainTab === 'pcb' && <PcbViewControls />}
             {view === '2d' && (
               <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #E8F3EE' }} title={tr('当前放置层（选中器件按 L 换层）')}>
                 {(['TOP', 'BOTTOM'] as const).map((l) => (
@@ -563,6 +573,20 @@ export default function App() {
                   <button onClick={() => rotate(selObj.instanceId)} style={smbtn}>{tr('旋转')}</button>
                   <button onClick={() => flipLayer(selObj.instanceId)} style={{ ...smbtn, color: selObj.placement.side === 'TOP' ? '#c08a2d' : '#3b82c4' }}>{selObj.placement.side === 'TOP' ? '→Bottom' : '→Top'}</button>
                   <button onClick={() => toggleRefDesHidden(selObj.instanceId)} style={smbtn}>{selObj.refDesDisplay?.hidden ? tr('显位号') : tr('隐位号')}</button>
+                  {pcbMode !== '2d' && (
+                    <>
+                      <button onClick={() => toggle3D(selObj.instanceId)}
+                        title={tr('只隐藏该器件的 3D 模型，焊盘/网络高亮/选中/拖拽全部保留')}
+                        style={{ ...smbtn, color: hidden3d[selObj.instanceId] ? '#94a3b8' : COLORS.green }}>
+                        {hidden3d[selObj.instanceId] ? t('显示3D') : t('隐藏3D')}
+                      </button>
+                      <button onClick={() => (solo3d === selObj.instanceId ? clearSolo() : solo3D(selObj.instanceId))}
+                        title={tr('只显示该器件的 3D，其余器件仅保留 2D')}
+                        style={{ ...smbtn, color: solo3d === selObj.instanceId ? COLORS.green : '#475569' }}>
+                        {solo3d === selObj.instanceId ? t('退出单件') : t('仅看此器件')}
+                      </button>
+                    </>
+                  )}
                   <button onClick={() => remove(selObj.instanceId)} style={{ ...smbtn, borderColor: '#fecaca', background: '#fef2f2', color: '#dc2626' }}>{tr('移除')}</button>
                 </div>
               </div>

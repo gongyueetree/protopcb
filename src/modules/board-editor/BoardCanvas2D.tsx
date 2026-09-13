@@ -7,13 +7,17 @@ import { useT, tr } from '../../shared/i18n';
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDesignStore } from '../../state/designStore';
 import { PX_PER_MM, footprintBodyRect } from '../../design-core/geometry';
+import { BOARD_ORIGIN_PX } from './board-view-constants';
+import { PcbProjection3DLayer } from './PcbProjection3DLayer';
+import { usePcbViewStore } from '../../state/pcbViewStore';
 import { padFootprintFor } from '../../design-core/geometry/footprint-pads';
 import { mountingHoleCenters, HOLE_DIAMETER_MM, lshapeCut } from '../../design-core/collision';
 import { lshapeRoundedPathD } from '../../design-core/geometry/board-outline';
-import { CATEGORY_DISPLAY } from '../../shared/theme';
+import { CATEGORY_DISPLAY, COLORS } from '../../shared/theme';
 import type { PlacedComponent } from '../../design-core/document/types';
 
-const ORIGIN = { x: 60, y: 40 }; // 板框左上角在 svg 中的像素偏移
+// 板框原点常量已抽到 board-view-constants，供 3D 投影层共用（两边各存一份必然错位）
+const ORIGIN = BOARD_ORIGIN_PX;
 
 /** 视图状态持久化（切换 2D/3D 再回来不丢位置） */
 const viewMemory = { zoom: 1, pan: { x: 0, y: 0 } };
@@ -53,6 +57,13 @@ export function BoardCanvas2D() {
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const setMultiSel = useDesignStore((st) => st.setMultiSel);
   const dragRef = useRef<{ active: boolean; id: string; sx: number; sy: number; startX: number; startY: number; mode: 'comp' | 'refdes'; group?: { id: string; startX: number; startY: number }[] }>({ active: false, id: '', sx: 0, sy: 0, startX: 0, startY: 0, mode: 'comp' });
+
+  // 视口同步给投影层：3D 相机据此与 2D 完全对齐
+  const setViewport = usePcbViewStore((s) => s.setViewport);
+  const mode = usePcbViewStore((s) => s.mode);
+  const showPads = usePcbViewStore((s) => s.showPads);
+  const showFootprintBody = usePcbViewStore((s) => s.showFootprintBody);
+  useEffect(() => { setViewport({ zoom, panX: pan.x, panY: pan.y }); }, [zoom, pan, setViewport]);
 
   const panLive = useRef(pan); panLive.current = pan;
   const zoomLive = useRef(zoom); zoomLive.current = zoom;
@@ -169,7 +180,8 @@ export function BoardCanvas2D() {
     <div ref={containerRef} onContextMenu={(e) => e.preventDefault()}
       data-canvas="pcb2d"
  style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#F8F9FA' }}>
-      <svg width="100%" height="100%" onMouseDown={onBgDown} onClick={onBgClick}>
+      <svg width="100%" height="100%" onMouseDown={onBgDown} onClick={onBgClick}
+        style={{ position: 'relative', zIndex: 0 }}>
         <defs>
           <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0L0 0 0 20" fill="none" stroke="#e5e7eb" strokeWidth=".5" /></pattern>
         </defs>
@@ -227,8 +239,11 @@ export function BoardCanvas2D() {
               overlap={overlaps.has(c.instanceId)}
               inactive={c.placement.side !== activeLayer}
               selectedNet={selectedNet}
+              showPads={showPads}
+              // 实物投影：弱化封装外框（3D 本体已经代表器件了），位号也收起
+              showBody={showFootprintBody && mode !== 'realistic'}
               onPickNet={(n) => selectNet(n === selectedNet ? null : n)}
-              hideRefDes={hideAllRefDes || !!c.refDesDisplay?.hidden}
+              hideRefDes={hideAllRefDes || mode === 'realistic' || !!c.refDesDisplay?.hidden}
               onMouseDown={(e) => onCompDown(e, c)}
               onRefDesDown={(e) => onRefDesDown(e, c)} />
           ))}
@@ -236,10 +251,32 @@ export function BoardCanvas2D() {
             <text x={ORIGIN.x + bw / 2} y={ORIGIN.y + bh / 2} textAnchor="middle" fontSize={12} fill="#94a3b8">{t('从左侧添加器件，自动按电气规则摆放')}</text>
           )}
         </g>
+      </svg>
+
+      {/* 中间层：3D 正交投影（pointerEvents:none，不抢任何鼠标事件） */}
+      {mode !== '2d' && <PcbProjection3DLayer activeLayer={activeLayer} />}
+
+      {/* 顶层交互 overlay：选中框与框选矩形要画在 3D 模型之上，否则选中反馈会被器件挡住 */}
+      <svg width="100%" height="100%" pointerEvents="none"
+        style={{ position: 'absolute', inset: 0, zIndex: 3 }}>
+        <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
+          {mode !== '2d' && doc.components
+            .filter((c) => c.instanceId === selectedId || multiSel.includes(c.instanceId))
+            .map((c) => {
+              const r = footprintBodyRect(c.footprint.geometry, { x: c.placement.xMm, y: c.placement.yMm }, c.placement.rotation);
+              return (
+                <rect key={'sel' + c.instanceId}
+                  x={ORIGIN.x + r.x * PX_PER_MM - 3} y={ORIGIN.y + r.y * PX_PER_MM - 3}
+                  width={r.width * PX_PER_MM + 6} height={r.height * PX_PER_MM + 6}
+                  rx={3} fill="none" stroke={multiSel.includes(c.instanceId) ? '#2563eb' : COLORS.green}
+                  strokeWidth={1.6} strokeDasharray="5 3" />
+              );
+            })}
+        </g>
         {marquee && (
           <rect x={Math.min(marquee.x0, marquee.x1)} y={Math.min(marquee.y0, marquee.y1)}
             width={Math.abs(marquee.x1 - marquee.x0)} height={Math.abs(marquee.y1 - marquee.y0)}
-            fill="rgba(37,99,235,.10)" stroke="#2563eb" strokeWidth={1.5} strokeDasharray="6 4" pointerEvents="none" />
+            fill="rgba(37,99,235,.10)" stroke="#2563eb" strokeWidth={1.5} strokeDasharray="6 4" />
         )}
       </svg>
       {multiSel.length > 0 && (
@@ -276,8 +313,10 @@ function BoardOutline({ shape, x, y, w, h, board }: { shape: string; x: number; 
 /** 位号统一配色：顶层深灰蓝、底层蓝（此前按器件类别取色，一块板上位号五颜六色） */
 const REFDES_COLOR = '#334155';
 
-function ComponentGlyph({ comp, selected, multi, overlap, inactive, hideRefDes, selectedNet, onPickNet, onMouseDown, onRefDesDown }: {
+function ComponentGlyph({ comp, selected, multi, overlap, inactive, hideRefDes, showPads = true, showBody = true, selectedNet, onPickNet, onMouseDown, onRefDesDown }: {
   comp: PlacedComponent; selected: boolean; multi: boolean; overlap: boolean; inactive: boolean; hideRefDes: boolean;
+  /** 混合视图下可单独关掉焊盘/封装外框，只留 3D 投影 */
+  showPads?: boolean; showBody?: boolean;
   /** iBOM 式网络高亮：当前网络号（null=未选）与点击焊盘时的回调 */
   selectedNet: number | null; onPickNet: (net: number) => void;
   onMouseDown: (e: React.MouseEvent) => void; onRefDesDown: (e: React.MouseEvent) => void;
@@ -310,9 +349,11 @@ function ComponentGlyph({ comp, selected, multi, overlap, inactive, hideRefDes, 
       <g transform={`translate(${cx},${cy}) rotate(${-rot})${isBottom ? ' scale(-1,1)' : ''}`} opacity={inactive ? 0.35 : 1}
         onMouseDown={onMouseDown} onClick={(e) => e.stopPropagation()} style={{ cursor: 'grab' }}>
         {(selected || multi) && <rect x={exMinX - 4} y={exMinY - 4} width={exMaxX - exMinX + 8} height={exMaxY - exMinY + 8} rx={3} fill="none" stroke={multi ? '#f59e0b' : '#2563eb'} strokeWidth={1.5} strokeDasharray="5 3" />}
-        <rect x={bcx - pads.bodyW * PX_PER_MM / 2} y={bcy - pads.bodyH * PX_PER_MM / 2} width={pads.bodyW * PX_PER_MM} height={pads.bodyH * PX_PER_MM} rx={2}
-          fill={overlap ? 'rgba(239,68,68,.06)' : 'rgba(148,163,184,.08)'} stroke={bodyStroke} strokeWidth={selected ? 1.4 : 0.9} />
-        {pads.pads.map((p, i) => {
+        {showBody && (
+          <rect x={bcx - pads.bodyW * PX_PER_MM / 2} y={bcy - pads.bodyH * PX_PER_MM / 2} width={pads.bodyW * PX_PER_MM} height={pads.bodyH * PX_PER_MM} rx={2}
+            fill={overlap ? 'rgba(239,68,68,.06)' : 'rgba(148,163,184,.08)'} stroke={bodyStroke} strokeWidth={selected ? 1.4 : 0.9} />
+        )}
+        {showPads && pads.pads.map((p, i) => {
           // 该焊盘所属网络（来自导入的 netlist）；点击即高亮整条网络
           const padNet = comp.display?.padNets?.[String(p.num)];
           const hot = selectedNet != null && padNet === selectedNet;
