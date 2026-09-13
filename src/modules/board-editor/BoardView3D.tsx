@@ -405,6 +405,10 @@ function addEnclosureMesh(group: THREE.Group, doc: CircuitCanvasDocument) {
       shape.holes.push(path);
     }
     const geo = new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false });
+    // ExtrudeGeometry 从 z=0 挤到 z=thick；先把它在厚度方向居中，
+    // 这样 place() 给的坐标就是板片中心，与原来的 BoxGeometry 摆法一致。
+    // （上一版漏了这一步，四面墙各自偏了半个壁厚，壳体看起来是散的。）
+    geo.translate(0, 0, -thick / 2);
     const m = new THREE.Mesh(geo, shellMat);
     place(m);
     g.add(m);
@@ -426,25 +430,26 @@ function addEnclosureMesh(group: THREE.Group, doc: CircuitCanvasDocument) {
       v: (0 + o.cy) - midY,                                     // PCB 上表面 y=0
       w: o.w, h: o.h, circle: o.shape === 'circle',
     }));
+  // 墙心坐标与原 BoxGeometry 版本完全一致：内腔半宽 + 半个壁厚
   panel(d.outerH, innerH, spec.wallMm, holesOn('left'), (m) => {
     m.rotation.y = -Math.PI / 2;
-    m.position.set(-(d.innerW + spec.wallMm) / 2 - spec.wallMm / 2, midY, 0);
+    m.position.set(-(d.innerW + spec.wallMm) / 2, midY, 0);
   });
   panel(d.outerH, innerH, spec.wallMm, holesOn('right'), (m) => {
     m.rotation.y = Math.PI / 2;
-    m.position.set((d.innerW + spec.wallMm) / 2 - spec.wallMm / 2, midY, 0);
+    m.position.set((d.innerW + spec.wallMm) / 2, midY, 0);
   });
   panel(d.innerW, innerH, spec.wallMm, holesOn('front'), (m) => {
-    m.position.set(0, midY, -(d.innerH + spec.wallMm) / 2 - spec.wallMm / 2);
+    m.position.set(0, midY, -(d.innerH + spec.wallMm) / 2);
   });
   panel(d.innerW, innerH, spec.wallMm, holesOn('back'), (m) => {
     m.rotation.y = Math.PI;
-    m.position.set(0, midY, (d.innerH + spec.wallMm) / 2 + spec.wallMm / 2);
+    m.position.set(0, midY, (d.innerH + spec.wallMm) / 2);
   });
   // ── 顶盖（显示屏/按键/LED 开窗真正挖穿）──
   panel(d.outerW, d.outerH, spec.lidMm,
     openings.filter((o) => o.face === 'top').map((o) => ({ u: o.cx, v: -o.cy, w: o.w, h: o.h, circle: o.shape === 'circle' })),
-    (m) => { m.rotation.x = -Math.PI / 2; m.position.set(0, innerTopY, 0); });
+    (m) => { m.rotation.x = -Math.PI / 2; m.position.set(0, innerTopY + spec.lidMm / 2, 0); });
   // 支柱（对齐定位孔位置；无孔位时不画，避免凭空发明结构）
   const holes = mountingHoleCenters(doc.board);
   for (const c of holes) {

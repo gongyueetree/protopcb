@@ -213,8 +213,8 @@ export interface CircuitCanvasDocument {
       ref: string; libId: string; value?: string;
       x: number; y: number; rot: number; mirror?: string; unit?: number;
       mat?: [number, number, number, number];
-      refPos?: { x: number; y: number; rot: number; hidden: boolean };
-      valPos?: { x: number; y: number; rot: number; hidden: boolean };
+      refPos?: { x: number; y: number; rot: number; hidden: boolean; sizeMm?: number; anchor?: 'start' | 'middle' | 'end' };
+      valPos?: { x: number; y: number; rot: number; hidden: boolean; sizeMm?: number; anchor?: 'start' | 'middle' | 'end' };
     }[];
     wires: [number, number][][];
     buses?: [number, number][][];

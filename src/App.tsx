@@ -319,6 +319,8 @@ export default function App() {
   };
 
   /** KiCad 5 旧版 .sch：无内嵌符号定义，仅提取实例/连线/标签用于原样视图 */
+  /** KiCad 水平对齐 → SVG textAnchor */
+  const JUST = { L: 'start', C: 'middle', R: 'end' } as const;
   const applyLegacySch = (text: string, libText?: string): { symbols: number; linked: number } => {
     const r = parseLegacySch(text);
     // 旧工程的符号图形在 -cache.lib 中；不解析它原理图就只有连线没有器件
@@ -332,8 +334,8 @@ export default function App() {
       // 位号/值按 .sch 里的绝对字段位置渲染（此前固定画在符号上下，会压在连线上）
       instances: r.comps.map((c) => ({
         ref: c.ref, libId: c.libId, value: c.value, x: c.x, y: c.y, rot: c.rot, mirror: c.mirror, unit: c.unit, mat: c.mat,
-        refPos: c.refField ? { x: c.refField.x, y: c.refField.y, rot: c.refField.vertical ? 90 : 0, hidden: false } : undefined,
-        valPos: c.valueField ? { x: c.valueField.x, y: c.valueField.y, rot: c.valueField.vertical ? 90 : 0, hidden: false } : undefined,
+        refPos: c.refField ? { x: c.refField.x, y: c.refField.y, rot: c.refField.vertical ? 90 : 0, hidden: false, sizeMm: c.refField.sizeMm, anchor: JUST[c.refField.just] } : undefined,
+        valPos: c.valueField ? { x: c.valueField.x, y: c.valueField.y, rot: c.valueField.vertical ? 90 : 0, hidden: false, sizeMm: c.valueField.sizeMm, anchor: JUST[c.valueField.just] } : undefined,
       })),
       wires: r.wires,
       buses: r.buses,

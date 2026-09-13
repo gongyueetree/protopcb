@@ -19,8 +19,8 @@ export interface LegacySchComp {
   ref: string;
   value: string;
   /** 位号/值字段的绝对位置（mm）；隐藏字段为 undefined，渲染时应跳过 */
-  refField?: { x: number; y: number; vertical: boolean };
-  valueField?: { x: number; y: number; vertical: boolean };
+  refField?: { x: number; y: number; vertical: boolean; sizeMm: number; just: 'L' | 'R' | 'C' };
+  valueField?: { x: number; y: number; vertical: boolean; sizeMm: number; just: 'L' | 'R' | 'C' };
   libId: string;
   footprint?: string;
   x: number; y: number;      // mm
@@ -105,8 +105,9 @@ export function parseLegacySch(text: string): LegacySchResult {
       let x = 0, y = 0, unit = 1, rot = 0;
       let mirror: 'x' | 'y' | undefined;
       let mat: [number, number, number, number] | undefined;
-      let refField: { x: number; y: number; vertical: boolean } | undefined;
-      let valueField: { x: number; y: number; vertical: boolean } | undefined;
+      type Field = { x: number; y: number; vertical: boolean; sizeMm: number; just: 'L' | 'R' | 'C' };
+      let refField: Field | undefined;
+      let valueField: Field | undefined;
       for (i++; i < lines.length && !lines[i].startsWith('$EndComp'); i++) {
         const l = lines[i];
         // L 库:符号名 位号
@@ -122,15 +123,19 @@ export function parseLegacySch(text: string): LegacySchResult {
         //   标志位第 4 位为 1 表示该字段隐藏（如 F 2 封装通常是 0001）
         //   x/y 是**绝对坐标**（mil），不是相对器件的偏移 —— 之前忽略了它，
         //   于是位号/值一律画在符号上下固定位置，压在连线上。
-        const mF = l.match(/^F\s+(\d+)\s+"((?:[^"\\]|\\.)*)"\s+([HV])\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)/);
+        // F n "文本" 朝向 x y 字号 标志位 水平对齐 [垂直对齐+字形]
+        const mF = l.match(/^F\s+(\d+)\s+"((?:[^"\\]|\\.)*)"\s+([HV])\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)\s*([LRC])?/);
         if (mF) {
           const idx = parseInt(mF[1], 10);
           const val = mF[2];
           const fx = mm(parseInt(mF[4], 10)), fy = mm(parseInt(mF[5], 10));
           const vertical = mF[3] === 'V';
+          const sizeMm = mm(parseInt(mF[6], 10) || 50);        // 字号也是 mil，必须跟着用，否则字太大互相压
+          const just = (mF[8] ?? 'C') as 'L' | 'R' | 'C';      // 水平对齐：L 左、R 右、C 居中
           const hidden = /1$/.test(mF[7]);
-          if (idx === 0 && val) { ref = val; if (!hidden) refField = { x: fx, y: fy, vertical }; }
-          else if (idx === 1) { value = val; if (!hidden) valueField = { x: fx, y: fy, vertical }; }
+          const f = { x: fx, y: fy, vertical, sizeMm, just };
+          if (idx === 0 && val) { ref = val; if (!hidden) refField = f; }
+          else if (idx === 1) { value = val; if (!hidden) valueField = f; }
           else if (idx === 2 && val) footprint = val.includes(':') ? val.split(':').pop()! : val;
           continue;
         }

@@ -195,11 +195,19 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
             const eff = (((rot - inst.rot) % 180) + 180) % 180;
             return eff === 90 ? 90 : 0;
           };
-          const label = (key: string, pos: { x: number; y: number; rot: number }, text: string, size: number, fill: string, weight?: number) => {
+          const label = (
+            key: string,
+            pos: { x: number; y: number; rot: number; sizeMm?: number; anchor?: 'start' | 'middle' | 'end' },
+            text: string, size: number, fill: string, weight?: number,
+          ) => {
             const x = pos.x * PXMM, y = pos.y * PXMM;
+            // 字号取文件里的字段尺寸（mil→mm→px）。写死 8px 会比 KiCad 实际大近一倍，
+            // 标注互相压、也看不出对齐关系。对齐同理：KiCad 的 L/C/R 必须照搬。
+            const fs = pos.sizeMm ? Math.max(4, pos.sizeMm * PXMM) : size;
             return (
-              <text key={key} x={x} y={y} fontSize={size} fontWeight={weight} fill={fill}
-                textAnchor="middle" fontFamily="monospace" style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={3}
+              <text key={key} x={x} y={y} fontSize={fs} fontWeight={weight} fill={fill}
+                textAnchor={pos.anchor ?? 'middle'} dominantBaseline="middle"
+                fontFamily="monospace" style={{ paintOrder: 'stroke' }} stroke="#fafaf6" strokeWidth={2.5}
                 transform={textAngle(pos.rot) === 90 ? `rotate(-90 ${x} ${y})` : undefined}>{text}</text>
             );
           };

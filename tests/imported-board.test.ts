@@ -103,3 +103,47 @@ describe('KiCad 5 工程解析', () => {
     expect(j1.padNets?.['A1']).toBe(7);
   });
 });
+
+describe('KiCad 5 原理图字段', () => {
+  const SCH = `EESchema Schematic File Version 4
+$Comp
+L lib:MIC5504 U2
+U 1 1 5FA3D202
+P 3350 1000
+F 0 "U2" H 3100 1315 50  0000 C CNN
+F 1 "MIC5504-3.3YM5" H 3370 1245 50  0000 C CNN
+F 2 "Package_TO_SOT_SMD:SOT-23-5" H 3350 600 50  0001 C CNN
+	1    3350 1000
+	1    0    0    -1
+$EndComp
+$Comp
+L lib:C C2
+U 1 1 5FA3D203
+P 2600 1100
+F 0 "C2" H 2691 1146 50  0000 L CNN
+F 1 "1uF" H 2691 1055 50  0000 L CNN
+$EndComp
+Wire Bus Line
+	7250 3850 7350 3950
+Entry Wire Line
+	7250 3950 7350 4050
+$EndSCHEMATC`;
+
+  it('字段位置/字号/对齐都按文件解析，隐藏字段（0001）跳过', async () => {
+    const { parseLegacySch } = await import('../src/design-core/geometry/kicad-sch-legacy');
+    const r = parseLegacySch(SCH);
+    const u2 = r.comps.find((c) => c.ref === 'U2')!;
+    expect(u2.refField?.just).toBe('C');
+    expect(u2.refField?.sizeMm).toBeCloseTo(1.27, 2);
+    expect(u2.valueField?.x).toBeCloseTo(3370 * 0.0254, 2);
+    const c2 = r.comps.find((c) => c.ref === 'C2')!;
+    expect(c2.refField?.just).toBe('L');      // 左对齐必须照搬，否则文字整体偏半个宽度
+  });
+
+  it('Entry Wire Line 也算总线入口（KiCad 5 实际写法）', async () => {
+    const { parseLegacySch } = await import('../src/design-core/geometry/kicad-sch-legacy');
+    const r = parseLegacySch(SCH);
+    expect(r.buses).toHaveLength(1);
+    expect(r.busEntries).toHaveLength(1);
+  });
+});
