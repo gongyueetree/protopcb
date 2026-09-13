@@ -53,6 +53,10 @@ interface DesignState {
   /** 拖动/连续操作开始前存快照（供撤回回到操作前的位置） */
   beginInteraction: () => void;
   /** 子电路一键上画布：辅件锚定核心器件、按管脚顺序围核心排布（不重叠，间距≥3mm） */
+  /** 与该器件同组的全部器件实例 id（核心 + 其附属；传入附属件时返回它所属的整组） */
+  groupMemberIds: (instanceId: string) => string[];
+  /** 重新优化某核心器件的附属器件布局（保持"围绕核心"的语义，避开定位孔与其它器件） */
+  reoptimizeGroup: (coreInstanceId: string) => { moved: number; violations: number };
   placeSubCircuit: (coreInstanceId: string, items: { role: string; value: string; mpn?: string; category: ComponentCategory; footprint: string; connectsTo: string; qty: number }[]) => number;
   rotateComponent: (instanceId: string) => void;
   setBoardSize: (w: number, h: number) => void;
@@ -187,7 +191,10 @@ export const useDesignStore = create<DesignState>()(
     removeComponent: (id) =>
       set((s) => {
         snapshot(s);
-        s.doc.components = s.doc.components.filter((c) => c.instanceId !== id);
+        // 删除核心器件时，其子电路附属器件一并删除（留下孤立的去耦电容没有意义）
+        const me = s.doc.components.find((c) => c.instanceId === id);
+        const satRefs = me ? new Set(s.doc.components.filter((c) => c.display?.anchorRef === me.reference).map((c) => c.instanceId)) : new Set<string>();
+        s.doc.components = s.doc.components.filter((c) => c.instanceId !== id && !satRefs.has(c.instanceId));
         s.doc = touchDocument(refreshDerived(s.doc));
         s.selectedId = s.selectedId === id ? null : s.selectedId;
         s.overlaps = findOverlaps(s.doc.components);
@@ -230,6 +237,47 @@ export const useDesignStore = create<DesignState>()(
       return placedCount;
     },
 
+    groupMemberIds: (instanceId) => {
+      const doc = _get().doc;
+      const me = doc.components.find((c) => c.instanceId === instanceId);
+      if (!me) return [];
+      // 传入的是附属件 → 找到它的核心；传入核心 → 就是自己
+      const coreRef = me.display?.anchorRef ?? me.reference;
+      const core = doc.components.find((c) => c.reference === coreRef);
+      const sats = doc.components.filter((c) => c.display?.anchorRef === coreRef);
+      if (!sats.length) return [instanceId];
+      return [...(core ? [core.instanceId] : []), ...sats.map((c) => c.instanceId)];
+    },
+
+    reoptimizeGroup: (coreInstanceId) => {
+      let moved = 0, violations = 0;
+      set((s) => {
+        const core = s.doc.components.find((c) => c.instanceId === coreInstanceId);
+        if (!core) return;
+        const sats = s.doc.components.filter((c) => c.display?.anchorRef === core.reference);
+        if (!sats.length) return;
+        snapshot(s);
+        // 参与避让的"既有器件"：本组之外的全部同层器件（定位孔由求解器自身规则处理）
+        const others = s.doc.components.filter((c) =>
+          c.placement.side === core.placement.side
+          && c.instanceId !== core.instanceId
+          && !sats.some((x) => x.instanceId === c.instanceId));
+        const placedSoFar = [...others, core];
+        for (const sat of sats) {
+          const out = solvePlacementDetailed(sat, { board: s.doc.board, existing: placedSoFar, rules: DEFAULT_PLACEMENT_RULES });
+          sat.placement.xMm = out.position.x;
+          sat.placement.yMm = out.position.y;
+          if (!out.success) { s.placementViolations[sat.instanceId] = out.violations; violations++; }
+          else delete s.placementViolations[sat.instanceId];
+          placedSoFar.push({ ...sat });
+          moved++;
+        }
+        s.doc = touchDocument(refreshDerived(s.doc));
+        s.overlaps = findOverlaps(s.doc.components);
+      });
+      return { moved, violations };
+    },
+
     beginInteraction: () => set((s) => { snapshot(s); }),
 
     setZOffset: (instanceId, zMm) =>
@@ -247,6 +295,17 @@ export const useDesignStore = create<DesignState>()(
         // 先夹紧到板内
         const trial = { ...c, placement: { ...c.placement, xMm, yMm } };
         const clamped = clampComponentToBoard(trial, s.doc.board);
+        // 附属器件跟随核心整体平移（保持相对关系），并各自夹紧在板内
+        const dx = clamped.x - c.placement.xMm, dy = clamped.y - c.placement.yMm;
+        if (dx || dy) {
+          for (const sat of s.doc.components) {
+            if (sat.display?.anchorRef !== c.reference) continue;
+            const t = { ...sat, placement: { ...sat.placement, xMm: sat.placement.xMm + dx, yMm: sat.placement.yMm + dy } };
+            const cl = clampComponentToBoard(t, s.doc.board);
+            sat.placement.xMm = cl.x;
+            sat.placement.yMm = cl.y;
+          }
+        }
         // 允许自由移动（密集板上处处违反间距会导致完全拖不动）；重叠以红色高亮提示而非阻止
         c.placement.xMm = clamped.x;
         c.placement.yMm = clamped.y;

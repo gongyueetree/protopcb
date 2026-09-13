@@ -4,7 +4,7 @@
  * 坐标系：板坐标(mm) → 像素用 PX_PER_MM。
  */
 import { useT, tr } from '../../shared/i18n';
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useDesignStore } from '../../state/designStore';
 import { PX_PER_MM, footprintBodyRect } from '../../design-core/geometry';
 import { padFootprintFor } from '../../design-core/geometry/footprint-pads';
@@ -28,6 +28,14 @@ export function BoardCanvas2D() {
   const hideAllRefDes = useDesignStore((s) => s.hideAllRefDes);
   const select = useDesignStore((s) => s.select);
   const selectedNet = useDesignStore((s) => s.selectedNet);
+  /** 选中核心器件时，同组附属器件一起高亮（移动/删除也是整组联动） */
+  const groupHighlight = useMemo(() => {
+    const sel = doc.components.find((c) => c.instanceId === selectedId);
+    if (!sel) return new Set<string>();
+    const coreRef = sel.display?.anchorRef ?? sel.reference;
+    const ids = doc.components.filter((c) => c.display?.anchorRef === coreRef || c.reference === coreRef).map((c) => c.instanceId);
+    return ids.length > 1 ? new Set(ids) : new Set<string>();
+  }, [doc.components, selectedId]);
   const selectNet = useDesignStore((s) => s.selectNet);
   const netName = useCallback((n: number) => doc.nets?.[String(n)] ?? `Net-${n}`, [doc.nets]);
   const toggleMulti = useDesignStore((s) => s.toggleMulti);
@@ -215,7 +223,7 @@ export function BoardCanvas2D() {
           {doc.components.map((c) => (
             <ComponentGlyph key={c.instanceId} comp={c}
               selected={selectedId === c.instanceId}
-              multi={multiSel.includes(c.instanceId)}
+              multi={multiSel.includes(c.instanceId) || groupHighlight.has(c.instanceId)}
               overlap={overlaps.has(c.instanceId)}
               inactive={c.placement.side !== activeLayer}
               selectedNet={selectedNet}

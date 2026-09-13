@@ -31,6 +31,7 @@ import { parseKicadMod } from './design-core/geometry/kicad-file-parser';
 import { recommendSubCircuit, type SubCircuitItem } from './modules/component-search/sub-circuit';
 import { TRUST_META } from './providers/ai-schema';
 import { diffSchemes } from './design-core/scheme-workspace';
+import { ensureKicadSymbolByMpn } from './design-core/geometry/lib-file-registry';
 import { autoKicadFootprint } from './design-core/geometry/auto-kicad-footprint';
 import { useT, useLangStore, useTranslated, tr, syncDocumentLang } from './shared/i18n';
 import { registerFootprintOverride, registerSymbolOverride, symbolOverrideFor, footprintOverrideFor } from './design-core/geometry/lib-file-registry';
@@ -745,6 +746,11 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
   const [subBusy, setSubBusy] = useState(false);
   const [subMsg, setSubMsg] = useState('');
   const placeSubCircuit = useDesignStore((s2) => s2.placeSubCircuit);
+  const reoptimizeGroup = useDesignStore((s2) => s2.reoptimizeGroup);
+  const allComps = useDesignStore((s2) => s2.doc.components);
+  /** 本器件是否是别人的子电路附属件；以及它自己带了几个附属件 */
+  const isSatellite = !!c?.display?.anchorRef;
+  const satCount = c ? allComps.filter((x) => x.display?.anchorRef === c.reference).length : 0;
   const runSubCircuit = async () => {
     if (!c || subBusy) return;
     setSubBusy(true); setSubMsg(''); setSubItems(null);
@@ -757,7 +763,15 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
   const loadSubCircuit = () => {
     if (!c || !subItems?.length) return;
     const n = placeSubCircuit(c.instanceId, subItems);
-    setSubMsg(`✓ 已上画布 ${n} 个器件（围绕 ${c.reference}，按管脚序排布）`);
+    setSubMsg(`✓ ${tr('已上画布')} ${n} ${tr('个器件（围绕')} ${c.reference}${tr('），正在关联 KiCad 官方封装与符号…')}`);
+    // 子电路器件多为无源件：ezPLM 通常不收录，直接到 KiCad 官方库取精确焊盘/3D/符号
+    const uniqueFps = [...new Set(subItems.map((x) => x.footprint).filter(Boolean))];
+    Promise.allSettled(uniqueFps.map(async (fp) => {
+      const stepUrl = await autoKicadFootprint(fp);
+      if (stepUrl) useDesignStore.getState().setStepUrlByFootprint(fp, stepUrl);
+    })).then(() => setSubMsg(`✓ ${tr('已上画布')} ${n} ${tr('个器件，封装/3D 已按 KiCad 官方库关联')}`));
+    // 符号：按型号到官方符号库检索（命中才用，不命中保持按名字解析）
+    for (const it of subItems) ensureKicadSymbolByMpn(it.mpn ?? it.value);
     setSubItems(null);
   };
 
@@ -900,11 +914,23 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
       <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: subItems?.length || subMsg ? 6 : 0 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d' }}>🧩 {tr('子电路推荐')}</span>
-          <span style={{ fontSize: 9.5, color: '#4d7c0f' }}>{tr('典型应用电路的周边器件')}</span>
+          <span style={{ fontSize: 9.5, color: '#4d7c0f' }}>
+            {isSatellite ? tr('该器件是子电路的一部分') : tr('优先用参考设计，无参考才由 AI 推断')}
+          </span>
           <span style={{ flex: 1 }} />
-          <button onClick={runSubCircuit} disabled={subBusy} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: subBusy ? '#d6d3d1' : '#15803d', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: subBusy ? 'default' : 'pointer' }}>
-            {subBusy ? '⟳ ' + tr('分析中…') : '🤖 ' + tr('推荐')}
-          </button>
+          {/* 已有附属器件的核心：提供"重排"；本身是附属器件的：不再推荐子电路（避免无限套娃） */}
+          {satCount > 0 && (
+            <button onClick={() => { const r = reoptimizeGroup(c.instanceId); setSubMsg(`✓ ${tr('已重排')} ${r.moved} ${tr('个附属器件')}${r.violations ? `（${r.violations} ${tr('个仍有冲突')}）` : ''}`); }}
+              title={tr('保持围绕核心的相对关系重新摆放，避开定位孔与其它器件')}
+              style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #bbf7d0', background: '#fff', color: '#15803d', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>
+              ↻ {tr('重排附属器件')}（{satCount}）
+            </button>
+          )}
+          {!isSatellite && (
+            <button onClick={runSubCircuit} disabled={subBusy} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: subBusy ? '#d6d3d1' : '#15803d', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: subBusy ? 'default' : 'pointer' }}>
+              {subBusy ? '⟳ ' + tr('分析中…') : '🤖 ' + tr('推荐')}
+            </button>
+          )}
         </div>
         {subMsg && <div style={{ fontSize: 10, color: subMsg.startsWith('✓') ? '#15803d' : '#b45309', marginBottom: 4 }}>{subMsg}</div>}
         {!!subItems?.length && (
