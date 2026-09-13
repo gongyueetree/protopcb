@@ -190,19 +190,46 @@ export default async function handler(req, res) {
           [/^sw_|^switch|^button/i, /button_switch/i],
           [/^crystal|^xtal/i, /crystal/i],
         ];
+        // 常见器件名 → 所在库的提示表。
+        // 光靠"库名包含关键词"排序是不够的：WS2812 在 LED 库里、ESP32 在 RF_Module 里、
+        // CH340 在 Interface_USB 里，名字都对不上，排序后落到预算之外就永远搜不到。
+        const PART_HINTS = [
+          [/^(ws28|sk68|apa10|led|neopixel)/i, /^led/i],
+          [/^esp(32|8266)|^esp-?/i, /rf_module/i],
+          [/^nrf5|^cc25|^si24/i, /rf_/i],
+          [/^stm32/i, /mcu_st_stm32/i],
+          [/^(atmega|attiny|atsam)/i, /mcu_microchip|mcu_atmel/i],
+          [/^(lpc|nxp)/i, /mcu_nxp/i],
+          [/^(gd32)/i, /mcu_gigadevice|mcu_st_stm32/i],
+          [/^(rp2040|rp23)/i, /mcu_raspberrypi/i],
+          [/^(ch34|ft23|cp21|pl23)/i, /interface_usb/i],
+          [/^(max232|sn75|sp3485|adm3|mcp25|tja10)/i, /interface/i],
+          [/^(lm|tps|mp\d|ams1117|mic\d|xl\d|rt\d|ap\d)/i, /regulator/i],
+          [/^(ne555|lm358|lm324|tl07|opa|ada4|ad8)/i, /amplifier|timer/i],
+          [/^(24[cl]c|at24|w25q|mx25|is25)/i, /memory/i],
+          [/^(ds18|dht|sht|bme|bmp|mpu|lsm|hdc)/i, /sensor/i],
+          [/^(usb|type-?c)/i, /connector_usb/i],
+        ];
+        const hintRe = PART_HINTS.find(([qre]) => qre.test(q))?.[1];
         const famRe = FAMILY.find(([qre]) => qre.test(q))?.[1];
         const score = (ln) => {
           const l = ln.toLowerCase();
           let sc = 0;
           for (const t of tokens) if (l.includes(t)) sc += 10;
           if (famRe && famRe.test(l)) sc += 40;   // 族映射命中优先级最高
+          if (hintRe && hintRe.test(l)) sc += 50;  // 器件名→库的提示优先级更高
           return sc;
         };
         const ordered = [...libs].sort((a, b) => score(b) - score(a));
         hits = [];
-        const LIB_BUDGET = Math.max(4, Math.min(40, parseInt(process.env.KICADLIB_LIB_BUDGET ?? '16', 10) || 16)); // fan-out 上限：每次最多探这么多个库
-        for (const ln of ordered.slice(0, LIB_BUDGET)) {
+        // fan-out 预算：正常只探前 N 个最相关的库；
+        // 若这一轮**一个都没命中**，再扩展探测（结果按查询串缓存，代价只付一次）。
+        const LIB_BUDGET = Math.max(4, Math.min(40, parseInt(process.env.KICADLIB_LIB_BUDGET ?? '16', 10) || 16));
+        const EXTENDED_BUDGET = Math.max(LIB_BUDGET, Math.min(90, parseInt(process.env.KICADLIB_LIB_BUDGET_MAX ?? '64', 10) || 64));
+        for (const [li, ln] of ordered.entries()) {
           if (hits.length >= 100) break;
+          // 前 LIB_BUDGET 个库之后：只有当目前一无所获时才继续扩展
+          if (li >= LIB_BUDGET && (hits.length > 0 || li >= EXTENDED_BUDGET)) break;
           let names = getCached(isSym ? `symlist:${ln}` : `list:${ln}`);
           if (!names) {
             try {

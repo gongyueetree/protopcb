@@ -622,7 +622,11 @@ export default function App() {
           <div style={{ flex: 1, overflow: 'auto', padding: 12, background: '#f8fafc' }}>
             {rightTab === 'advisor' ? <AdvisorPanel />
               : rightTab === 'net' ? <NetInspector />
-              : selObj ? <CompDetail iid={selObj.instanceId} onBuild={(mpn) => setWizard({ open: true, mpn })} /> : <div style={{ textAlign: 'center', padding: 40, color: '#7F8C8D', fontSize: 12 }}>{t('点击画布中的元件查看详情')}</div>}
+              // key = 实例 id：切换器件时整块重挂载。
+              // 详情面板里有十几处局部 state（补充信息输入框、KiCad 符号/封装检索关键词、
+              // 检索结果、诊断信息…），不重挂载就会留在上一个器件的值上 —— 顶部已经换了型号，
+              // 下面几个框还显示着上一颗料的内容。
+              : selObj ? <CompDetail key={selObj.instanceId} iid={selObj.instanceId} onBuild={(mpn) => setWizard({ open: true, mpn })} /> : <div style={{ textAlign: 'center', padding: 40, color: '#7F8C8D', fontSize: 12 }}>{t('点击画布中的元件查看详情')}</div>}
           </div>
         </aside>
       </div>
