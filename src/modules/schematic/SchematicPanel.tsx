@@ -36,6 +36,8 @@ export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscr
   const [linking, setLinking] = useState<string | null>(null);
   const [edit, setEdit] = useState<{ type: 'netlabel' | 'refdes' | 'value'; id: string; text: string } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  /** 容器实际尺寸：用于让画布铺满可用宽度，而不是按固定宽高比留白 */
+  const [boxSize, setBoxSize] = useState({ w: 0, h: 0 });
   const wrapRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef({ active: false, iid: '', sx: 0, sy: 0, startX: 0, startY: 0 });
   const netDragRef = useRef({ active: false, id: '', sx: 0, dx: 0 });
@@ -154,6 +156,16 @@ export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscr
     return () => el.removeEventListener('wheel', onWheel);
   }, [setZoom, setPan]);
 
+  // 容器尺寸跟随（窗口缩放、面板切换都会变）
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setBoxSize({ w: el.clientWidth, h: el.clientHeight }));
+    ro.observe(el);
+    setBoxSize({ w: el.clientWidth, h: el.clientHeight });
+    return () => ro.disconnect();
+  }, []);
+
   // 拖拽 + 平移
   useEffect(() => {
     const onMM = (e: MouseEvent) => {
@@ -238,7 +250,12 @@ export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscr
 
   const maxY = Math.max(...unitEntries.map((e) => P(e.key).y), 300);
   const maxX = Math.max(...unitEntries.map((e) => P(e.key).x), 700);
-  const W = Math.max(900, maxX + 240), H = Math.max(420, maxY + 160);
+  const baseW = Math.max(900, maxX + 240), baseH = Math.max(420, maxY + 160);
+  // viewBox 的宽高比若与容器不一致，"meet" 会在两侧留下大片空白（原理图只占屏幕一部分的根因）。
+  // 这里按容器实际宽高比补齐较短的一边，让图形铺满可用空间。
+  const aspect = boxSize.w > 0 && boxSize.h > 0 ? boxSize.w / boxSize.h : baseW / baseH;
+  const W = Math.max(baseW, baseH * aspect);
+  const H = Math.max(baseH, baseW / aspect);
 
   return (
     <div style={{ padding: 12, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxSizing: 'border-box' }}>

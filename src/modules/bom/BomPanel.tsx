@@ -11,7 +11,7 @@ import { geminiComplete, extractJson } from '../../providers/gemini';
 import { isPriceable, whyNotPriceable, classifyByRefDes, pricingPriority, CLASS_LABEL } from './part-class';
 import { fetchDigikeyOffer, type DigikeyOffer } from '../../providers/digikey';
 import { fetchSupplierOffers } from '../../providers/suppliers';
-import { buildMatchQuery, rankCandidates, CLASS_LABEL as PART_CLASS_LABEL, type Candidate, type ScoredCandidate } from '../../design-core/part-matching';
+import { buildMatchQuery, rankCandidates, parseConstraints, CLASS_LABEL as PART_CLASS_LABEL, type Candidate, type ScoredCandidate } from '../../design-core/part-matching';
 import { searchEzplmParts } from '../../providers/ezplm-live';
 
 export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: boolean; onToggleFullscreen?: () => void } = {}) {
@@ -27,21 +27,24 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   const [queried, setQueried] = useState<Record<string, true>>({});
   /** 无报价行的人工查价：模糊候选列表（用户点选后作为录入价） */
   const [market, setMarket] = useState<{ busy: boolean; low?: number; high?: number; typical?: number; basis?: string; msg?: string } | null>(null);
-  const [fuzzy, setFuzzy] = useState<{ line: BomLine; busy: boolean; items: ScoredCandidate[]; msg?: string; query?: ReturnType<typeof buildMatchQuery>; searchMpn?: string } | null>(null);
+  const [fuzzy, setFuzzy] = useState<{ line: BomLine; busy: boolean; items: ScoredCandidate[]; msg?: string; query?: ReturnType<typeof buildMatchQuery>; searchMpn?: string; cons?: string } | null>(null);
   /** 对话框里可改写的型号 —— 用户原始命名常常不完整（如 9012 → S9012、MachXO2-1200-QFN32 → LCMXO2-1200HC-4SG32C）。
    *  用非受控 input + ref：受控写法会因每次按键触发整个面板重渲染，且易被祖先的 mousedown/keydown 处理器干扰。 */
   const searchInputRef = useRef<HTMLInputElement>(null);
+  /** 用户补充的选型约束（国产优先 / 1元以内 / 不要阵列…），确定性解析后参与打分与过滤 */
+  const consInputRef = useRef<HTMLInputElement>(null);
 
   /**
    * 智能匹配：由位号（类别）+ 封装（族/尺寸）+ 型号或描述（值/关键词）构造检索计划，
    * **先查 ezPLM 自有器件库，再查分销商**，合并打分排序后交用户确认。
    * 候选永不自动写回设计 —— 与 AI trust 同一条原则。
    */
-  const openFuzzy = async (l: BomLine, mpnOverride?: string) => {
+  const openFuzzy = async (l: BomLine, mpnOverride?: string, consText?: string) => {
     setMarket(null);
     const searchMpn = (mpnOverride ?? l.mpn ?? '').trim();
     const query = buildMatchQuery({ reference: l.reference, mpn: searchMpn, footprint: l.footprint, description: l.description });
-    setFuzzy({ line: l, busy: true, items: [], query, searchMpn });
+    const cons = parseConstraints(consText ?? consInputRef.current?.value ?? '');
+    setFuzzy({ line: l, busy: true, items: [], query, searchMpn, cons: cons.raw });
     const pool: Candidate[] = [];
     const notes: string[] = [];
 
@@ -90,8 +93,8 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
       }
     } catch (e) { notes.push((e as Error).message); }
 
-    const ranked = rankCandidates(query, pool).slice(0, 12);
-    setFuzzy({ line: l, busy: false, items: ranked, query, searchMpn, msg: ranked.length ? undefined : (notes.join(' · ') || '未找到相近器件；可在上方修改型号后重新检索') });
+    const ranked = rankCandidates(query, pool, cons).slice(0, 12);
+    setFuzzy({ line: l, busy: false, items: ranked, query, searchMpn, cons: cons.raw, msg: ranked.length ? undefined : (notes.join(' · ') || '未找到相近器件；可在上方修改型号后重新检索') });
   };
 
   /** 网络参考价：AI 按公开市场行情给区间。明确标注为估算，必须人工确认后才落为录入价。 */
@@ -230,6 +233,24 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
           <button onClick={() => openFuzzy(fuzzy.line, (searchInputRef.current?.value.trim() || fuzzy.line.mpn))} disabled={fuzzy.busy}
             style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: '#1f5c3b', color: '#fff', fontSize: 10.5, fontWeight: 700, cursor: fuzzy.busy ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
             {fuzzy.busy ? '⟳' : tr('重新检索')}
+          </button>
+        </div>
+        {/* 选型约束：确定性解析（价格上限、国产/车规偏好、排除阵列），命中理由会显示在候选上 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 9px', marginBottom: 8, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+          <span style={{ fontSize: 10.5, color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>{tr('选型约束')}</span>
+          <input
+            ref={consInputRef}
+            defaultValue={fuzzy.cons ?? ''}
+            placeholder={tr('如：国产优先、1元以内、不要阵列、车规')}
+            onMouseDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Enter') openFuzzy(fuzzy.line, searchInputRef.current?.value.trim() || fuzzy.line.mpn, (e.target as HTMLInputElement).value);
+            }}
+            style={{ flex: 1, minWidth: 0, padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11.5, outline: 'none' }} />
+          <button onClick={() => openFuzzy(fuzzy.line, searchInputRef.current?.value.trim() || fuzzy.line.mpn, consInputRef.current?.value)} disabled={fuzzy.busy}
+            style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            {tr('应用约束')}
           </button>
         </div>
         {fuzzy.busy && <div style={{ fontSize: 11.5, color: '#64748b' }}>{tr('检索中…')}</div>}

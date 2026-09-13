@@ -125,8 +125,46 @@ export function hintsFromValue(mpnOrValue: string, description = ''): ValueHints
   return out;
 }
 
+/** 用户补充的自然语言约束（如"国产优先"、"1元以内"、"车规"） */
+export interface MatchConstraints {
+  /** 单价上限（人民币，解析自"X元以内/以下"） */
+  maxPrice?: number;
+  /** 偏好的关键词（国产/车规/低功耗…），命中则加分 */
+  prefer: string[];
+  /** 排除的关键词，命中直接剔除 */
+  exclude: string[];
+  /** 原始文本，展示用 */
+  raw: string;
+}
+
+/**
+ * 解析用户的自然语言约束。只做确定性的关键词/数值提取，不调用 LLM ——
+ * 这样约束是可预测、可解释的（命中理由会显示给用户）。
+ */
+export function parseConstraints(text: string): MatchConstraints {
+  const raw = (text ?? '').trim();
+  const out: MatchConstraints = { prefer: [], exclude: [], raw };
+  if (!raw) return out;
+  const price = raw.match(/(\d+(?:\.\d+)?)\s*(?:元|块|rmb|cny|¥)?\s*(?:以内|以下|之内|内)/i);
+  if (price) out.maxPrice = parseFloat(price[1]);
+  const PREFER: [RegExp, string[]][] = [
+    [/国产|国内|本土/, ['中国', 'china', '国产']],
+    [/车规|汽车|AEC/i, ['AEC-Q', 'automotive']],
+    [/工规|工业级/, ['industrial', '-40']],
+    [/低功耗/, ['low power', 'low-power']],
+    [/无铅|RoHS/i, ['RoHS']],
+    [/现货|有货/, []],
+  ];
+  for (const [re, kws] of PREFER) if (re.test(raw)) out.prefer.push(...kws);
+  if (/不要\s*阵列|单个/.test(raw)) out.exclude.push('array', '阵列', 'network');
+  if (/不要\s*套件|非套件/.test(raw)) out.exclude.push('kit', 'assortment');
+  return out;
+}
+
 export interface MatchQuery {
   reference: string;
+  /** 原始封装名（用于识别排阻/排容等整体特征） */
+  footprintRaw?: string;
   partClass: PartClass;
   footprint: FootprintHints;
   value: ValueHints;
@@ -153,7 +191,7 @@ export function buildMatchQuery(line: { reference: string; mpn: string; footprin
   if (val.value && fp.size) queries.push(`${val.value} ${fp.size}`);      // 值 + 尺寸
   if (val.keywords.length) queries.push([...val.keywords.slice(0, 3), fp.family].filter(Boolean).join(' '));
   if (line.mpn) queries.push(line.mpn);                                   // 原始串兜底
-  return { reference: line.reference, partClass, footprint: fp, value: val, queries: [...new Set(queries)].filter(Boolean) };
+  return { reference: line.reference, footprintRaw: line.footprint, partClass, footprint: fp, value: val, queries: [...new Set(queries)].filter(Boolean) };
 }
 
 export interface Candidate {
@@ -180,10 +218,20 @@ export interface ScoredCandidate extends Candidate {
  * 候选打分：只加可核对的匹配事实。
  * ezPLM 来源加权（自有库优先于分销商，与 Reference Design 的来源分层一致）。
  */
-export function scoreCandidate(q: MatchQuery, c: Candidate): ScoredCandidate {
+export function scoreCandidate(q: MatchQuery, c: Candidate, cons?: MatchConstraints): ScoredCandidate {
   let score = 0;
   const reasons: string[] = [];
   const hay = `${c.mpn} ${c.description ?? ''} ${c.footprint ?? ''} ${c.category ?? ''}`.toUpperCase();
+
+  // 单体无源器件（R/C/L 且封装是 0402/0603 这类单体尺寸）绝不应该匹配到
+  // 排阻/排容/套件 —— 关键词检索最常见的误命中就是这个。
+  // RN/CN 位号或封装名里带 Array/Net 的本来就是排阻/排容，不适用该排除
+  const wantsArray = /^(RN|CN|FA)[0-9]/i.test(q.reference) || /ARRAY|NET/i.test(q.footprintRaw ?? '');
+  const singlePassive = !wantsArray && ['resistor', 'capacitor', 'inductor'].includes(q.partClass) && !!q.footprint.size;
+  const ARRAY_RE = /\b(ARRAY|NETWORK|RES NET|CAP NET|排阻|排容|KIT|ASSORTMENT|ASSORTED|SAMPLE BOOK)\b/;
+  if (singlePassive && ARRAY_RE.test(hay)) {
+    return { ...c, score: -1000, reasons: ['排阻/排容/套件，与单体元件不符'] };
+  }
 
   if (c.source === 'ezplm') { score += 300; reasons.push('来自 ezPLM 器件库'); }
 
@@ -208,18 +256,44 @@ export function scoreCandidate(q: MatchQuery, c: Candidate): ScoredCandidate {
   if (c.price != null) { score += 30; reasons.push('有报价'); }
   if (c.stock != null && c.stock > 0) score += 20;
 
+  // —— 用户补充约束 ——
+  if (cons) {
+    for (const kw of cons.exclude) {
+      if (hay.includes(kw.toUpperCase())) return { ...c, score: -1000, reasons: [`被排除：${kw}`] };
+    }
+    if (cons.maxPrice != null && c.price != null) {
+      // 仅对人民币口径直接比较；美元按 7 倍粗略折算，并在理由里注明是估算
+      const cny = c.currency === 'USD' ? c.price * 7 : c.price;
+      if (cny > cons.maxPrice) return { ...c, score: -1000, reasons: [`超出单价上限 ${cons.maxPrice} 元`] };
+      score += 120;
+      reasons.push(`单价在 ${cons.maxPrice} 元以内${c.currency === 'USD' ? '（按 7:1 估算）' : ''}`);
+    }
+    for (const kw of cons.prefer) {
+      if (hay.includes(kw.toUpperCase())) { score += 90; reasons.push(`符合偏好 ${kw}`); break; }
+    }
+  }
+
+  // 同等匹配度下价格低者优先（价格分档加权，避免价格完全压过匹配质量）
+  if (c.price != null) {
+    const cny = c.currency === 'USD' ? c.price * 7 : c.price;
+    score += cny <= 0.1 ? 40 : cny <= 1 ? 30 : cny <= 5 ? 20 : cny <= 20 ? 10 : 0;
+  }
+
   return { ...c, score, reasons };
 }
 
 /** 排序 + 去重（同一 MPN 保留分数最高的来源） */
-export function rankCandidates(q: MatchQuery, list: Candidate[]): ScoredCandidate[] {
+export function rankCandidates(q: MatchQuery, list: Candidate[], cons?: MatchConstraints): ScoredCandidate[] {
   const best = new Map<string, ScoredCandidate>();
   for (const c of list) {
     if (!c.mpn) continue;
-    const scored = scoreCandidate(q, c);
+    const scored = scoreCandidate(q, c, cons);
+    if (scored.score <= -1000) continue;                  // 被硬性规则剔除
     const key = c.mpn.toUpperCase().replace(/[^A-Z0-9]/g, '');
     const prev = best.get(key);
     if (!prev || scored.score > prev.score) best.set(key, scored);
   }
-  return [...best.values()].sort((a, b) => b.score - a.score);
+  // 同分时价格低者靠前（用户要求"按价格由低到高"，但不能让低价压过匹配质量）
+  const cnyOf = (c: ScoredCandidate) => (c.price == null ? Infinity : c.currency === 'USD' ? c.price * 7 : c.price);
+  return [...best.values()].sort((a, b) => b.score - a.score || cnyOf(a) - cnyOf(b));
 }

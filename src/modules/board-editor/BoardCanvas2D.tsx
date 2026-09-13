@@ -265,6 +265,9 @@ function BoardOutline({ shape, x, y, w, h, board }: { shape: string; x: number; 
   return <rect x={x} y={y} width={w} height={h} rx={shape === 'rounded' ? 18 : 6} fill={fill} stroke={stroke} strokeWidth={2} />;
 }
 
+/** 位号统一配色：顶层深灰蓝、底层蓝（此前按器件类别取色，一块板上位号五颜六色） */
+const REFDES_COLOR = '#334155';
+
 function ComponentGlyph({ comp, selected, multi, overlap, inactive, hideRefDes, selectedNet, onPickNet, onMouseDown, onRefDesDown }: {
   comp: PlacedComponent; selected: boolean; multi: boolean; overlap: boolean; inactive: boolean; hideRefDes: boolean;
   /** iBOM 式网络高亮：当前网络号（null=未选）与点击焊盘时的回调 */
@@ -329,7 +332,7 @@ function ComponentGlyph({ comp, selected, multi, overlap, inactive, hideRefDes, 
               ) : null;
             })()}
             <text x={rd.dx * PX_PER_MM} y={-halfH - 6 + rd.dy * PX_PER_MM} textAnchor="middle" fontSize={8} fontFamily="monospace" fontWeight={700}
-              fill={isBottom ? '#3b82c4' : disp.color} style={{ cursor: 'move' }}
+              fill={isBottom ? '#3b82c4' : REFDES_COLOR} style={{ cursor: 'move' }}
               onMouseEnter={() => setRefHot(true)} onMouseLeave={() => setRefHot(false)}
               onMouseDown={onRefDesDown}>{comp.reference}</text>
           </g>
@@ -347,9 +350,13 @@ function ComponentGlyph({ comp, selected, multi, overlap, inactive, hideRefDes, 
     <g transform={`translate(${px},${py})`} onMouseDown={onMouseDown} onClick={(e) => e.stopPropagation()} style={{ cursor: 'grab' }}>
       {multi && <rect x={-5} y={-5} width={pw + 10} height={ph + 10} rx={4} fill="none" stroke="#f59e0b" strokeWidth={2} strokeDasharray="6 3" />}
       <rect width={pw} height={ph} rx={3} fill={overlap ? '#fff5f5' : '#fff'} stroke={stroke} strokeWidth={selected || overlap ? 2 : 1} />
-      <text x={pw / 2} y={-5} textAnchor="middle" fontSize={8} fontFamily="monospace" fontWeight={700} fill={disp.color}>{comp.reference}</text>
-      <text x={pw / 2} y={ph / 2} textAnchor="middle" dominantBaseline="middle" fontSize={pw > 60 ? 8 : 6.5} fontFamily="monospace" fontWeight={700} fill="#1e293b">{comp.mpn.length > 14 ? comp.mpn.slice(0, 12) + '..' : comp.mpn}</text>
-      <text x={pw / 2} y={ph / 2 + 10} textAnchor="middle" fontSize={6} fontFamily="monospace" fill="#94a3b8">{comp.footprint.name}</text>
+      {/* 位号/型号/封装名同样受"位号"开关控制 —— 此前这三行绕过了开关，
+          所以关掉位号后这类器件仍然显示文字 */}
+      {!hideRefDes && <>
+        <text x={pw / 2} y={-5} textAnchor="middle" fontSize={8} fontFamily="monospace" fontWeight={700} fill={REFDES_COLOR}>{comp.reference}</text>
+        <text x={pw / 2} y={ph / 2} textAnchor="middle" dominantBaseline="middle" fontSize={pw > 60 ? 8 : 6.5} fontFamily="monospace" fontWeight={700} fill="#1e293b">{comp.mpn.length > 14 ? comp.mpn.slice(0, 12) + '..' : comp.mpn}</text>
+        <text x={pw / 2} y={ph / 2 + 10} textAnchor="middle" fontSize={6} fontFamily="monospace" fill="#94a3b8">{comp.footprint.name}</text>
+      </>}
     </g>
   );
 }

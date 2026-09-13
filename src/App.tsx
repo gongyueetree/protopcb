@@ -426,9 +426,16 @@ export default function App() {
             {/* AI scheme */}
             <div style={{ marginBottom: 12, padding: 10, borderRadius: 10, border: '1px solid #c6e2d0', background: '#f7fcf9' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.green, marginBottom: 6 }}>🤖 {t('AI 生成方案')}</div>
-              <textarea value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)} rows={2}
-                placeholder={t('如：USB转串口调试器 / WiFi物联网节点 / 12V车载CAN控制器')}
-                style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #dbe6dd', fontSize: 13, outline: 'none', resize: 'none', boxSizing: 'border-box', marginBottom: 6 }} />
+              <textarea value={aiPrompt} rows={2}
+                onChange={(e) => {
+                  setAiPrompt(e.target.value);
+                  // 随内容自动增高（约 2~10 行），超出后再滚动
+                  const el = e.target;
+                  el.style.height = 'auto';
+                  el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+                }}
+                placeholder={t('如：USB供电的温湿度采集器，带屏幕显示，低功耗，尺寸不超过 60 × 40 mm')}
+                style={{ width: '100%', minHeight: 52, maxHeight: 220, padding: '8px 10px', borderRadius: 8, border: '1px solid #dbe6dd', fontSize: 13, lineHeight: 1.5, outline: 'none', resize: 'none', overflowY: 'auto', boxSizing: 'border-box', marginBottom: 6 }} />
               <button onClick={genScheme} disabled={aiBusy || !aiPrompt.trim()} title={!aiPrompt.trim() ? t('请先输入需求描述，如：USB转串口调试器') : undefined}
                 style={{ width: '100%', padding: '9px 0', borderRadius: 8, border: 'none', background: `linear-gradient(135deg,#245b3a,${COLORS.green})`, color: '#fff', fontSize: 13, fontWeight: 700, cursor: aiBusy ? 'wait' : !aiPrompt.trim() ? 'not-allowed' : 'pointer', opacity: !aiPrompt.trim() && !aiBusy ? 0.55 : 1 }}>
                 {aiBusy ? '⟳ ' + t('生成中…') : !aiPrompt.trim() ? t('输入需求后生成方案') : t('生成方案上画布')}
@@ -893,15 +900,18 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
         {subMsg && <div style={{ fontSize: 10, color: subMsg.startsWith('✓') ? '#15803d' : '#b45309', marginBottom: 4 }}>{subMsg}</div>}
         {!!subItems?.length && (
           <>
+            {/* 列表限高内滚：17 个器件的推荐此前会撑破信息框 */}
+            <div style={{ maxHeight: 260, overflowY: 'auto', paddingRight: 2 }}>
             {subItems.map((it, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', marginBottom: 3, borderRadius: 5, background: '#fff', border: '1px solid #dcfce7', fontSize: 10.5 }}>
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '4px 8px', marginBottom: 3, borderRadius: 5, background: '#fff', border: '1px solid #dcfce7', fontSize: 10.5 }}>
                 <span style={{ fontWeight: 700, color: '#166534', minWidth: 72 }}>{it.role}</span>
                 <span style={{ fontFamily: 'monospace' }}>{it.value}{it.qty > 1 ? ` ×${it.qty}` : ''}</span>
-                <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: '#f1f5f9', color: '#475569' }}>{it.footprint}</span>
+                <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: '#f1f5f9', color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{it.footprint}</span>
                 <span style={{ flex: 1 }} />
-                <span style={{ fontSize: 9.5, color: '#64748b' }}>→ {it.connectsTo}</span>
+                <span style={{ fontSize: 9.5, color: '#64748b', whiteSpace: 'nowrap' }}>→ {it.connectsTo}</span>
               </div>
             ))}
+            </div>
             <button onClick={loadSubCircuit} style={{ width: '100%', marginTop: 4, padding: '6px 0', borderRadius: 6, border: 'none', background: '#16a34a', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
               ⬇ {tr('一键上画布')}（{subItems.reduce((a, b) => a + b.qty, 0)} {tr('个器件，围绕')} {c.reference}）
             </button>

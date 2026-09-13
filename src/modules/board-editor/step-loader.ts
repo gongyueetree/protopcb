@@ -237,8 +237,13 @@ export function ensureStepModel(url: string | undefined, footprintName?: string)
 
       // KiCad 3D 模型约定 Z 轴朝上；场景 Y 轴朝上 → 绕 X 轴 -90°
       group.rotation.x = -Math.PI / 2;
+      // 高度对齐：KiCad 的 3D 模型就是以"板面 = z0"为基准建模的，本体坐标已经是对的。
+      // 此前无条件 `position.y = -box.min.y` 会把**通孔器件的引脚**（本就伸到板下）
+      // 当成模型沉到板下，于是整颗 USB 连接器被抬高，浮在板面上方。
+      // 现在只在模型整体位于板面以下（明显是另一套坐标约定）时才抬起。
       const box = new THREE.Box3().setFromObject(group);
-      group.position.y = -box.min.y;
+      if (box.max.y <= 0.01) group.position.y = -box.min.y;   // 整体在板下 → 按约定抬到板面
+      // 其余情况保持模型自身原点：贴片件 min.y≈0，通孔件引脚合理地穿到板下
       const wrapper = new THREE.Group();
       wrapper.add(group);
       modelCache.set(url, wrapper);

@@ -2,7 +2,7 @@
  * 器件智能匹配：线索提取与候选打分（纯函数，全离线）
  */
 import { describe, it, expect } from 'vitest';
-import { classFromReference, hintsFromFootprint, hintsFromValue, buildMatchQuery, rankCandidates, type Candidate } from '../src/design-core/part-matching';
+import { classFromReference, hintsFromFootprint, hintsFromValue, buildMatchQuery, rankCandidates, parseConstraints, type Candidate } from '../src/design-core/part-matching';
 
 describe('位号 → 类别', () => {
   it('常见位号前缀', () => {
@@ -133,5 +133,54 @@ describe('不完整型号场景（用户可改写后重新检索）', () => {
     expect(q.footprint.pins).toBe(32);
     expect(q.queries.join(' ')).toMatch(/QFN-32/);
     expect(q.queries).toContain('MachXO2-1200-QFN32');     // 原始串兜底，供用户改写前先试
+  });
+});
+
+describe('单体无源件不应匹配到排阻/套件', () => {
+  it('10k 0603 电阻的候选里排除电阻阵列与套件', () => {
+    const q = buildMatchQuery({ reference: 'R5', mpn: '10kΩ', footprint: 'R_0603_1608Metric' });
+    const ranked = rankCandidates(q, [
+      { mpn: 'CAY16-103J4LF', description: 'RES ARRAY 8 RES 10K OHM 1206', source: 'distributor', vendor: 'DigiKey', price: 0.12 },
+      { mpn: 'EXB-38V103JV', description: 'RES NETWORK 4 RES 10K OHM', source: 'distributor', vendor: 'DigiKey', price: 0.08 },
+      { mpn: 'RC0603FR-0710KL', description: 'RES 10K OHM 1% 1/10W 0603', source: 'distributor', vendor: 'DigiKey', price: 0.02 },
+      { mpn: 'KIT-RES-0603', description: 'RESISTOR KIT ASSORTMENT 0603', source: 'distributor', vendor: 'DigiKey', price: 30 },
+    ]);
+    expect(ranked.map((r) => r.mpn)).toEqual(['RC0603FR-0710KL']);
+  });
+
+  it('位号是 RN（排阻）时不排除阵列', () => {
+    const q = buildMatchQuery({ reference: 'RN1', mpn: '10k', footprint: 'R_Array_Convex_4x0603' });
+    const ranked = rankCandidates(q, [
+      { mpn: 'CAY16-103J4LF', description: 'RES ARRAY 4 RES 10K OHM', source: 'distributor', price: 0.12 },
+    ]);
+    expect(ranked.length).toBe(1);
+  });
+});
+
+describe('选型约束解析', () => {
+  it('解析价格上限与国产偏好', () => {
+    const c = parseConstraints('国产优先，1元以内');
+    expect(c.maxPrice).toBe(1);
+    expect(c.prefer.join(' ')).toMatch(/china|国产/i);
+  });
+
+  it('超出价格上限的候选被剔除，符合的加分', () => {
+    const q = buildMatchQuery({ reference: 'U1', mpn: 'LDO', footprint: 'SOT-23-5' });
+    const cons = parseConstraints('2元以内');
+    const ranked = rankCandidates(q, [
+      { mpn: 'CHEAP-LDO', description: 'LDO regulator SOT-23-5', source: 'distributor', price: 1.2, currency: 'CNY' },
+      { mpn: 'PRICEY-LDO', description: 'LDO regulator SOT-23-5', source: 'distributor', price: 8.0, currency: 'CNY' },
+    ], cons);
+    expect(ranked.map((r) => r.mpn)).toEqual(['CHEAP-LDO']);
+    expect(ranked[0].reasons.join(' ')).toMatch(/2 元以内/);
+  });
+
+  it('同分候选按价格由低到高排列', () => {
+    const q = buildMatchQuery({ reference: 'R1', mpn: '1k', footprint: 'R_0603_1608Metric' });
+    const ranked = rankCandidates(q, [
+      { mpn: 'RES-B', description: 'RES 1K OHM 0603', source: 'distributor', price: 0.09, currency: 'CNY' },
+      { mpn: 'RES-A', description: 'RES 1K OHM 0603', source: 'distributor', price: 0.03, currency: 'CNY' },
+    ]);
+    expect(ranked[0].mpn).toBe('RES-A');
   });
 });
