@@ -11,8 +11,15 @@ import { useDesignStore } from '../../state/designStore';
 import { tr } from '../../shared/i18n';
 
 import { recommendSubCircuit, type SubCircuitItem } from '../component-search/sub-circuit';
+import { EzplmReferenceDesignProvider } from '../../providers/reference-design/ezplm-provider';
+import type { ReferenceDesign } from '../../providers/reference-design/schema';
 import { autoKicadFootprint } from '../../design-core/geometry/auto-kicad-footprint';
 import { ensureKicadSymbolByMpn } from '../../design-core/geometry/lib-file-registry';
+
+const VERIFY_LABEL: Record<string, string> = {
+  PRODUCTION_VERIFIED: '量产验证', PROTOTYPE_VERIFIED: '原型实测', SIMULATION_VERIFIED: '仿真验证',
+  VENDOR_REFERENCE: '厂商参考', EXTRACTED: '公开来源提取', AI_GENERATED: 'AI 生成',
+};
 
 export function SubCircuitSection() {
   const doc = useDesignStore((s) => s.doc);
@@ -22,10 +29,26 @@ export function SubCircuitSection() {
   const [items, setItems] = useState<SubCircuitItem[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  /** 参考设计优先（Reuse > Modify > Generate）：先查库里有没有现成的 */
+  const [refs, setRefs] = useState<{ state: string; items: ReferenceDesign[]; detail?: string } | null>(null);
+  const [refBusy, setRefBusy] = useState(false);
 
   const c = doc.components.find((x) => x.instanceId === selectedId);
   const isSatellite = !!c?.display?.anchorRef;
   const satCount = c ? doc.components.filter((x) => x.display?.anchorRef === c.reference).length : 0;
+
+  /** 第一步：查这颗器件在系统里的参考设计 / 用过它的项目 */
+  const lookupRefs = async () => {
+    if (!c || refBusy) return;
+    setRefBusy(true); setRefs(null); setMsg('');
+    try {
+      const r = await EzplmReferenceDesignProvider.getRelatedReferenceDesigns(c.componentId, c.mpn);
+      setRefs({ state: r.state, items: r.items, detail: r.detail });
+      if (r.state === 'READY' && !r.items.length) setMsg(tr('库中没有该器件的参考设计，可用下方 AI 推断配套电路'));
+      if (r.state === 'BACKEND_NOT_CONNECTED') setMsg(tr('ezPLM 未连接（未配置 EZPLM_API_KEY），无法查参考设计'));
+    } catch (e) { setMsg((e as Error).message); }
+    setRefBusy(false);
+  };
 
   const run = async () => {
     if (!c || busy) return;
@@ -79,6 +102,33 @@ export function SubCircuitSection() {
       <div style={{ fontSize: 9.5, color: '#4d7c0f', marginBottom: 6 }}>
         {isSatellite ? tr('该器件是子电路的一部分') : tr('优先用参考设计，无参考才由 AI 推断')}
       </div>
+
+      {/* ① 参考设计 / 组织内用过该器件的项目 */}
+      {!isSatellite && (
+        <div style={{ marginBottom: 8 }}>
+          <button onClick={lookupRefs} disabled={refBusy}
+            style={{ width: '100%', padding: '5px 0', borderRadius: 6, border: '1px solid #bbf7d0', background: '#fff', color: '#15803d', fontSize: 10.5, fontWeight: 700, cursor: refBusy ? 'wait' : 'pointer' }}>
+            {refBusy ? '⟳ ' + tr('查询中…') : '📐 ' + tr('先查参考设计 / 历史项目')}
+          </button>
+          {refs?.items.length ? (
+            <div style={{ marginTop: 5, maxHeight: 160, overflowY: 'auto' }}>
+              <div style={{ fontSize: 9.5, color: '#4d7c0f', marginBottom: 3 }}>
+                {tr('找到')} {refs.items.length} {tr('个参考设计（优先复用，而不是让 AI 重新发明）')}
+              </div>
+              {refs.items.map((rd) => (
+                <a key={rd.id} href={rd.sourceUrl} target="_blank" rel="noreferrer"
+                  style={{ display: 'block', padding: '5px 8px', marginBottom: 3, borderRadius: 6, background: '#fff', border: '1px solid #dcfce7', textDecoration: 'none' }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: '#166534' }}>{rd.title}</div>
+                  <div style={{ fontSize: 9.5, color: '#64748b' }}>
+                    {rd.sourceType} · {tr(VERIFY_LABEL[rd.verification.level] ?? rd.verification.level)}
+                    {rd.availableAssets.pdf ? ' · PDF' : ''}{rd.availableAssets.schematic ? ' · ' + tr('原理图') : ''}
+                  </div>
+                </a>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )}
       {msg && <div style={{ fontSize: 10, color: msg.startsWith('✓') ? '#15803d' : '#b45309', marginBottom: 4 }}>{msg}</div>}
       {!!items?.length && (
         <>

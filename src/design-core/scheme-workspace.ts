@@ -25,8 +25,27 @@ export interface SchemeGroup {
   /** 组名：核心器件型号，或未分组时的类别名 */
   name: string;
   core?: SchemeItem;
-  /** 该组的附属器件（去耦、上拉、晶振…） */
+  /** 该组的附属器件（去耦、上拉、晶振…），同型号已归并，数量见 count */
   satellites: SchemeItem[];
+  /** componentId → 该型号在本组的数量（qty=3 的去耦电容只占一行，显示 ×3） */
+  counts: Record<string, number>;
+}
+
+/**
+ * 同一型号多只在方案里是**同一个对象被 push 多次**（qty 展开的结果）。
+ * 直接渲染会出现重复行、React key 撞车，核心器件也可能被挤到列表中间。
+ * 这里按 componentId 归并，数量另记。
+ */
+function dedupe(list: SchemeItem[]): { unique: SchemeItem[]; counts: Record<string, number> } {
+  const counts: Record<string, number> = {};
+  const unique: SchemeItem[] = [];
+  for (const it of list) {
+    const id = it.componentId;
+    if (counts[id]) { counts[id] += 1; continue; }
+    counts[id] = 1;
+    unique.push(it);
+  }
+  return { unique, counts };
 }
 
 const CAT_ORDER = ['mcu', 'power', 'rf', 'sensor', 'ic', 'connector', 'electromech', 'passive', 'other'];
@@ -46,19 +65,22 @@ export function groupSchemeItems(items: SchemeItem[]): SchemeGroup[] {
 
   const groups: SchemeGroup[] = [];
   for (const [name, list] of byGroup) {
+    const { unique, counts } = dedupe(list);
     // 核心：模型标了 core 的；没标则取组内第一个非无源器件；再没有就取第一个
-    const core = list.find((x) => x.core)
-      ?? list.find((x) => x.category !== 'passive')
-      ?? list[0];
-    groups.push({ name, core, satellites: list.filter((x) => x !== core) });
+    const core = unique.find((x) => x.core)
+      ?? unique.find((x) => x.category !== 'passive')
+      ?? unique[0];
+    // 按 componentId 排除核心（不能只按对象引用：同一型号可能是不同对象）
+    groups.push({ name, core, counts, satellites: unique.filter((x) => x.componentId !== core?.componentId) });
   }
 
   // 未分组的按类别聚成一组，组名用类别，不硬塞进别的组（避免编造归属）
   const byCat = new Map<string, SchemeItem[]>();
   for (const it of ungrouped) byCat.set(it.category, [...(byCat.get(it.category) ?? []), it]);
   for (const [cat, list] of byCat) {
-    const core = list.find((x) => x.category !== 'passive');
-    groups.push({ name: cat, core, satellites: core ? list.filter((x) => x !== core) : list });
+    const { unique, counts } = dedupe(list);
+    const core = unique.find((x) => x.category !== 'passive');
+    groups.push({ name: cat, core, counts, satellites: unique.filter((x) => x.componentId !== core?.componentId) });
   }
 
   // 主控/电源在前，无源兜底组最后

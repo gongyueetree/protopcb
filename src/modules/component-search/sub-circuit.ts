@@ -84,7 +84,7 @@ export async function recommendSubCircuit(core: {
     `请依据该器件 datasheet 的典型应用电路（Typical Application）与常见参考设计，列出让它正常工作所需的周边器件：\n` +
     `去耦/滤波电容、上拉下拉电阻、晶振及负载电容、复位电路、必要的接口保护等。\n` +
     `要求：\n` +
-    `1. 只列真实需要的，不凑数；同值多只的用 qty 表示\n` +
+    `1. 只列真实需要的，不凑数；同值多只的用 qty 表示；总条目不超过 30\n` +
     `2. 无源器件不指定具体厂商型号，给通用值（如 100nF、10kΩ）\n` +
     `3. connectsTo 填该器件连到核心的管脚名（VDD/GND/XTAL1/RST/EN 等）\n` +
     `严格输出 JSON 数组，不要其他文字：\n` +

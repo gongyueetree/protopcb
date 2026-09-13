@@ -53,7 +53,11 @@ describe('LLM 输出必须过 schema（猜测不得变成工程事实）', () =>
   it('子电路 schema 限制条目数与数量', () => {
     const ok = validateAi(AiSubCircuitSchema, [{ role: '去耦', value: '100nF', qty: 4 }], '子电路');
     expect(ok.ok).toBe(true);
-    const bad = validateAi(AiSubCircuitSchema, Array.from({ length: 30 }, () => ({ role: 'r', value: 'v' })), '子电路');
+    // 上限放宽到 40：ESP32/FPGA 的典型应用电路本来就有二三十个周边件，
+    // 20 会把完全合理的回答整条拒掉（实际踩到过）。
+    const many = validateAi(AiSubCircuitSchema, Array.from({ length: 30 }, () => ({ role: 'r', value: 'v' })), '子电路');
+    expect(many.ok).toBe(true);
+    const bad = validateAi(AiSubCircuitSchema, Array.from({ length: 41 }, () => ({ role: 'r', value: 'v' })), '子电路');
     expect(bad.ok).toBe(false);
   });
 });

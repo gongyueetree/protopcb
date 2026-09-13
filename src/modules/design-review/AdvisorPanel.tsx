@@ -138,8 +138,14 @@ export function AdvisorPanel() {
 
   return (
     <div>
-      {/* 系统补全建议（基于画布实际器件） */}
-      <Section title={"🧠 " + tr('系统补全建议')} badge={sysSugs.length || undefined}>
+      {/* 配套电路推荐：器件级（参考设计优先 → AI 兜底）在上，板级系统补全在下。
+          合并的理由：两者回答的是同一个问题"还缺什么"，分成两块用户要在两处看同一件事。 */}
+      <Section title={"🧩 " + tr('配套电路推荐')}>
+        <SubCircuitSection />
+      </Section>
+
+      {/* 板级补全：不针对某一颗器件，而是看整块板还缺什么子系统 */}
+      <Section title={"🧠 " + tr('板级系统补全')} badge={sysSugs.length || undefined}>
         {doc.components.length === 0 ? <Empty text={tr('添加器件后，AI 分析系统还缺什么')} /> : analyzing ? <Empty text={tr('分析中...')} /> : (
           <>
             <div style={{ fontSize: 9.5, color: '#94a3b8', marginBottom: 6 }}>{sysSource === 'gemini' ? tr('由 Gemini 基于画布器件实时生成')
@@ -156,11 +162,6 @@ export function AdvisorPanel() {
             ))}
           </>
         )}
-      </Section>
-
-      {/* 选中器件的子电路推荐（从"当前元件"页移来）：围绕核心器件的典型应用电路 */}
-      <Section title={"🧩 " + tr('子电路推荐')}>
-        <SubCircuitSection />
       </Section>
 
       {/* 按类别的通用配套建议 */}

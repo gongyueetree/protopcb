@@ -89,3 +89,33 @@ describe('版本 diff（AI 已完成修改清单的数据源）', () => {
     expect(diffSchemes([it2('AMS1117-3.3', 'power')], [it2('ams1117 3.3', 'power')])).toHaveLength(0);
   });
 });
+
+describe('同型号多只归并（核心件不再出现在列表中间）', () => {
+  it('qty 展开的重复对象按 componentId 归并，counts 记录数量', () => {
+    const core = it2('ESP32-S3-WROOM-1', 'rf', 'ESP32', true);
+    const cap = it2('CC0402KRX7R9BB104', 'passive', 'ESP32');
+    const res = it2('RC0402FR-0710KL', 'passive', 'ESP32');
+    // 模拟 qty 展开：同一个对象被 push 多次
+    const gs = groupSchemeItems([cap, cap, res, res, res, core]);
+    const g = gs.find((x) => x.name === 'ESP32')!;
+    expect(g.core?.mpn).toBe('ESP32-S3-WROOM-1');
+    expect(g.satellites).toHaveLength(2);                       // 两种附属件
+    expect(g.counts[cap.componentId]).toBe(2);
+    expect(g.counts[res.componentId]).toBe(3);
+  });
+
+  it('核心器件不出现在 satellites 里（按 componentId 排除，不只按引用）', () => {
+    const core = it2('STM32F103C8T6', 'mcu', 'MCU', true);
+    const gs = groupSchemeItems([core, core, it2('C1', 'passive', 'MCU')]);
+    const g = gs[0];
+    expect(g.satellites.some((x) => x.componentId === core.componentId)).toBe(false);
+    expect(g.counts[core.componentId]).toBe(2);
+  });
+
+  it('未分组的类别组同样归并', () => {
+    const j = it2('USB-C-16P', 'connector');
+    const gs = groupSchemeItems([j, j, j]);
+    expect(gs[0].counts[j.componentId]).toBe(3);
+    expect(gs[0].satellites).toHaveLength(0);                   // 只有一种，且已作为核心
+  });
+});

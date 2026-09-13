@@ -110,6 +110,8 @@ export function SchemeWorkspace({ proposal, busy, onRevise, onRemove, onConfirm,
     return deriveBlocks(groups);
   }, [proposal.blocks, proposal.blockLinks, groups]);
 
+  // details 里同型号多只是重复对象，这里保持原样（上画布需要真实件数），
+  // 只有展示层做归并
   const shown = coreOnly ? proposal.details.filter((d) => d.category !== 'passive') : proposal.details;
 
   return (
@@ -146,16 +148,21 @@ export function SchemeWorkspace({ proposal, busy, onRevise, onRemove, onConfirm,
                 <div style={{ padding: '7px 10px', background: '#f0fdf4', display: 'flex', alignItems: 'center', gap: 7 }}>
                   <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: COLORS.green, color: '#fff', fontWeight: 700 }}>{tr('核心')}</span>
                   <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace', color: '#14532d' }}>{g.core?.mpn ?? g.name}</span>
-                  <span style={{ marginLeft: 'auto', fontSize: 10, color: '#4d7c0f' }}>+{g.satellites.length} {tr('个附属器件')}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 10, color: '#4d7c0f' }}>
+                    +{g.satellites.reduce((a, x) => a + (g.counts[x.componentId] ?? 1), 0)} {tr('个附属器件')}
+                    {g.satellites.length < g.satellites.reduce((a, x) => a + (g.counts[x.componentId] ?? 1), 0) ? `（${g.satellites.length} ${tr('种')}）` : ''}
+                  </span>
                 </div>
-                {[...(g.core ? [g.core] : []), ...g.satellites].map((d) => {
+                {[...(g.core ? [g.core] : []), ...g.satellites].map((d, di) => {
                   const dd = d as SchemeProposal['details'][number];
                   const m = dd.trust ? TRUST_META[dd.trust.level] : null;
-                  const isCore = d === g.core;
+                  const isCore = di === 0 && !!g.core;
+                  const qty = g.counts[dd.componentId] ?? 1;
                   if (coreOnly && !isCore && d.category === 'passive') return null;
                   return (
-                    <div key={dd.componentId} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 10px', borderTop: '1px solid #f8fafc', paddingLeft: isCore ? 10 : 22 }}>
+                    <div key={dd.componentId + '#' + di} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 10px', borderTop: '1px solid #f8fafc', paddingLeft: isCore ? 10 : 22 }}>
                       <span style={{ fontSize: 11.5, fontFamily: 'monospace', fontWeight: isCore ? 700 : 500 }}>{dd.mpn}</span>
+                      {qty > 1 && <span style={{ fontSize: 10, fontWeight: 700, color: '#4d7c0f' }}>×{qty}</span>}
                       {dd.defaultFootprintName && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: '#f1f5f9', color: '#475569' }}>{dd.defaultFootprintName}</span>}
                       {m && <span title={dd.trust?.evidence} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: m.bg, color: m.color, fontWeight: 700, cursor: 'help' }}>{tr(m.label)}</span>}
                       <span style={{ flex: 1 }} />

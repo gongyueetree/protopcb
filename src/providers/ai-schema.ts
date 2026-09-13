@@ -87,7 +87,9 @@ export const AiSubCircuitItemSchema = z.object({
   connectsTo: z.string().max(24).optional(),
   qty: z.number().int().min(1).max(8).catch(1),
 });
-export const AiSubCircuitSchema = z.array(AiSubCircuitItemSchema).max(20);
+// 上限 40：ESP32/FPGA 这类器件的典型应用电路本来就有二三十个周边件（多路去耦、
+// 启动模式电阻、晶振、ESD…）。上限 20 会把完全合理的回答整条拒掉 —— 宁可截断也不该拒绝。
+export const AiSubCircuitSchema = z.array(AiSubCircuitItemSchema).max(40);
 
 export interface ValidationOutcome<T> {
   ok: boolean;
