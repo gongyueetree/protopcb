@@ -16,6 +16,7 @@ import { useLibFileStore } from '../../design-core/geometry/lib-file-registry';
 import { stepStats } from './step-loader';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
 import { DEFAULT_ENCLOSURE, heightEnvelope, computeEnclosureDims, PCB_THICKNESS_MM } from '../../design-core/enclosure';
+import { deriveOpenings } from '../../design-core/enclosure/openings';
 
 export function BoardView3D() {
   const doc = useDesignStore((s) => s.doc);
@@ -378,5 +379,29 @@ function addEnclosureMesh(group: THREE.Group, doc: CircuitCanvasDocument) {
     post.position.set(c.x - doc.board.widthMm / 2, innerFloorY + spec.standoffMm / 2, c.y - doc.board.heightMm / 2);
     g.add(post);
   }
+
+  // ── 开孔标记：在对应墙面/顶盖上画红色轮廓，直观看到孔开在哪、给谁开的 ──
+  // （三角网格里不做真实挖孔——布尔运算需要 OCCT，那是 CadQuery 脚本的职责）
+  const markMat = new THREE.LineBasicMaterial({ color: 0xef4444 });
+  const rectPts = (w: number, h: number): [number, number][] => [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2], [-w / 2, -h / 2]];
+  for (const o of deriveOpenings(doc)) {
+    const pts: THREE.Vector3[] = [];
+    if (o.face === 'top') {
+      const y = innerTopY + spec.lidMm + 0.05;
+      for (const [a, b] of rectPts(o.w, o.h)) pts.push(new THREE.Vector3(o.cx + a, y, o.cy + b));
+    } else {
+      const yBase = o.cy;                                   // PCB 上表面 y=0，孔中心在其上方
+      const wallX = d.innerW / 2 + spec.wallMm / 2;
+      const wallZ = d.innerH / 2 + spec.wallMm / 2;
+      for (const [a, b] of rectPts(o.w, o.h)) {
+        if (o.face === 'left') pts.push(new THREE.Vector3(-wallX, yBase + b, o.cx + a));
+        else if (o.face === 'right') pts.push(new THREE.Vector3(wallX, yBase + b, o.cx + a));
+        else if (o.face === 'front') pts.push(new THREE.Vector3(o.cx + a, yBase + b, -wallZ));
+        else pts.push(new THREE.Vector3(o.cx + a, yBase + b, wallZ));
+      }
+    }
+    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), markMat));
+  }
+
   group.add(g);
 }

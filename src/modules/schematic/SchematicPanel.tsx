@@ -92,6 +92,39 @@ export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscr
     return out;
   }, [unitEntries]);
 
+  /**
+   * 层级块：一个核心器件 + 挂在它下面的子电路器件构成一个 Block（类似 KiCad 层级图）。
+   * 折叠后整块收成一个方框，只保留跨块连线的端口，点击方框标题展开看内部完整电路。
+   */
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const blocks = useMemo(() => {
+    const byCore = new Map<string, { coreKey: string; c: PlacedComponent; members: string[] }>();
+    for (const e of unitEntries) {
+      const coreRef = e.c.display?.anchorRef;
+      if (!coreRef) continue;
+      const coreEntry = unitEntries.find((x) => x.c.reference === coreRef && !x.c.display?.anchorRef);
+      if (!coreEntry) continue;
+      const cur = byCore.get(coreRef) ?? { coreKey: coreEntry.key, c: coreEntry.c, members: [coreEntry.key] };
+      cur.members.push(e.key);
+      byCore.set(coreRef, cur);
+    }
+    // 只有真的带附属器件才成块；单个器件不必框起来
+    return [...byCore.entries()].filter(([, b]) => b.members.length > 1)
+      .map(([ref, b]) => ({ ref, ...b }));
+  }, [unitEntries]);
+
+  /** key → 所属块 ref（折叠时用来隐藏成员、把连线引到块边界） */
+  const blockOfKey = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const b of blocks) for (const k of b.members) m.set(k, b.ref);
+    return m;
+  }, [blocks]);
+  const isHidden = useCallback((key: string) => {
+    const ref = blockOfKey.get(key);
+    // 折叠块内：核心器件仍然显示（作为块的代表），附属器件隐藏
+    return !!ref && collapsed.has(ref) && blocks.find((b) => b.ref === ref)?.coreKey !== key;
+  }, [blockOfKey, collapsed, blocks]);
+
   const P = useCallback((iid: string) => {
     const st = pos[iid];
     const base = autoLayout[iid] || { x: 100, y: 100 };
@@ -281,6 +314,14 @@ export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscr
         <button onClick={() => { if (sel) { setNets((nets || []).filter((n) => n.id !== sel)); setSel(null); } }} disabled={!sel} style={{ ...tb, opacity: sel ? 1 : 0.5 }}>{tr('🗑 删除连线(D)')}</button>
         <button onClick={() => { setNets(genNets()); resetSch(); setSel(null); }} style={tb}>{tr('🔄 重新生成')}</button>
         <button onClick={exportSvg} style={tb}>{tr('⬇ 导出SVG')}</button>
+        {blocks.length > 0 && (
+          <button
+            title={tr('把每个核心器件及其子电路收成一个层级块，只保留跨块连线')}
+            onClick={() => setCollapsed((prev) => (prev.size ? new Set() : new Set(blocks.map((b) => b.ref))))}
+            style={{ ...tb, borderColor: '#1f5c3b', color: '#1f5c3b' }}>
+            {collapsed.size ? '▾ ' + tr('展开全部块') : '▸ ' + tr('折叠为层级块')}（{blocks.length}）
+          </button>
+        )}
         {selSym && (
           <>
             <div style={{ width: 1, height: 14, background: '#E8F3EE' }} />
@@ -305,6 +346,14 @@ export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscr
           {(() => {
             // 先计算所有连线几何，再统一渲染 + 求 T 型交汇点
             const geoms = (nets || []).map((n) => {
+              // 折叠块：内部连线隐藏；跨块连线把隐藏端改接到该块的核心器件上
+              const reroute = (k: string) => {
+                const ref = blockOfKey.get(k);
+                return ref && collapsed.has(ref) ? (blocks.find((b) => b.ref === ref)?.coreKey ?? k) : k;
+              };
+              const fromK = reroute(n.from), toK = reroute(n.to);
+              if (fromK === toK) return null;                    // 两端同属一个折叠块 → 内部连线，不画
+              n = { ...n, from: fromK, to: toK };
               const fe = entryOf(n.from), te = entryOf(n.to);
               if (!fe || !te) return null;
               const f = P(n.from), t = P(n.to);
@@ -376,7 +425,43 @@ export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscr
             {junctions.map((j, i) => <circle key={'jct' + i} cx={j.x} cy={j.y} r={3} fill="#334155" style={{ pointerEvents: 'none' }} />)}
             </>);
           })()}
-          {unitEntries.map(({ key, c, sym, suffix }) => {
+          {/* ── 层级块边界：核心器件 + 其子电路成员 ── */}
+          {blocks.map((b) => {
+            const open = !collapsed.has(b.ref);
+            const keys = open ? b.members : [b.coreKey];
+            const boxes = keys.map((k) => {
+              const e = entryOf(k);
+              const p = P(k);
+              return { x0: p.x, y0: p.y, x1: p.x + (e?.sym.w ?? 60), y1: p.y + (e?.sym.h ?? 60) };
+            });
+            const PAD = 18;
+            const x0 = Math.min(...boxes.map((v) => v.x0)) - PAD;
+            const y0 = Math.min(...boxes.map((v) => v.y0)) - PAD - 14;
+            const x1 = Math.max(...boxes.map((v) => v.x1)) + PAD;
+            const y1 = Math.max(...boxes.map((v) => v.y1)) + PAD;
+            return (
+              <g key={'blk' + b.ref}>
+                <rect x={x0} y={y0} width={x1 - x0} height={y1 - y0} rx={8}
+                  fill={open ? 'rgba(31,92,59,.03)' : 'rgba(31,92,59,.07)'}
+                  stroke="#1f5c3b" strokeWidth={1} strokeDasharray={open ? '6 4' : undefined} opacity={0.85} />
+                <g style={{ cursor: 'pointer' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCollapsed((prev) => {
+                      const n = new Set(prev);
+                      if (n.has(b.ref)) n.delete(b.ref); else n.add(b.ref);
+                      return n;
+                    });
+                  }}>
+                  <rect x={x0} y={y0} width={Math.min(x1 - x0, 190)} height={15} rx={7} fill="#1f5c3b" opacity={0.9} />
+                  <text x={x0 + 7} y={y0 + 11} fontSize={9.5} fontWeight={700} fill="#fff" fontFamily="monospace">
+                    {open ? '▾' : '▸'} {b.c.reference} {tr('子电路')} · {b.members.length - 1} {tr('件')}
+                  </text>
+                </g>
+              </g>
+            );
+          })}
+          {unitEntries.filter((e) => !isHidden(e.key)).map(({ key, c, sym, suffix }) => {
             const p = P(key);
             const isSelS = selSym === key;
             return (

@@ -8,8 +8,10 @@ import { useDesignStore } from '../../state/designStore';
 import { tr } from '../../shared/i18n';
 import { COLORS } from '../../shared/theme';
 import {
-  DEFAULT_ENCLOSURE, heightEnvelope, computeEnclosureDims, checkEnclosure, buildEnclosureStl,
+  DEFAULT_ENCLOSURE, PCB_THICKNESS_MM, heightEnvelope, computeEnclosureDims, checkEnclosure, buildEnclosureStl,
 } from '../../design-core/enclosure';
+import { deriveOpenings, deriveMounting } from '../../design-core/enclosure/openings';
+import { buildCadQueryScript } from '../../design-core/enclosure/cadquery';
 
 const box: React.CSSProperties = { background: '#fff', borderRadius: 10, border: '1px solid #E8F3EE', padding: 12, marginBottom: 10 };
 const title: React.CSSProperties = { fontSize: 12, fontWeight: 700, color: COLORS.green, marginBottom: 8 };
@@ -21,9 +23,12 @@ export function EnclosurePanel() {
   const setEnclosure = useDesignStore((s) => s.setEnclosure);
   const spec = { ...DEFAULT_ENCLOSURE, ...(doc.enclosure ?? {}) };
 
-  const { env, dims, issues } = useMemo(() => {
+  const { env, dims, issues, openings, mounting } = useMemo(() => {
     const e = heightEnvelope(doc.components);
-    return { env: e, dims: computeEnclosureDims(doc.board, e, spec), issues: checkEnclosure(doc, spec) };
+    return {
+      env: e, dims: computeEnclosureDims(doc.board, e, spec), issues: checkEnclosure(doc, spec),
+      openings: deriveOpenings(doc), mounting: deriveMounting(doc.board),
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc, spec.wallMm, spec.sideClearanceMm, spec.standoffMm, spec.topClearanceMm, spec.bottomClearanceMm, spec.lidMm]);
 
@@ -36,6 +41,16 @@ export function EnclosurePanel() {
       </span>
     </div>
   );
+
+  const exportCadQuery = () => {
+    const name = (doc.name || 'enclosure').replace(/\s+/g, '_');
+    const py = buildCadQueryScript({ name, spec, dims, openings, mounting, board: doc.board, pcbThicknessMm: PCB_THICKNESS_MM });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([py], { type: 'text/x-python' }));
+    a.download = `${name}-enclosure.py`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
 
   const exportStl = () => {
     const stl = buildEnclosureStl(doc.board, env, spec, (doc.name || 'enclosure').replace(/\s+/g, '_'));
@@ -86,6 +101,31 @@ export function EnclosurePanel() {
       </div>
 
       <div style={box}>
+        <div style={title}>🕳 {tr('开孔与固定')}<span style={{ marginLeft: 8, fontWeight: 600, color: '#64748b' }}>{openings.length} {tr('处开孔')}</span></div>
+        {openings.length === 0 ? (
+          <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.6 }}>
+            {tr('未识别到需要开孔的器件。连接器需靠近板边、显示屏/按键/LED 需在顶面才会自动开孔。')}
+          </div>
+        ) : openings.map((o, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', fontSize: 11, borderTop: i ? '1px solid #f8fafc' : 'none' }}>
+            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, fontWeight: 700, background: o.face === 'top' ? '#fef3c7' : '#e0f2fe', color: o.face === 'top' ? '#92400e' : '#0369a1' }}>
+              {tr(o.face === 'top' ? '顶盖' : '侧壁')}
+            </span>
+            <b style={{ color: COLORS.green }}>{o.reference}</b>
+            <span style={{ fontFamily: 'monospace', color: '#475569' }}>
+              {o.shape === 'circle' ? `Ø${o.w.toFixed(1)}` : `${o.w.toFixed(1)}×${o.h.toFixed(1)}`} mm
+            </span>
+            <span style={{ flex: 1 }} />
+            <span title={o.reason} style={{ fontSize: 9.5, color: '#94a3b8', cursor: 'help', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>{tr(o.reason)}</span>
+          </div>
+        ))}
+        <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px dashed #e2e8f0', fontSize: 11, color: '#475569' }}>
+          <b style={{ color: COLORS.green }}>{tr(mounting.kind === 'screw-post' ? '螺柱固定' : '卡扣固定')}</b>
+          <span style={{ marginLeft: 6, color: '#64748b' }}>{tr(mounting.detail)}</span>
+        </div>
+      </div>
+
+      <div style={box}>
         <div style={title}>
           🔍 {tr('干涉检查')}
           <span style={{ marginLeft: 8, fontWeight: 600, color: errCount ? '#b91c1c' : warnCount ? '#a16207' : '#15803d' }}>
@@ -109,11 +149,14 @@ export function EnclosurePanel() {
         </div>
       </div>
 
+      <button onClick={exportCadQuery} style={{ width: '100%', padding: '9px 0', marginBottom: 8, borderRadius: 8, border: '1px solid #c7d2fe', background: '#eef2ff', color: '#4338ca', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+        🐍 {tr('导出 CadQuery 脚本（可生成真实 STEP）')}
+      </button>
       <button onClick={exportStl} style={{ width: '100%', padding: '9px 0', borderRadius: 8, border: 'none', background: `linear-gradient(135deg,#245b3a,${COLORS.green})`, color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
         ⬇ {tr('导出外壳 STL（底壳）')}
       </button>
       <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 6, lineHeight: 1.5 }}>
-        {tr('导出的是三角网格 STL（可直接 3D 打印/导入 CAD 参考），不是 B-rep 实体 STEP；开孔、卡扣、支柱细节需在 CAD 中完成。')}
+        {tr('STL 是三角网格（可直接 3D 打印），不含开孔；CadQuery 脚本包含全部开孔与螺柱/卡扣位，在 CadQuery 或 FreeCAD 中运行即可得到真实 STEP —— 浏览器里做不了 B-rep 布尔运算，所以我们出脚本而不是假装出 STEP。')}
       </div>
     </div>
   );
