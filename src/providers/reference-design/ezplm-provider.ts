@@ -208,7 +208,17 @@ export const EzplmReferenceDesignProvider = {
     try {
       const r = await fetch(`/api/ezplm?path=reference-designs&partlibId=${encodeURIComponent(partlibId)}&pageSize=20`);
       if (!r.ok) {
-        out = { state: r.status === 501 ? 'BACKEND_NOT_CONNECTED' : 'ERROR', items: [], detail: `ezPLM 返回 HTTP ${r.status}` };
+        // 手册 §3「常见情况」：404 = partlibId 无效或物料不存在（等同没有参考设计）；
+        // 429 = 当天调用次数已达上限（不是错误配置，要让用户看懂）；501 = 本地未配 Key
+        out = r.status === 404
+          ? { state: 'READY', items: [] }
+          : {
+              state: r.status === 501 ? 'BACKEND_NOT_CONNECTED' : 'ERROR',
+              items: [],
+              detail: r.status === 429 ? 'ezPLM 当天调用次数已达上限，请次日再试或联系管理员重置'
+                : r.status === 401 || r.status === 400 ? `ezPLM 鉴权失败（HTTP ${r.status}）：请检查 EZPLM_API_KEY 是否有效`
+                : `ezPLM 返回 HTTP ${r.status}`,
+            };
       } else {
         const j = await r.json();
         const rawList: unknown[] = Array.isArray(j?.data) ? j.data : [];

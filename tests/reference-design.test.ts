@@ -160,3 +160,46 @@ describe('Fragment 提取（AD9837 golden 场景，§五十一）', () => {
     expect(classifyNet('SCL')).toBe('SIGNAL');          // I2C SCL 不是时钟域
   });
 });
+
+/* ── 按官方《API 密钥查询接口用户操作手册》校准的响应结构 ── */
+describe('官方手册响应结构', () => {
+  it('parts 条目的 id 即后续的 partlibId', () => {
+    // 手册 §2：返回结构为 data + meta，条目最重要的字段是 id / mpn / manufacturer
+    const partsResponse = {
+      data: [{ id: '019137eb-d4c0-76c9-b1f5-88ee84d727a6', mpn: 'TPS79301DBVR', manufacturer: 'TI' }],
+      meta: { cursor: null, pageSize: 10 },
+    };
+    const first = partsResponse.data[0];
+    expect(first.id).toBeTruthy();
+    expect(`ez_${first.id}`.startsWith('ez_')).toBe(true);
+  });
+
+  it('reference-designs 的 name/link/image/description 映射到统一模型', () => {
+    const row = {
+      name: 'TPS79301 典型应用电路',
+      link: 'https://www.ti.com/lit/ds/symlink/tps793.pdf',
+      image: '',
+      description: '低压差线性稳压器参考设计',
+    };
+    const rd = mapLegacyReference(row, 0, 'TPS79301DBVR')!;
+    expect(rd).toBeTruthy();
+    expect(rd.title).toBe('TPS79301 典型应用电路');
+    expect(rd.sourceUrl).toBe(row.link);
+    expect(rd.anchorMpns).toEqual(['TPS79301DBVR']);
+    // PDF 链接 → 标记有 pdf 资产，且不臆断有原理图/PCB
+    expect(rd.availableAssets.pdf).toBe(true);
+    expect(rd.availableAssets.schematic).toBe(false);
+    // 聚合来源一律低置信，绝不标成已验证
+    expect(['EXTRACTED', 'VENDOR_REFERENCE']).toContain(rd.verification.level);
+  });
+
+  it('image 为空字符串时不产生非法 imageUrl', () => {
+    const rd = mapLegacyReference({ name: 'X', link: 'https://a.b/c', image: '' }, 0, 'M')!;
+    expect(rd.imageUrl).toBeUndefined();
+  });
+
+  it('data 为空数组 = 该物料没有参考设计（不是错误）', () => {
+    const rows: unknown[] = [];
+    expect(rows.map((x, i) => mapLegacyReference(x, i, 'M')).filter(Boolean)).toHaveLength(0);
+  });
+});

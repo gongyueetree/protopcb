@@ -154,3 +154,31 @@ ZIP 解压经 `safe-unzip.ts` 限制压缩包体积、解压总量、单文件�
 - **AI 数据信任**：所有 LLM 返回经 Zod 校验后才入 store（`providers/ai-schema.ts`、
   `design-core/custom-part-schema.ts`）；型号 VERIFIED 仅限规范化后 exact match，
   前缀相似只作 CANDIDATE 供人工确认。
+
+## ezPLM 查询接口（按官方《API 密钥查询接口用户操作手册》）
+
+只读，两个端点，**一把 API Key 同时作身份与 HMAC 密钥**（没有单独的 secret）：
+
+- `GET /api/v1/api-key/parts?keyword=&pageSize=` — 系统库物料，仅返回白名单供应商数据；
+  条目的 `id` 即后续的 `partlibId`
+- `GET /api/v1/api-key/reference-designs?partlibId=&pageSize=` — 该物料的参考设计
+  （`name` / `link` / `image` / `description`）
+
+签名：`X-Signature = base64url(HMAC-SHA256(API_Key, canonical))`，
+canonical 为 `方法 \n 路径 \n 字典序 query \n X-Timestamp \n X-Nonce`；
+**X-Timestamp 是 Unix 秒级**，X-Nonce 一次性防重放。服务端实现见 `api/ezplm.js`。
+
+配置：Vercel → Environment Variables 添加 `EZPLM_API_KEY`（不带 VITE_ 前缀）。
+
+联调自查（直连 ezPLM，不经 Vercel，复用生产签名实现）：
+
+```bash
+EZPLM_API_KEY=xxx node scripts/check-ezplm-refdesign.mjs TPS79301DBVR
+```
+
+返回码语义（手册 §5）：400/401 = 签名头缺失或无效；404 = partlibId 不存在；
+429 = 当天调用次数达上限；空 `data` = 该物料没有参考设计（不是错误）。
+
+> **应用项目**（组织内部用过该器件的历史项目）目前**不在**这两个公开接口里。
+> 前端的 `getApplicationProjects` 已写好完整 contract，端点未提供时如实显示
+> `BACKEND_NOT_CONNECTED`，不渲染任何假项目。上面的脚本会顺带探测三个候选路径。
