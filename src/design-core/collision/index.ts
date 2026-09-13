@@ -4,6 +4,7 @@
  */
 import type { PlacedComponent, BoardDefinition } from '../document/types';
 import { footprintCourtyardRect, rectsOverlap, clampRectInside, type Rect } from '../geometry';
+import { padFootprintFor } from '../geometry/footprint-pads';
 
 export const DEFAULT_GAP_MM = 3;
 export const BOARD_MARGIN_MM = 2;
@@ -65,12 +66,35 @@ export function hasOverlap(target: PlacedComponent, others: PlacedComponent[], g
  */
 export const OVERLAP_GAP_MM = 0;
 
+/**
+ * 器件实体外接矩形 —— **判定重叠专用**，与 componentRect（courtyard）不同。
+ *
+ * courtyard = 焊盘外沿 + 0.6mm 装配余量，那个余量是给自动布局留手的；
+ * 拿它判重叠，等于要求真实板上每两个器件之间至少空 1.2mm，
+ * 于是一块正常的密集板（0201/0402 间距 0.3~0.5mm）会被判出几十处"重叠"。
+ * 这里取焊盘与本体的真实外沿，不含余量：**焊盘真的压到一起才算重叠**。
+ */
+export function componentExtentRect(c: PlacedComponent): Rect {
+  const fp = padFootprintFor(c.footprint.name);
+  if (fp && fp.pads.length) {
+    const exW = Math.max(...fp.pads.map((p) => Math.abs(p.x) + p.w / 2), fp.bodyW / 2) * 2;
+    const exH = Math.max(...fp.pads.map((p) => Math.abs(p.y) + p.h / 2), fp.bodyH / 2) * 2;
+    const swap = Math.abs(c.placement.rotation % 180) === 90;
+    const w = swap ? exH : exW, h = swap ? exW : exH;
+    return { x: c.placement.xMm - w / 2, y: c.placement.yMm - h / 2, width: w, height: h };
+  }
+  // 没有真实焊盘数据：退回 courtyard，但扣掉那 0.6mm 余量
+  const r = componentRect(c);
+  const m = 0.6;
+  return { x: r.x + m / 2, y: r.y + m / 2, width: Math.max(0.1, r.width - m), height: Math.max(0.1, r.height - m) };
+}
+
 export function findOverlaps(components: PlacedComponent[], gap = OVERLAP_GAP_MM): Set<string> {
   const set = new Set<string>();
   for (let i = 0; i < components.length; i++) {
     for (let j = i + 1; j < components.length; j++) {
       if (components[i].placement.side !== components[j].placement.side) continue;
-      if (rectsOverlap(componentRect(components[i]), componentRect(components[j]), gap)) {
+      if (rectsOverlap(componentExtentRect(components[i]), componentExtentRect(components[j]), gap)) {
         set.add(components[i].instanceId);
         set.add(components[j].instanceId);
       }

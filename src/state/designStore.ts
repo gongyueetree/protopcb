@@ -626,6 +626,9 @@ export const useDesignStore = create<DesignState>()(
         s.selectedId = null;
         s.multiSel = [];
         s.doc = touchDocument(refreshDerived(s.doc));
+        // 导入后同步重叠状态：此前漏了这一句，store 里一直是导入前的旧值，
+        // 而流程条/审查页各自现算，两处对不上
+        s.overlaps = findOverlaps(s.doc.components);
       }),
 
     loadDocument: (doc) =>

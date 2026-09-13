@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { parseKicadPcb } from '../src/design-core/geometry/kicad-pcb-import';
-import { findOverlaps, OVERLAP_GAP_MM, DEFAULT_GAP_MM } from '../src/design-core/collision';
+import { findOverlaps, componentExtentRect, componentRect, OVERLAP_GAP_MM, DEFAULT_GAP_MM } from '../src/design-core/collision';
 import { createDocument } from '../src/design-core/document/factory';
 import { searchResultToPlaced } from '../src/design-core/document/services';
 import type { ComponentSearchResult } from '../src/providers/types';
@@ -43,8 +43,22 @@ describe('重叠判定不能用布局目标间距', () => {
     expect(findOverlaps(doc.components).size).toBe(2);
   });
 
-  it('重叠阈值常量为 0（courtyard 已含工艺间距）', () => {
+  it('重叠阈值常量为 0', () => {
     expect(OVERLAP_GAP_MM).toBe(0);
+  });
+
+  it('判重叠用实体外接矩形，比 courtyard 小 0.6mm 余量', () => {
+    const doc = denseBoard();
+    const c = doc.components[0];
+    const court = componentRect(c), ext = componentExtentRect(c);
+    expect(ext.width).toBeLessThan(court.width);
+    expect(court.width - ext.width).toBeCloseTo(0.6, 3);
+  });
+
+  it('0402 按 1.5mm 中心距摆放（真实密集板）不算重叠', () => {
+    const doc = denseBoard();
+    doc.components.forEach((c, i) => { c.placement.xMm = 5 + i * 1.5; });
+    expect(findOverlaps(doc.components).size).toBe(0);
   });
 });
 
