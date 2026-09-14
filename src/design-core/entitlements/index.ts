@@ -97,7 +97,7 @@ export function checkCapability(ent: Entitlements, cap: Capability): CapabilityC
         : cap === 'search.web'
           ? '分销商实时检索需要登录后使用。未登录可以检索 ezPLM 器件库。'
           : cap === 'part.custom'
-            ? '定制器件需要登录后使用 —— 建好的器件会存进你的账户器件库。'
+            ? '定制器件需要登录后使用。（当前版本定制器件保存在本浏览器；云端账户器件库尚未接通）'
             : '保存与云端空间需要登录后使用。',
     };
   }

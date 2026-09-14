@@ -24,6 +24,8 @@ import {
   type ReferenceDesign, type ReferenceLoadState, ReferenceDesignSchema, NO_ASSETS,
 } from './schema';
 import { isEzplmPart } from '../ezplm-live';
+import { getPrivate, setPrivate } from './private-cache';
+import type { AccessContext } from '../types';
 
 const EZ_PREFIX = 'ez_';
 
@@ -165,19 +167,24 @@ export function mapApplicationProject(raw: unknown, anchorMpn: string): Referenc
 /* ---------------- Provider ---------------- */
 
 /** 私有数据缓存：内存 Map，仅本会话（方案 §四十四：私有数据禁止跨用户/持久缓存） */
-const appProjectCache = new Map<string, LoadResult<ReferenceDesign>>();
 const relatedCache = new Map<string, LoadResult<ReferenceDesign>>();
 
 export const EzplmReferenceDesignProvider = {
-  /** 应用项目：当前用户/组织历史项目中使用过该器件的项目 */
-  async getApplicationProjects(componentId: string, mpn: string): Promise<LoadResult<ReferenceDesign>> {
+  /**
+   * 应用项目：当前用户/组织历史项目中使用过该器件的项目 —— **私有数据**。
+   * 必须带身份：匿名直接返回 UNAUTHORIZED，不发请求；缓存键含租户与用户，切账号不串。
+   */
+  async getApplicationProjects(componentId: string, mpn: string, ctx?: AccessContext | null): Promise<LoadResult<ReferenceDesign>> {
     if (!isEzplmPart(componentId)) return { state: 'IDLE', items: [] };
-    const hit = appProjectCache.get(componentId);
+    if (!ctx?.userId) return { state: 'UNAUTHORIZED', items: [], detail: '应用项目是私有数据，登录后可见' };
+    const key = { tenantId: ctx.organizationId ?? '', userId: ctx.userId, resourceId: `app-projects:${componentId}` };
+    const hit = getPrivate<LoadResult<ReferenceDesign>>(key);
     if (hit) return hit;
     const partlibId = componentId.slice(EZ_PREFIX.length);
     let out: LoadResult<ReferenceDesign>;
     try {
-      const r = await fetch(`/api/ezplm?path=application-projects&partlibId=${encodeURIComponent(partlibId)}&mpn=${encodeURIComponent(mpn)}&pageSize=20`);
+      // 带上用户会话：服务端必须以用户身份而不是全局 Key 去取私有项目
+      const r = await fetch(`/api/ezplm?path=application-projects&partlibId=${encodeURIComponent(partlibId)}&mpn=${encodeURIComponent(mpn)}&pageSize=20`, { credentials: 'include' });
       if (r.status === 404 || r.status === 501) {
         out = { state: 'BACKEND_NOT_CONNECTED', items: [], detail: 'ezPLM 开放接口暂未提供"应用项目"端点（网页端已有此数据；待后端开通后此处自动接通）' };
       } else if (r.status === 401 || r.status === 403) {
@@ -194,7 +201,7 @@ export const EzplmReferenceDesignProvider = {
       out = { state: 'ERROR', items: [], detail: '网络异常' };
     }
     // BACKEND_NOT_CONNECTED / READY 缓存本会话；瞬时错误不缓存以便重试
-    if (out.state === 'READY' || out.state === 'BACKEND_NOT_CONNECTED') appProjectCache.set(componentId, out);
+    if (out.state === 'READY' || out.state === 'BACKEND_NOT_CONNECTED') setPrivate(key, out);
     return out;
   },
 

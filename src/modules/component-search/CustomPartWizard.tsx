@@ -9,15 +9,15 @@ import { tr, curLang } from '../../shared/i18n';
 import { buildCustomSymbol, symbolSideSummary } from '../../design-core/custom-symbol';
 import { useMemo, useState , useEffect} from 'react';
 import { COLORS } from '../../shared/theme';
-import { geminiAvailable, geminiComplete, extractJson } from '../../providers/gemini';
+import { geminiAvailable } from '../../providers/gemini';
+import { aiRequest, extractJson } from '../../providers/ai-client';
 import {
-  KICAD_PIN_TYPES, CUSTOM_FAMILIES, CUSTOM_CATEGORIES, type CustomPin, type CustomPkg, type CustomPart, type PinSide,
+  KICAD_PIN_TYPES, type CustomPin, type CustomPkg, type CustomPart, type PinSide,
   saveCustomPart, defaultSide, buildCustomFootprint, customFootprintName,
 } from '../../design-core/custom-lib';
 import { validateCustomPartDraft } from '../../design-core/custom-part-schema';
 import type { ComponentCategory } from '../../design-core/document/types';
 import { useAiGate } from '../account/useAiGate';
-import { useEntitlementStore } from '../../state/entitlementStore';
 import { AiGateNotice } from '../account/AccountBar';
 import type { DenyReason } from '../../design-core/entitlements';
 
@@ -43,7 +43,6 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
   const [aiText, setAiText] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
   const { guard, gateNotice } = useAiGate();
-  const checkCap = useEntitlementStore((st) => st.check);
   const [gateState, setGateState] = useState<{ reason: DenyReason; cost?: number } | null>(null);
   const [aiMsg, setAiMsg] = useState('');
   /** AI 提取后置 true：表单顶部显示"AI 提取 — 未人工确认"，保存即视为人工确认 */
@@ -60,26 +59,8 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
     setPkg((prev) => ({ ...prev, manualPads: next }));
   }, [pins.length, pkg.family]);
 
-  // Prompt 中的枚举从代码中央 enum 动态构建（CUSTOM_FAMILIES/CUSTOM_CATEGORIES/KICAD_PIN_TYPES），
-  // 加新 family 后 Prompt 自动跟进，不再出现"UI 支持 bga 但 Prompt 只认 5 个族"的漂移。
-  const EXTRACT_PROMPT_BASE = `请从以上器件资料中提取信息，严格输出 JSON（勿输出其它文字）：
-{"mpn":"型号","description":"30字内功能描述","category":"${CUSTOM_CATEGORIES.join('|')}",
-"pins":[{"num":"1","name":"VCC","type":"power_in","desc":"电源","side":"top|bottom|left|right"}],
-"package":{"family":"${CUSTOM_FAMILIES.filter((f) => f !== 'manual').join('|')}","bodyW":本体宽mm,"bodyH":本体长mm,"pitch":引脚间距mm,"padLen":焊盘沿引脚方向长度mm,"padWidth":焊盘宽mm,"leadSpan":两排引脚外缘跨距mm,"heightMm":本体高度mm,"outlineW":模块整体轮廓宽mm(若焊盘只占模块一部分则填写否则省略),"outlineH":模块整体轮廓高mm}}
-
-package 提取铁律（工程事实必须来自 datasheet，不允许按管脚数量猜测）：
-1. 所有尺寸必须来自 datasheet 的「Package Outline / Mechanical Dimensions / Package Information」章节的封装机械图与尺寸表（通常在文档末尾几页），以及 Land Pattern / Recommended PCB Layout 图（若有）。
-2. bodyW/bodyH 取本体 D×E 标称值；heightMm 取总高 A 的 max 值；pitch 取 e；leadSpan 取含引脚的总跨距（如 E 或 HE）标称值。
-3. padLen/padWidth 优先取 Land Pattern 推荐焊盘尺寸；datasheet 未给推荐焊盘时省略这两个字段（由系统按族规则生成），不要自行发明数值。
-4. 尺寸表若为 inch 必须换算为 mm（1 inch = 25.4mm）；min/nom/max 三栏取 nom（标称），无 nom 取 (min+max)/2。
-5. 任何在资料中找不到的字段直接省略，禁止编造。
-side 规则：电源脚 top，地脚 bottom，输入类 left，输出类 right
-pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
+  // 提取 prompt 已移到服务端 api/_lib/ai-operations.js（part.extract），客户端不再持有 prompt
   // 英文界面：要求模型用英文回填描述类字段（管脚名/方向说明等）
-  const EXTRACT_PROMPT = (curLang() === 'en'
-    ? 'Answer in English: description and any free-text fields must be in English.\n'
-    : '') + EXTRACT_PROMPT_BASE;
-
   /** 图片提取：引脚图/封装图截图 → Gemini 视觉 → 填表 */
   const onImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -94,12 +75,12 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
         rd.onerror = () => rej(new Error(tr('读取失败')));
         rd.readAsDataURL(f);
       });
-      const r = await fetch('/api/gemini', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: EXTRACT_PROMPT + '\n补充：这是一张图片。请先判断它是「引脚定义图」还是「封装尺寸图」：引脚图 → 重点提取 pins（脚号+名称+类型）；封装尺寸图 → 重点提取 package（bodyW/bodyH/pitch，单位 mm，并按脚号数量推断 family）。两类信息都可见时都提取。', imageBase64: b64, imageMime: f.type || 'image/png' }),
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const text = String((await r.json()).text ?? '');
+      // 图片提取同样是 part.extract（此前这条路径既没带 capability 也没带会话，直接绕过了计费）
+      const out = await guard('part.extract', async () =>
+        (await aiRequest('part.extract', { mode: 'image', lang: curLang() },
+          { attachments: { imageBase64: b64, imageMime: f.type || 'image/png' } })).text);
+      if (out == null) { setAiBusy(false); return; }
+      const text = out;
       applyExtract(extractJson(text));
       setAiMsg('✓ ' + tr('已从图片提取，请核对下方表单（视觉识别务必人工复核管脚号）'));
     } catch (err) {
@@ -229,20 +210,20 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
       let text: string;
       if (payload.text) {
         const src = payload.text;
-        const out = await guard('part.extract', () =>
-          geminiComplete(`以下是器件资料文本：\n${src.slice(0, 60000)}\n\n${EXTRACT_PROMPT}`, 'part.extract'));
+        const out = await guard('part.extract', async () =>
+          (await aiRequest('part.extract', { mode: 'text', text: src.slice(0, 60000), lang: curLang() })).text);
         if (out == null) { setAiBusy(false); return; }   // 被门禁拦下，提示已展示
         text = out;
       } else {
-        const pre = checkCap('part.extract');
-        if (!pre.allowed) { setGateState({ reason: pre.reason!, cost: pre.cost }); setAiBusy(false); return; }
-        const r = await fetch('/api/gemini', {
-          method: 'POST', credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: EXTRACT_PROMPT, capability: 'part.extract', ...payload }),
-        });
-        if (!r.ok) throw new Error(`提取失败 HTTP ${r.status}`);
-        text = String((await r.json()).text ?? '');
+        const out = await guard('part.extract', async () =>
+          (await aiRequest('part.extract', { mode: 'url', url: payload.url, lang: curLang() },
+            { attachments: payload.fileBase64
+              ? (payload.mimeType === 'application/pdf'
+                ? { pdfBase64: payload.fileBase64 }
+                : { imageBase64: payload.fileBase64, imageMime: payload.mimeType })
+              : undefined })).text);
+        if (out == null) { setAiBusy(false); return; }
+        text = out;
       }
       applyExtract(extractJson(text));
       setAiMsg(`✓ 已提取（${usedEngine}），请核对下方表单后保存`);
@@ -282,13 +263,10 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
       } catch (dsErr) {
         engine = `ds2kicad 不可用（${(dsErr as Error).message.slice(0, 80)}），已回落 Gemini`;
       }
-      const r2 = await fetch('/api/gemini', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: EXTRACT_PROMPT, pdfBase64: b64 }),
-      });
-      const j2 = await r2.json().catch(() => ({}));
-      if (!r2.ok) throw new Error(String((j2 as { error?: string })?.error ?? `HTTP ${r2.status}`));
-      text = String((j2 as { text?: string }).text ?? '');
+      const out = await guard('part.extract', async () =>
+        (await aiRequest('part.extract', { mode: 'pdf', lang: curLang() }, { attachments: { pdfBase64: b64 } })).text);
+      if (out == null) { setAiBusy(false); return; }
+      text = out;
       applyExtract(extractJson(text));
       setAiMsg('✓ ' + tr('已提取（Gemini 直读）') + (engine ? ' · ' + engine : ''));
     } catch (err) {

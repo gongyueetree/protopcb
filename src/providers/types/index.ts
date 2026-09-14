@@ -117,6 +117,20 @@ export interface ComponentDataProvider {
 /* ---------- 参考设计 / 子电路知识 ---------- */
 export interface ReferenceDesignProvider {
   getRecommendedPeripheralCircuits(category: ComponentCategory, ctx: AccessContext): Promise<PeripheralCircuitRecommendation[]>;
+  /**
+   * 应用项目（组织内用过该器件的历史项目）—— 私有数据，必须带身份；
+   * 匿名返回 UNAUTHORIZED，不发请求。
+   */
+  getApplicationProjects(componentId: string, mpn: string, ctx: AccessContext | null): Promise<ReferenceLoadResult>;
+  /** 公开参考设计 —— 匿名可查 */
+  getRelatedReferenceDesigns(componentId: string, mpn: string, ctx?: AccessContext | null): Promise<ReferenceLoadResult>;
+}
+
+/** 参考设计加载结果（与 reference-design/ezplm-provider 的 LoadResult 同构，放这里避免 UI 直连具体实现） */
+export interface ReferenceLoadResult {
+  state: 'IDLE' | 'LOADING' | 'READY' | 'ERROR' | 'BACKEND_NOT_CONNECTED' | 'UNAUTHORIZED';
+  items: import('../reference-design/schema').ReferenceDesign[];
+  detail?: string;
 }
 
 /* ---------- 身份 ---------- */

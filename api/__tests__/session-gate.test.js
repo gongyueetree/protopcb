@@ -60,17 +60,12 @@ describe('/api/gemini 的关卡在上游调用之前', () => {
   });
   afterEach(() => { delete process.env.GEMINI_API_KEY; delete process.env.AI_REQUIRE_AUTH; });
 
-  it('匿名 POST 被拒，且**零次**上游调用（不产生任何费用）', async () => {
+  it('旧 POST /api/gemini 已下线（410），且**零次**上游调用', async () => {
+    // 浏览器决定 capability 的旧接口是计费漏洞，已整体下线；业务一律走 /api/ai
     const res = mockRes();
     await geminiHandler(req(), res);
-    expect([401, 402, 503]).toContain(res.statusCode);
+    expect(res.statusCode).toBe(410);
+    expect(JSON.parse(res.body).code).toBe('ENDPOINT_RETIRED');
     expect(fetchCalls.filter((u) => u.includes('generativelanguage'))).toHaveLength(0);
-  });
-
-  it('拒绝响应带机器可读的 code，供前端给出对应引导', async () => {
-    const res = mockRes();
-    await geminiHandler(req(), res);
-    const body = JSON.parse(res.body);
-    expect(['LOGIN_REQUIRED', 'BACKEND_NOT_CONNECTED']).toContain(body.code);
   });
 });

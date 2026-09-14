@@ -213,3 +213,25 @@ UI 的按钮门禁只为体验（少一次白跑的请求）。**真正的拦截
 
 会话由 ezPLM / EEHub 签发，本应用只校验不签发，读取
 `Authorization: Bearer` 或 `ezplm_session` / `eehub_session` Cookie。
+
+## AI 调用与计费边界（服务端）
+
+浏览器**不发送 prompt**，只发 `POST /api/ai { operation, operationId, input }`：
+
+- `operation` 在 `api/_lib/ai-operations.js` 注册表里查表：固定价格、输入校验、**服务端拼 prompt**
+- 未知 operation → 400，零扣费零模型调用（没有 `?? 1` 这类兜底价）
+- `operationId` 为 UUID，作为账本幂等键 `(userId, operationId)` 透传给 ezPLM
+- 响应 `{ data, usage: { operation, charged, remaining, operationId } }`；前端余额**只认** `usage.remaining`
+- 旧的 `POST /api/gemini { prompt, capability }` 已下线（410）——浏览器决定 capability 是计费漏洞
+
+客户端唯一入口：`src/providers/ai-client/aiRequest()`。测试会拒绝任何生产代码里的 `fetch('/api/gemini')`、`geminiComplete(`、或客户端持有的 prompt 模板。
+
+分销商接口（`/api/digikey`、`/api/suppliers`）除 `status` 外要求登录（不扣 Credit）；匿名直接 curl 返回 401 且零上游调用。
+
+### NOT_CONNECTED（外部后端尚未提供）
+
+- ezPLM OAuth/SSO Session Bridge（`proto_session` 由本站签发）— 未实现，当前只校验 ezPLM/EEHub 签发的会话
+- Credit reserve/commit/release — 当前为 legacy consume，**NON_TRANSACTIONAL**：模型超时时费用不会自动退还
+- Cloud Project API（保存到我的空间 / 打开我的设计）
+- Cloud Custom Part API — 定制器件目前保存在本浏览器
+- Application Projects 用户级端点 — `api/ezplm.js` 仍用全局 `EZPLM_API_KEY` 转发，租户边界依赖后端按 partlibId 的可见性

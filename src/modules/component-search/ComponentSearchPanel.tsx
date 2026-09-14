@@ -90,9 +90,12 @@ export function ComponentSearchPanel() {
       providers.components.searchComponents({ keyword: q, orgOnly: true }, ctx)
         .then((r: { items: ComponentSearchResult[] }) => { if (seq === searchSeq.current) setOrgResults(r.items ?? []); })
         .catch(() => { if (seq === searchSeq.current) setOrgResults([]); });
-      // 分销商实时检索用的是我们的 DigiKey/Mouser Key，未登录不发起 ——
-      // 既是配额保护，也让"未注册只能用 ezPLM 库"这条规则在网络层就成立
-      if (!webAllowed) { setNetResults([]); setNetBusy(false); setNetMsg(''); return; }
+      // 分销商实时检索用的是我们的 DigiKey/Mouser Key，未登录不发起。
+      // ⚠ 这里只能跳过这一条分支，绝不能 return —— 函数后面还有 ezPLM 实时检索，
+      //   提前 return 会把未登录用户的 ezPLM 搜索一起打掉（踩过一次）。
+      if (!webAllowed) {
+        setNetResults([]); setNetBusy(false); setNetMsg('');
+      } else {
       setNetBusy(true); setNetMsg('');
       searchSupplierParts(q, 10)
         .then((r) => {
@@ -102,6 +105,7 @@ export function ComponentSearchPanel() {
           setNetBusy(false);
         })
         .catch(() => { if (seq === searchSeq.current) { setNetResults([]); setNetBusy(false); } });
+      }
     } else {
       setOrgResults([]); setNetResults([]); setNetMsg('');
     }

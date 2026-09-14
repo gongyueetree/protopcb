@@ -55,7 +55,7 @@ import { useEntitlementStore } from './state/entitlementStore';
 import { exportBomCsv } from './modules/bom/bom-csv';
 import { usePcbViewStore } from './state/pcbViewStore';
 import { exportDocument, importDocumentFromFile, autosave, exportMarkdownReport } from './modules/report/persistence';
-import { COLORS, CATEGORY_DISPLAY } from './shared/theme';
+import { COLORS, CATEGORY_DISPLAY, TOOLBAR_CTRL_H } from './shared/theme';
 import type { BoardShapeKind } from './design-core/document/types';
 
 
@@ -568,7 +568,7 @@ export default function App() {
           {/* 流程状态条：每格状态由文档事实推导，不是装饰 */}
           <PipelineBar />
           {/* Toolbar */}
-          <div style={{ background: '#fff', borderBottom: '2px solid #E8F3EE', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ background: '#fff', borderBottom: '2px solid #E8F3EE', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8, rowGap: 6, flexWrap: 'wrap', minHeight: TOOLBAR_CTRL_H + 16 }}>
             <button onClick={undo} style={ibtn} title={t('撤销')} aria-label={t('撤销')}>↩</button>
             <button onClick={redo} style={ibtn} title={t('重做')} aria-label={t('重做')}>↪</button>
             <button onClick={() => { clearAll(); ProjectPersistenceService.clearByUser(); }} style={ibtn} title={t('清除')} aria-label={t('清除')} onClickCapture={(e) => {
@@ -580,9 +580,9 @@ export default function App() {
             <button onClick={() => setLeftManual(!leftOpen)} title={t('折叠/展开左侧器件栏')} style={ibtn}>{leftOpen ? '◧' : '▶'}</button>
             {view === '2d' && mainTab === 'pcb' && <PcbViewControls />}
             {view === '2d' && (
-              <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #E8F3EE' }} title={tr('当前放置层（选中器件按 L 换层）')}>
+              <div style={{ display: 'flex', height: TOOLBAR_CTRL_H, borderRadius: 6, overflow: 'hidden', border: '1px solid #E8F3EE' }} title={tr('当前放置层（选中器件按 L 换层）')}>
                 {(['TOP', 'BOTTOM'] as const).map((l) => (
-                  <button key={l} onClick={() => setActiveLayer(l)} style={{ padding: '7px 12px', border: 'none', background: activeLayer === l ? (l === 'TOP' ? '#c08a2d' : '#3b82c4') : '#fff', color: activeLayer === l ? '#fff' : '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{l === 'TOP' ? t('Top层') : t('Bottom层')}</button>
+                  <button key={l} onClick={() => setActiveLayer(l)} style={{ height: TOOLBAR_CTRL_H, padding: '0 12px', border: 'none', whiteSpace: 'nowrap', lineHeight: `${TOOLBAR_CTRL_H}px`, background: activeLayer === l ? (l === 'TOP' ? '#c08a2d' : '#3b82c4') : '#fff', color: activeLayer === l ? '#fff' : '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{l === 'TOP' ? t('Top层') : t('Bottom层')}</button>
                 ))}
               </div>
             )}
@@ -1445,7 +1445,7 @@ function NumInput({ value, onChange, label }: { value: number; onChange: (v: num
 const linkBtn: React.CSSProperties = { padding: '5px 12px', borderRadius: 6, border: '1px solid #c6e2d0', background: '#f0f9f4', color: '#1f5c3b', fontSize: 11, fontWeight: 700, textDecoration: 'none' };
 const hbtn: React.CSSProperties = { padding: '5px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer' };
 /** 图标工具按钮：无文字，靠 title/aria-label 提供说明 */
-const ibtn: React.CSSProperties = { width: 34, height: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: '1px solid #E8F3EE', background: '#fff', fontSize: 15, lineHeight: 1, color: '#2C3E50', cursor: 'pointer', padding: 0 };
+const ibtn: React.CSSProperties = { width: 32, height: TOOLBAR_CTRL_H, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: '1px solid #E8F3EE', background: '#fff', fontSize: 15, lineHeight: 1, color: '#2C3E50', cursor: 'pointer', padding: 0 };
 const smbtn: React.CSSProperties = { padding: '3px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#475569' };
 
 

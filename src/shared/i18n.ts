@@ -8,7 +8,7 @@
  */
 import { create } from 'zustand';
 import { useEffect, useState } from 'react';
-import { geminiComplete, extractJson, geminiAvailable } from '../providers/gemini';
+
 
 export type Lang = 'zh' | 'en';
 
@@ -693,10 +693,15 @@ const DICT: Record<string, string> = {
   'ezPLM 器件库未查询到结果': 'No results in the ezPLM part library',
   '网络检索': 'Web search',
   '分销商实时检索需要登录后使用。未登录可以检索 ezPLM 器件库。': 'Live distributor search requires signing in; the ezPLM part library is available without an account.',
-  '定制器件需要登录后使用 —— 建好的器件会存进你的账户器件库。': 'Custom parts require signing in — parts you build are stored in your account library.',
+  '定制器件需要登录后使用。（当前版本定制器件保存在本浏览器；云端账户器件库尚未接通）': 'Custom parts require signing in. (In this version custom parts are stored in this browser; the cloud account library is not connected yet.)',
   'AI 顾问需要登录': 'AI Advisor requires sign-in',
   '这里会基于画布上的器件给出配套电路、参考设计与板级补全建议。登录后即可使用，新注册赠送体验 Credit。': 'This panel suggests companion circuits, reference designs and board-level gaps based on the parts on your canvas. Sign in to use it — new accounts get free Credits.',
   '未登录仍可使用：画布编辑、KiCad 工程导入、ezPLM 器件库检索、3D 与外壳、导出原型文件。': 'Available without an account: canvas editing, KiCad project import, ezPLM part search, 3D and enclosure, prototype export.',
+  '登录服务暂不可用': 'Sign-in service unavailable',
+  '重试': 'Retry',
+  '登录已过期，重新登录': 'Session expired — sign in again',
+  '退出登录': 'Sign out',
+  '退出': 'Sign out',
   '包内无原理图，符号用名字解析': 'No schematic in package; symbols resolved by name',
   '区间': 'range',
   '单价': 'Unit price',
@@ -1033,33 +1038,18 @@ let pendingQueue = new Set<string>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<() => void>();
 
-function persistCache() {
-  const obj: Record<string, string> = {};
-  let n = 0;
-  for (const [k, v] of trCache) { obj[k] = v; if (++n >= 800) break; }
-  localStorage.setItem('cc_tr_cache', JSON.stringify(obj));
-}
-
+/**
+ * 动态文本（器件描述、AI 建议正文等）的翻译队列。
+ *
+ * 此前这里会自动调用 AI 翻译，并借用 advisor.analyze 的 Credit —— 用户切个语言
+ * 就被悄悄扣费，且计到了错误的类目。现在：
+ *   固定 UI 全部走词典表（tr/t），不依赖 AI；
+ *   动态文本默认保留原文，只应用已缓存的翻译；
+ *   自动翻译已停用。若将来要计费翻译，需单独的 text.translate 操作 + 显式"翻译"按钮。
+ */
 async function flushQueue() {
-  const batch = [...pendingQueue].slice(0, 40);
-  pendingQueue = new Set([...pendingQueue].slice(40));
-  if (!batch.length) return;
-  try {
-    if (!(await geminiAvailable())) return;
-    // 动态文本的 AI 翻译也是 AI 调用：匿名用户不该因为切了个语言就撞 401。
-    // 没有权限时静默保留原文 —— 固定 UI 走词典表，本来就不依赖 AI。
-    const { useEntitlementStore } = await import('../state/entitlementStore');
-    if (!useEntitlementStore.getState().check('advisor.analyze').allowed) return;
-    const text = await geminiComplete(
-      `将以下电子元器件领域的中文文本翻译成简洁的英文（专业术语标准化，如"运算放大器"→"op-amp"）。严格输出 JSON 字符串数组，与输入等长、顺序一致，勿输出其它文字：\n${JSON.stringify(batch)}`,
-      'advisor.analyze',
-    );
-    const out = extractJson<string[]>(text);
-    batch.forEach((src, i) => { if (typeof out[i] === 'string' && out[i]) trCache.set(src, out[i]); });
-    persistCache();
-    listeners.forEach((fn) => fn());
-  } catch { /* 翻译失败保留原文，下次进入视图重试 */ }
-  if (pendingQueue.size) { flushTimer = setTimeout(flushQueue, 400); } else { flushTimer = null; }
+  pendingQueue = new Set();
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
 }
 
 const hasCJK = (s: string) => /[\u4e00-\u9fff]/.test(s);

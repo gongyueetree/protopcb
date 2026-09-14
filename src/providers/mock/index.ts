@@ -4,7 +4,7 @@
  * 异步签名与真实接口一致，便于将来无缝替换为 EzplmProvider。
  */
 import type {
-  ComponentDataProvider, ReferenceDesignProvider, IdentityProvider, ProjectProvider, AiModelProvider,
+  ComponentDataProvider, ReferenceDesignProvider, ReferenceLoadResult, IdentityProvider, ProjectProvider, AiModelProvider,
   ComponentSearchQuery, AccessContext, Paginated, ComponentSearchResult, FootprintOption,
   ComponentAlternative, OrganizationMaterialInfo, PeripheralCircuitRecommendation,
   CurrentUser, AiSchemeRequest, AiSchemeResult,
@@ -80,6 +80,14 @@ export class MockReferenceDesignProvider implements ReferenceDesignProvider {
   async getRecommendedPeripheralCircuits(category: ComponentCategory): Promise<PeripheralCircuitRecommendation[]> {
     await delay(60);
     return SUBCIRCUITS[category] ?? [];
+  }
+  // demo 模式没有私有后端：如实返回未接通，不伪造项目
+  async getApplicationProjects(_c: string, _m: string, ctx: AccessContext | null): Promise<ReferenceLoadResult> {
+    if (!ctx?.userId) return { state: 'UNAUTHORIZED', items: [], detail: '应用项目是私有数据，登录后可见' };
+    return { state: 'BACKEND_NOT_CONNECTED', items: [], detail: 'demo 模式没有应用项目后端' };
+  }
+  async getRelatedReferenceDesigns(): Promise<ReferenceLoadResult> {
+    return { state: 'BACKEND_NOT_CONNECTED', items: [], detail: 'demo 模式没有参考设计后端' };
   }
 }
 

@@ -40,3 +40,6 @@ export function fmtMoney(amount?: number, currency?: string): string {
   if (amount == null) return '—';
   return formatMoney({ amount, currency }, useLangStore.getState().lang === 'en' ? 'en' : 'zh');
 }
+
+/** 画布工具栏所有控件共用的高度（px）。不统一就会高低错落。 */
+export const TOOLBAR_CTRL_H = 30;

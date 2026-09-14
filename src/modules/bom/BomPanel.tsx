@@ -7,7 +7,8 @@ import { useDesignStore } from '../../state/designStore';
 import { fmtMoney, COLORS } from '../../shared/theme';
 import { useEffect, useRef, useState } from 'react';
 import type { BomLine } from '../../design-core/document/types';
-import { geminiComplete, extractJson, geminiAvailable } from '../../providers/gemini';
+import { geminiAvailable } from '../../providers/gemini';
+import { aiRequest, extractJson } from '../../providers/ai-client';
 import { isPriceable, whyNotPriceable, classifyByRefDes, pricingPriority, CLASS_LABEL } from './part-class';
 import { fetchDigikeyOffer, type DigikeyOffer } from '../../providers/digikey';
 import { fetchSupplierOffers } from '../../providers/suppliers';
@@ -85,9 +86,10 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
         // AI 估价只在前两步都没有价格时触发，结果显式标注为估算
         // AI 估价同样受门禁约束：批量跑之前先判一次，避免逐行弹提示
         estimatePrice: aiOk && estimateAllowed ? async (l) => {
-          const txt = await geminiComplete(
-            `估算该电子元件在国内小批量（100 片）采购的单价，只回一个 JSON：{"cny":数字,"note":"20字内依据"}\n` +
-            `位号 ${l.reference} · 型号/值 ${l.mpn} · 封装 ${l.footprint ?? '未知'}`);
+          // 每一行都是一次独立的 bom.estimate（固定 1 Credit，服务端计费）
+          const { text: txt } = await aiRequest('bom.estimate', {
+            reference: l.reference, mpn: l.mpn, footprint: l.footprint, description: l.description, lang: curLang(),
+          });
           const m = txt.match(/\{[\s\S]*\}/);
           if (!m) return null;
           const j = JSON.parse(m[0]) as { cny?: number; note?: string };
@@ -179,18 +181,9 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
     if (!g.allowed) { setAiGate({ reason: g.reason!, cost: g.cost }); return; }
     setMarket({ busy: true });
     try {
-      const desc = [l.mpn, l.footprint, l.description].filter(Boolean).join(' / ');
-      const raw = await geminiComplete(
-        curLang() === 'en'
-          ? `Part: ${desc} (refdes ${l.reference}).\n` +
-            `Give the current average market unit price (100-piece quantity) in USD.\n` +
-            `Answer with price information only. If you cannot judge, set confident to false.\n` +
-            `Output strict JSON: {"low":number,"high":number,"typical":number,"basis":"one sentence, in English","confident":true|false}`
-          : `器件：${desc}（位号 ${l.reference}）。\n` +
-            `请给出该类器件当前的**市场平均单价**参考（小批量 100 片价，人民币）。\n` +
-            `只回答价格信息，不要其它内容。若无法判断请把 confident 设为 false。\n` +
-            `严格输出 JSON：{"low":数字,"high":数字,"typical":数字,"basis":"依据一句话","confident":true|false}`,
-      );
+      const raw = (await aiRequest('bom.estimate', {
+        reference: l.reference, mpn: l.mpn, footprint: l.footprint, description: l.description, lang: curLang(),
+      })).text;
       const j = extractJson<{ low?: number; high?: number; typical?: number; basis?: string; confident?: boolean }>(raw);
       if (!j.confident || j.typical == null) {
         setMarket({ busy: false, msg: '无法判断该器件的市场价，请手工录入' });

@@ -12,7 +12,9 @@ import { useEffect, useState } from 'react';
 import type { PlacedComponent } from '../../design-core/document/types';
 import { useDesignStore } from '../../state/designStore';
 import { isEzplmPart } from '../../providers/ezplm-live';
-import { EzplmReferenceDesignProvider, type LoadResult } from '../../providers/reference-design/ezplm-provider';
+import { getProviders } from '../../providers/factory';
+import { useAccessContext } from '../../state/useAccessContext';
+import type { ReferenceLoadResult as LoadResult } from '../../providers/types';
 import { rankReferenceDesigns } from '../../providers/reference-design/ranking';
 import type { ReferenceDesign, CircuitFragment } from '../../providers/reference-design/schema';
 import { extractCircuitFragment } from '../../design-core/fragment/extract';
@@ -72,8 +74,9 @@ function DesignCard({ d }: { d: ReferenceDesign }) {
 
 export function ReferenceDesignSection({ c }: { c: PlacedComponent }) {
   const doc = useDesignStore((s) => s.doc);
-  const [appProjects, setAppProjects] = useState<LoadResult<ReferenceDesign>>({ state: 'IDLE', items: [] });
-  const [related, setRelated] = useState<LoadResult<ReferenceDesign>>({ state: 'IDLE', items: [] });
+  const ctx = useAccessContext();
+  const [appProjects, setAppProjects] = useState<LoadResult>({ state: 'IDLE', items: [] });
+  const [related, setRelated] = useState<LoadResult>({ state: 'IDLE', items: [] });
   const [fragment, setFragment] = useState<CircuitFragment | null>(null);
   const [fragMsg, setFragMsg] = useState('');
 
@@ -83,8 +86,10 @@ export function ReferenceDesignSection({ c }: { c: PlacedComponent }) {
     let alive = true;
     setAppProjects({ state: 'LOADING', items: [] });
     setRelated({ state: 'LOADING', items: [] });
-    EzplmReferenceDesignProvider.getApplicationProjects(c.componentId, c.mpn).then((r) => { if (alive) setAppProjects(r); });
-    EzplmReferenceDesignProvider.getRelatedReferenceDesigns(c.componentId, c.mpn).then((r) => { if (alive) setRelated(r); });
+    // 只能走 ProviderRegistry，且应用项目必须带真实身份（私有数据；匿名不发请求）
+    const rd = getProviders().referenceDesigns;
+    rd.getApplicationProjects(c.componentId, c.mpn, ctx).then((r) => { if (alive) setAppProjects(r); });
+    rd.getRelatedReferenceDesigns(c.componentId, c.mpn, ctx).then((r) => { if (alive) setRelated(r); });
     return () => { alive = false; };
   }, [c.componentId, c.mpn]);
 

@@ -7,7 +7,8 @@
  *   - 位号 + 型号 + 封装能定位主控、电源链、模拟前端、接口
  * 输出：功能块（含成员位号）+ 块间连接（含信号名与方向）。
  */
-import { geminiComplete, extractJson, geminiAvailable } from '../../providers/gemini';
+import { aiRequest, extractJson } from '../../providers/ai-client';
+import { geminiAvailable } from '../../providers/gemini';
 import { curLang } from '../../shared/i18n';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
 
@@ -46,54 +47,23 @@ export function colorForKind(k: ArchBlock['kind']): string {
   return KIND_COLORS[k] ?? KIND_COLORS.other;
 }
 
-/** 汇总送模型的工程摘要：控制体积，同时保留判别力最强的信息 */
-function buildDigest(doc: CircuitCanvasDocument): string {
-  const lines: string[] = [];
-  // 有源器件逐个列出（这些决定架构）
-  const active = doc.components.filter((c) => c.category !== 'passive');
-  for (const c of active.slice(0, 60)) {
-    const pins = c.display?.pins ? `${c.display.pins}脚` : '';
-    lines.push(`${c.reference}\t${c.mpn}\t${c.footprint.name}\t${pins}\t${c.display?.description ?? ''}`.trim());
-  }
-  // 无源器件按类别计数即可
-  const passive = doc.components.filter((c) => c.category === 'passive');
-  if (passive.length) {
-    const byPrefix = new Map<string, number>();
-    for (const c of passive) {
-      const p = c.reference.match(/^[A-Za-z]+/)?.[0] ?? '?';
-      byPrefix.set(p, (byPrefix.get(p) ?? 0) + 1);
-    }
-    lines.push(`无源器件统计：${[...byPrefix].map(([k, v]) => `${k}×${v}`).join(' ')}`);
-  }
-  // 网络名：架构判断的关键线索，去掉自动命名的 Net-(…)
-  const nets = Object.values(doc.nets ?? {})
-    .filter((n) => n && !/^Net-\(/.test(n))
-    .slice(0, 80);
-  if (nets.length) lines.push(`命名网络：${nets.join(', ')}`);
-  return lines.join('\n');
-}
-
 export async function analyzeArchitecture(doc: CircuitCanvasDocument): Promise<ArchResult> {
   if (!(await geminiAvailable())) throw new Error('未配置 Gemini（GEMINI_API_KEY）');
   const active = doc.components.filter((c) => c.category !== 'passive');
   if (active.length < 2) throw new Error('画布上有源器件太少，不足以分析架构');
 
-  const en = curLang() === 'en';
-  const raw = await geminiComplete(
-    (en ? 'Answer in English: all labels, roles and the summary must be in English.\n' : '') +
-    `你是硬件架构师。下面是一块 PCB 的器件清单与电气网络名，请分析它的系统架构。\n\n` +
-    `${buildDigest(doc)}\n\n` +
-    `要求：\n` +
-    `1. 划分功能子系统（如"主控 MCU""USB 接口与保护""±3V 电源链""R-2R DAC 输出"），` +
-    `不要简单按器件类别分组，要体现这块板实际在做什么\n` +
-    `2. 每个块列出归属的器件位号（refs），位号必须来自上面清单\n` +
-    `3. 给出块之间的连接：信号名尽量用清单里出现的网络名\n` +
-    `4. summary 用一句话说明这块板的用途\n` +
-    `严格输出 JSON，不要其它文字：\n` +
-    `{"summary":"…","blocks":[{"id":"b1","label":"名称","role":"职责","kind":"mcu|power|analog|rf|interface|memory|sensor|clock|protection|other","refs":["U1","C1"]}],` +
-    `"edges":[{"from":"b1","to":"b2","signal":"SPI","kind":"power|digital|analog|clock|bus"}]}`,
-    'block.analyze',
-  );
+  // 结构化输入交给服务端拼 prompt（客户端不再发送 prompt，计费由服务端按操作固定）
+  const activeRows = active.slice(0, 300).map((c) => ({
+    reference: c.reference, mpn: c.mpn, category: c.category, description: c.display?.description,
+  }));
+  const netRows = Object.entries(doc.nets ?? {})
+    .filter(([, n]) => n && !/^Net-\(/.test(n))
+    .slice(0, 200)
+    .map(([num, name]) => ({
+      name,
+      members: doc.components.filter((c) => Object.values(c.display?.padNets ?? {}).includes(Number(num))).map((c) => c.reference).slice(0, 64),
+    }));
+  const raw = (await aiRequest('block.analyze', { components: activeRows, nets: netRows, lang: curLang() })).text;
 
   const parsed = extractJson<{ summary?: string; blocks?: Partial<ArchBlock>[]; edges?: Partial<ArchEdge>[] }>(raw);
   const validRefs = new Set(doc.components.map((c) => c.reference));

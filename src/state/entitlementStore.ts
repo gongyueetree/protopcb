@@ -8,16 +8,28 @@
  */
 import { create } from 'zustand';
 import {
-  ANONYMOUS, checkCapability, applyCost, loginUrl, buyCreditsUrl,
+  ANONYMOUS, checkCapability, loginUrl, buyCreditsUrl,
   type Entitlements, type Capability, type CapabilityCheck,
 } from '../design-core/entitlements';
+
+/**
+ * 会话状态。⚠ 鉴权后台故障 ≠ 未登录：前者要显示"服务暂不可用"，
+ * 后者才显示"去登录" —— 把故障画成"登录解锁 AI"会误导用户去反复登录。
+ */
+export type SessionStatus = 'loading' | 'anonymous' | 'authenticated' | 'auth-unavailable' | 'expired';
 
 interface EntitlementState {
   ent: Entitlements;
   status: 'idle' | 'loading' | 'ready';
+  session: SessionStatus;
+  sessionDetail?: string;
+  logout: () => Promise<void>;
   refresh: () => Promise<void>;
   check: (cap: Capability) => CapabilityCheck;
-  /** 调用成功后乐观扣减本地余额；服务端返回的余额会在下次 refresh 覆盖它 */
+  /**
+   * @deprecated 余额只认服务端 usage.remaining。保留签名仅为兼容，实现为空操作：
+   * 前端自行扣减会与服务端返回值叠加，出现"服务端说 95、UI 显示 90"。
+   */
   noteConsumed: (cap: Capability) => void;
   /** 服务端通过响应头回传的权威余额 */
   setRemaining: (remaining: number) => void;
@@ -26,32 +38,46 @@ interface EntitlementState {
 export const useEntitlementStore = create<EntitlementState>((set, get) => ({
   ent: ANONYMOUS,
   status: 'idle',
+  session: 'loading',
 
   refresh: async () => {
     set({ status: 'loading' });
     try {
       // 带 Cookie 请求：会话由 ezPLM / EEHub 签发，我们只读
       const r = await fetch('/api/session', { credentials: 'include' });
-      if (!r.ok) { set({ ent: ANONYMOUS, status: 'ready' }); return; }
+      if (!r.ok) { set({ ent: ANONYMOUS, status: 'ready', session: 'auth-unavailable', sessionDetail: `HTTP ${r.status}` }); return; }
       const j = await r.json();
-      set({
-        ent: j.tier === 'registered'
-          ? {
-              tier: 'registered', credits: Number(j.credits ?? 0),
-              creditsKnown: j.creditsKnown !== false,
-              userId: j.userId, organizationId: j.organizationId, displayName: j.displayName,
-            }
-          : ANONYMOUS,
-        status: 'ready',
-      });
-    } catch {
-      // 拿不到会话就是未登录，不做乐观假设
-      set({ ent: ANONYMOUS, status: 'ready' });
+      if (j.tier === 'registered') {
+        set({
+          ent: {
+            tier: 'registered', credits: Number(j.credits ?? 0),
+            creditsKnown: j.creditsKnown !== false,
+            userId: j.userId, organizationId: j.organizationId, displayName: j.displayName,
+          },
+          status: 'ready', session: 'authenticated', sessionDetail: undefined,
+        });
+        return;
+      }
+      // 未登录 vs 后端故障 vs 会话过期：三种状态分开，不能都画成"去登录"
+      const session: SessionStatus = j.reason === 'BACKEND_NOT_CONNECTED' || j.reason === 'AUTH_UPSTREAM_ERROR' || j.reason === 'AUTH_MISCONFIGURED'
+        ? 'auth-unavailable'
+        : j.reason === 'SESSION_EXPIRED' ? 'expired' : 'anonymous';
+      set({ ent: ANONYMOUS, status: 'ready', session, sessionDetail: j.reason });
+    } catch (e) {
+      // 网络层拿不到 /api/session：是服务不可用，不是"用户没登录"
+      set({ ent: ANONYMOUS, status: 'ready', session: 'auth-unavailable', sessionDetail: String((e as Error).message ?? e) });
     }
   },
 
+  logout: async () => {
+    try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); } catch { /* 本地状态照样清 */ }
+    // 退出后清掉私有缓存（参考设计/应用项目按租户缓存，切账号绝不能串）
+    try { const { clearPrivateCaches } = await import('../providers/reference-design/private-cache'); clearPrivateCaches(); } catch { /* 模块缺失时忽略 */ }
+    set({ ent: ANONYMOUS, status: 'ready', session: 'anonymous', sessionDetail: undefined });
+  },
+
   check: (cap) => checkCapability(get().ent, cap),
-  noteConsumed: (cap) => set((s) => ({ ent: applyCost(s.ent, cap) })),
+  noteConsumed: () => { /* 有意留空：余额以服务端 usage.remaining 为唯一来源 */ },
   setRemaining: (remaining) => set((s) => ({ ent: { ...s.ent, credits: remaining, creditsKnown: true } })),
 }));
 

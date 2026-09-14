@@ -113,3 +113,14 @@ describe('未登录时的非 AI 限制', () => {
     expect(checkCapability(zero, 'scheme.generate').allowed).toBe(false);
   });
 });
+
+describe('匿名用户仍可用的检索路径（回归）', () => {
+  it('ezPLM 器件库检索不需要登录 —— 它是匿名体验的主要入口', () => {
+    // 曾经因为"跳过网络检索"时写成 return，把同一函数里的 ezPLM 检索一起打掉了
+    expect(checkCapability(ANONYMOUS, 'search.web').allowed).toBe(false);
+    // ezPLM 检索不属于任何受限能力：没有为它定义 capability，即默认可用
+    const restricted = ['search.web', 'part.custom', 'design.save', 'design.open', 'design.share',
+      ...Object.keys(CREDIT_COST)];
+    expect(restricted).not.toContain('search.ezplm');
+  });
+});

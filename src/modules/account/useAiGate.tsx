@@ -10,7 +10,7 @@
  */
 import { useCallback, useState } from 'react';
 import { useEntitlementStore } from '../../state/entitlementStore';
-import { AiAccessError } from '../../providers/gemini';
+import { AiAccessError } from '../../providers/ai-client';
 import { AiGateNotice } from './AccountBar';
 import type { Capability, DenyReason } from '../../design-core/entitlements';
 
@@ -25,7 +25,6 @@ function reasonOf(code: AiAccessError['code']): DenyReason {
 
 export function useAiGate() {
   const check = useEntitlementStore((s) => s.check);
-  const noteConsumed = useEntitlementStore((s) => s.noteConsumed);
   const [gate, setGate] = useState<GateState | null>(null);
 
   /**
@@ -38,15 +37,15 @@ export function useAiGate() {
     if (!r.allowed) { setGate({ reason: r.reason!, cost: r.cost }); return undefined; }
     setGate(null);
     try {
-      const out = await fn();
-      noteConsumed(cap);
-      return out;
+      // 余额只认服务端返回的 usage.remaining（由 aiRequest 写入一次）。
+      // 此前这里还会 noteConsumed() 再扣一次，服务端说 95、前端显示 90。
+      return await fn();
     } catch (e) {
       // 服务端是权威：前端状态可能过期（比如别处刚把额度用完）
       if (e instanceof AiAccessError) { setGate({ reason: reasonOf(e.code), cost: e.cost ?? r.cost }); return undefined; }
       throw e;
     }
-  }, [check, noteConsumed]);
+  }, [check]);
 
   const gateNotice = gate
     ? <AiGateNotice reason={gate.reason} cost={gate.cost} onClose={() => setGate(null)} />

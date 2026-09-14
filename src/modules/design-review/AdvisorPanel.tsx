@@ -8,7 +8,8 @@ import { AiAdvisorItemSchema, validateAi } from '../../providers/ai-schema';
 import { useEffect, useState } from 'react';
 import { useDesignStore } from '../../state/designStore';
 import { getProviders } from '../../providers/factory';
-import { geminiComplete, geminiAvailable, extractJson } from '../../providers/gemini';
+import { geminiAvailable } from '../../providers/gemini';
+import { aiRequest, extractJson } from '../../providers/ai-client';
 import { recommendLayers } from '../../design-core/document/services';
 import { CATEGORY_DISPLAY, COLORS } from '../../shared/theme';
 import type { PeripheralCircuitRecommendation } from '../../providers/types';
@@ -92,8 +93,9 @@ export function AdvisorPanel() {
     const all = doc.components.map((c) => ({ mpn: c.mpn, category: c.category, family: c.display?.family }));
     if (await geminiAvailable()) {
       try {
-        const prompt = `你是资深硬件工程师。当前 PCB 画布上已有器件：\n${all.map((c) => `- ${c.mpn}（${c.category}${c.family ? '/' + c.family : ''}）`).join('\n')}\n\n请分析构成完整可工作系统还缺哪些功能器件/子电路（晶振、复位、去耦、ESD、接口、供电等），按重要性给出至多8条。${useLangStore.getState().lang === 'en' ? 'name 与 reason 用英文输出。' : ''}严格输出 JSON 数组，勿输出其它文字：\n[{"name":"器件/子电路名","reason":"必要性(30字内)"}]`;
-        const text = await guard('advisor.analyze', () => geminiComplete(prompt, 'advisor.analyze'));
+        // 结构化输入 → 服务端拼 prompt；客户端不再持有任何 prompt
+        const text = await guard('advisor.analyze', async () =>
+          (await aiRequest('advisor.analyze', { components: all, lang: useLangStore.getState().lang })).text);
         if (text == null) { setAnalyzing(false); return; }   // 被门禁拦下：不回落规则引擎，让用户看到明确原因
         // Zod 校验：结构不符则回落规则引擎，不让模型的半成品进 UI
         const v = validateAi(z.array(AiAdvisorItemSchema).max(8), extractJson<unknown>(text), 'AI 建议');

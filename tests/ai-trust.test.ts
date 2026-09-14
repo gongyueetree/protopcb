@@ -14,12 +14,22 @@ import { searchResultToPlaced } from '../src/design-core/document/services';
 import type { ComponentSearchResult, AccessContext } from '../src/providers/types';
 
 const realFetch = globalThis.fetch;
+// i18n / entitlementStore 初始化会碰 localStorage；Node 里给个最小桩
+if (typeof globalThis.localStorage === 'undefined') {
+  const mem = new Map<string, string>();
+  (globalThis as unknown as { localStorage: Storage }).localStorage = {
+    getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => { mem.set(k, v); },
+    removeItem: (k: string) => { mem.delete(k); }, clear: () => mem.clear(), key: () => null, length: 0,
+  } as Storage;
+}
 
 function mockNetwork(geminiText: string, ezplmItems: Array<{ mpn: string; manufacturer?: string }>) {
   vi.stubGlobal('fetch', async (url: RequestInfo | URL) => {
     const u = String(url);
     if (u.includes('/api/gemini?path=status')) return new Response(JSON.stringify({ configured: true }));
     if (u.includes('/api/gemini')) return new Response(JSON.stringify({ text: geminiText }));
+    // 新的统一入口：结构化响应 { data, usage }
+    if (u.includes('/api/ai')) return new Response(JSON.stringify({ data: { text: geminiText }, usage: { operation: 'scheme.generate', charged: 5, remaining: 95, operationId: 'x' } }));
     if (u.includes('/api/ezplm?path=status') || u.includes('path=status')) return new Response(JSON.stringify({ configured: true }));
     if (u.includes('/api/ezplm')) {
       // /api/ezplm?path=parts 响应：data 为数组（与 searchEzplmParts 实际解析一致）

@@ -15,8 +15,9 @@
  */
 import { fetchUpstream, UpstreamError } from './net.js';
 
-const AUTH_BASE = (process.env.EZPLM_AUTH_BASE ?? '').trim();     // 如 https://ezplm.cn/api/v1
-const REQUIRE_AUTH = (process.env.AI_REQUIRE_AUTH ?? '1').trim() !== '0';
+// 每次调用时读取：Serverless 冷启动后环境变量可能更新，测试里也需要按用例切换
+const authBase = () => (process.env.EZPLM_AUTH_BASE ?? '').trim();     // 如 https://ezplm.cn/api/v1
+const requireAuth = () => (process.env.AI_REQUIRE_AUTH ?? '1').trim() !== '0';
 
 /** 从请求里取会话令牌：优先 Authorization: Bearer，其次 Cookie */
 export function sessionTokenOf(req) {
@@ -38,15 +39,19 @@ export async function verifySession(req) {
   if (!token) {
     return { ok: false, status: 401, code: 'LOGIN_REQUIRED', message: 'AI 功能需要登录后使用' };
   }
-  if (!AUTH_BASE) {
-    if (!REQUIRE_AUTH) {
-      // 本地开发：明确标注绕过，绝不静默放行
-      return { ok: true, tier: 'registered', userId: 'local-dev', credits: Number.MAX_SAFE_INTEGER, creditsKnown: false, authBypassed: true };
+  if (!authBase()) {
+    if (!requireAuth()) {
+      // 本地开发绕过：production 下绝不允许 —— 这是个"敞开付费接口"的开关
+      if (process.env.NODE_ENV === 'production') {
+        return { ok: false, status: 500, code: 'AUTH_MISCONFIGURED', message: 'AI_REQUIRE_AUTH=0 在 production 环境被拒绝' };
+      }
+      // creditsKnown 必须为 true：否则前端会因"额度未知"禁用 AI，与"绕过"自相矛盾
+      return { ok: true, tier: 'registered', userId: 'local-dev', credits: Number.MAX_SAFE_INTEGER, creditsKnown: true, authBypassed: true };
     }
     return { ok: false, status: 503, code: 'BACKEND_NOT_CONNECTED', message: '鉴权服务未配置（EZPLM_AUTH_BASE），AI 功能暂不可用' };
   }
   try {
-    const { res, json } = await fetchUpstream(`${AUTH_BASE}/me`, {
+    const { res, json } = await fetchUpstream(`${authBase()}/me`, {
       headers: { Authorization: `Bearer ${token}` },
       timeoutMs: 8000, maxResponseBytes: 256 * 1024, as: 'json',
     });
@@ -73,18 +78,19 @@ export async function verifySession(req) {
  * 扣费。账本在 ezPLM 侧 —— 我们不在本地记账，否则多实例之间对不上。
  * 扣费失败（余额不足/端点缺失）必须阻断调用，不能"先用了再说"。
  */
-export async function consumeCredits(req, { capability, cost, userId }) {
-  if (!AUTH_BASE) {
-    return REQUIRE_AUTH
+export async function consumeCredits(req, { capability, cost, userId, operationId }) {
+  if (!authBase()) {
+    return requireAuth()
       ? { ok: false, status: 503, code: 'BACKEND_NOT_CONNECTED', message: 'Credit 服务未配置' }
       : { ok: true, remaining: null, bypassed: true };
   }
   const token = sessionTokenOf(req);
   try {
-    const { res, json } = await fetchUpstream(`${AUTH_BASE}/credits/consume`, {
+    const { res, json } = await fetchUpstream(`${authBase()}/credits/consume`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ capability, cost, userId }),
+      // operationId 是幂等键：同一 (userId, operationId) 重复提交，账本只扣一次
+      body: JSON.stringify({ capability, cost, userId, operationId }),
       timeoutMs: 8000, maxResponseBytes: 64 * 1024, as: 'json',
     });
     if (res.status === 402) return { ok: false, status: 402, code: 'INSUFFICIENT_CREDITS', message: 'Credit 余额不足，请购买后继续' };
@@ -100,14 +106,27 @@ export async function consumeCredits(req, { capability, cost, userId }) {
  * AI 端点统一入口：校验会话 → 扣费。任一步失败都返回可直接下发的错误体。
  * @returns {Promise<{ok:true, identity:object, remaining:number|null} | {ok:false, status:number, body:object}>}
  */
-export async function requireAiAccess(req, capability, cost) {
+export async function requireAiAccess(req, capability, cost, { operationId } = {}) {
   const sess = await verifySession(req);
   if (!sess.ok) {
     return { ok: false, status: sess.status, body: { error: sess.message, code: sess.code, capability } };
   }
-  const charge = await consumeCredits(req, { capability, cost, userId: sess.userId });
+  const charge = await consumeCredits(req, { capability, cost, userId: sess.userId, operationId });
   if (!charge.ok) {
     return { ok: false, status: charge.status, body: { error: charge.message, code: charge.code, capability, cost } };
   }
   return { ok: true, identity: sess, remaining: charge.remaining ?? null };
+}
+
+
+/**
+ * 非 AI 的账户能力门禁（search.web 等）：只验会话，不扣费。
+ * 分销商检索用的是平台的 DigiKey/Mouser Key，匿名直接 curl 也必须 401 且零次上游调用。
+ */
+export async function requireAuthenticatedCapability(req, capability) {
+  const sess = await verifySession(req);
+  if (!sess.ok) {
+    return { ok: false, status: sess.status, body: { error: sess.message, code: sess.code, capability } };
+  }
+  return { ok: true, identity: sess };
 }

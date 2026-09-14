@@ -5,7 +5,8 @@
  *   - 无源器件默认 0603 封装（R_0603_1608Metric / C_0603_1608Metric / L_0603_1608Metric）
  *   - 每项标注连接的核心管脚（如 VDD、XTAL1），一键上画布时按管脚顺序围核心排布
  */
-import { geminiComplete, extractJson, geminiAvailable } from '../../providers/gemini';
+import { geminiAvailable } from '../../providers/gemini';
+import { aiRequest, extractJson } from '../../providers/ai-client';
 import { curLang } from '../../shared/i18n';
 import { AiSubCircuitSchema, validateAi } from '../../providers/ai-schema';
 import type { ComponentCategory } from '../../design-core/document/types';
@@ -78,19 +79,10 @@ export async function recommendSubCircuit(core: {
   description?: string;
 }): Promise<SubCircuitItem[]> {
   if (!(await geminiAvailable())) throw new Error('未配置 Gemini（GEMINI_API_KEY）');
-  const raw = await geminiComplete(
-    (curLang() === 'en' ? 'Answer in English: role and value fields must be in English.\n' : '') +
-    `核心器件：${core.mpn}（${core.manufacturer ?? ''} ${core.description ?? ''}）。\n` +
-    `请依据该器件 datasheet 的典型应用电路（Typical Application）与常见参考设计，列出让它正常工作所需的周边器件：\n` +
-    `去耦/滤波电容、上拉下拉电阻、晶振及负载电容、复位电路、必要的接口保护等。\n` +
-    `要求：\n` +
-    `1. 只列真实需要的，不凑数；同值多只的用 qty 表示；总条目不超过 30\n` +
-    `2. 无源器件不指定具体厂商型号，给通用值（如 100nF、10kΩ）\n` +
-    `3. connectsTo 填该器件连到核心的管脚名（VDD/GND/XTAL1/RST/EN 等）\n` +
-    `严格输出 JSON 数组，不要其他文字：\n` +
-    `[{"role":"作用","value":"值或型号","category":"passive|ic|power|connector","footprint":"KiCad封装名可留空","connectsTo":"核心管脚名","qty":1}]`,
-    'subcircuit.recommend',
-  );
+  // 服务端拼 prompt、固定计费；这里只发结构化输入
+  const raw = (await aiRequest('subcircuit.recommend', {
+    mpn: core.mpn, manufacturer: core.manufacturer, description: core.description, lang: curLang(),
+  })).text;
   // 先过 Zod：结构不符直接整条拒绝，不让半成品污染画布
   const parsed = validateAi(AiSubCircuitSchema, extractJson<unknown>(raw), '子电路推荐');
   if (!parsed.ok) throw new Error(parsed.error);

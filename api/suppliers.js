@@ -1,4 +1,5 @@
 import { acquire, checkBodySize, deny } from './_lib/guard.js';
+import { requireAuthenticatedCapability } from './_lib/session.js';
 import { fetchWithTimeout, readResponseLimited } from './_lib/net.js';
 import { buildIceasyAuth, mapIceasyRows, buildOuricRequestBody, mapOuricData } from './_lib/vendor-auth.js';
 /** 统一出站通道（本文件所有上游请求走这里）：超时 + 响应体上限 */
@@ -174,6 +175,16 @@ export default async function handler(req, res) {
 
   if (path === 'status') {
     return res.status(200).send(JSON.stringify({ mouser: !!mouserKey, arrow: !!(arrowLogin && arrowKey), element14: !!e14Key, b1b: !!b1bKey, iceasy: !!(iceasyAcc && iceasyPwd), ouric: !!(ouricKey && ouricSecret) }));
+  }
+
+  // ── 账户门禁（不扣 Credit）：除 status 外都消耗平台的分销商 Key，匿名一律 401，
+  //    且必须在任何上游调用之前 —— 匿名直接 curl 这个接口也拿不到数据 ──
+  {
+    const gate = await requireAuthenticatedCapability(req, 'search.web');
+    if (!gate.ok) {
+      if (typeof lease !== 'undefined' && lease?.release) lease.release();
+      return res.status(gate.status).send(JSON.stringify(gate.body));
+    }
   }
   // ── 关键词检索：给"网络" Tab 用（返回候选列表，含封装描述供映射） ──
   if (path === 'search') {

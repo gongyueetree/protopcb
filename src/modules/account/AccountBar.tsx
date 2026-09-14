@@ -14,12 +14,41 @@ import { COLORS } from '../../shared/theme';
 export function AccountBar() {
   const ent = useEntitlementStore((s) => s.ent);
   const status = useEntitlementStore((s) => s.status);
+  const session = useEntitlementStore((s) => s.session);
+  const sessionDetail = useEntitlementStore((s) => s.sessionDetail);
   const refresh = useEntitlementStore((s) => s.refresh);
+  const logout = useEntitlementStore((s) => s.logout);
   const lang = useLangStore((s) => s.lang);
   useEffect(() => { void refresh(); }, [refresh]);
+  // 另一个窗口登录后，本页回到前台时轻量刷新一次会话
+  useEffect(() => {
+    const on = () => { if (document.visibilityState === 'visible') void refresh(); };
+    document.addEventListener('visibilitychange', on);
+    window.addEventListener('focus', on);
+    return () => { document.removeEventListener('visibilitychange', on); window.removeEventListener('focus', on); };
+  }, [refresh]);
 
   if (status === 'loading') {
     return <span style={{ fontSize: 11, color: '#94a3b8' }}>…</span>;
+  }
+
+  // 鉴权后台故障 ≠ 未登录：不能画成"登录解锁 AI"让用户反复去登录
+  if (session === 'auth-unavailable') {
+    return (
+      <span title={sessionDetail ?? ''}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 7, border: '1px solid #fde68a', background: '#fffbeb', color: '#92400e', fontSize: 11.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
+        ⚠ {tr('登录服务暂不可用')}
+        <button onClick={() => void refresh()} style={{ border: 'none', background: 'transparent', color: '#92400e', fontSize: 11, cursor: 'pointer', textDecoration: 'underline' }}>{tr('重试')}</button>
+      </span>
+    );
+  }
+  if (session === 'expired') {
+    return (
+      <a href={loginUrl(lang === 'en' ? 'en' : 'zh')}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 7, border: '1px solid #fde68a', background: '#fffbeb', color: '#92400e', fontSize: 12, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+        ⏱ {tr('登录已过期，重新登录')}
+      </a>
+    );
   }
 
   if (ent.tier === 'anonymous') {
@@ -60,6 +89,10 @@ export function AccountBar() {
           {tr('购买')}
         </a>
       )}
+      <button onClick={() => void logout()} title={tr('退出登录')}
+        style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: 10.5, cursor: 'pointer' }}>
+        {tr('退出')}
+      </button>
     </div>
   );
 }

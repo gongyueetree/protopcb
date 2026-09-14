@@ -12,6 +12,7 @@ import type { AiModelProvider, AiSchemeRequest, AiSchemeResult, AccessContext, C
 import { searchEzplmParts, ezplmLiveAvailable } from '../ezplm-live';
 import type { ComponentCategory } from '../../design-core/document/types';
 import { AiSchemeSchema, validateAi, assessTrust, type AiComponent } from '../ai-schema';
+import { aiRequest } from '../ai-client';
 import { kicadPassiveDefaults } from '../../design-core/geometry/kicad-passive-defaults';
 
 /* ---------- 可用性与通用补全（代理） ---------- */
@@ -29,49 +30,11 @@ export async function geminiAvailable(): Promise<boolean> {
 }
 
 /** 一次性文本补全（经服务端代理） */
-/** AI 调用被拒（未登录 / 额度不足 / 后端未接通）—— UI 据此给出对应引导 */
-export class AiAccessError extends Error {
-  constructor(public code: 'LOGIN_REQUIRED' | 'INSUFFICIENT_CREDITS' | 'BACKEND_NOT_CONNECTED' | 'OTHER', message: string, public cost?: number) {
-    super(message);
-    this.name = 'AiAccessError';
-  }
-}
-
 /**
- * @param capability 本次调用属于哪项能力（服务端据此按价目表扣 Credit）。
- *   客户端传的只是**标识**，费用以服务端价目表为准，改不动。
+ * @deprecated 统一入口已改为 providers/ai-client 的 aiRequest()。
+ * 保留 re-export 仅为兼容旧导入；业务代码不得再拼 prompt 调用它。
  */
-export async function geminiComplete(prompt: string, capability: string = 'scheme.generate'): Promise<string> {
-  const r = await fetch('/api/gemini', {
-    method: 'POST',
-    credentials: 'include',              // 带上 ezPLM / EEHub 会话
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, capability }),
-  });
-  const remaining = r.headers.get('X-Credits-Remaining');
-  if (remaining != null) {
-    const n = Number(remaining);
-    if (Number.isFinite(n)) {
-      const { useEntitlementStore } = await import('../../state/entitlementStore');
-      useEntitlementStore.getState().setRemaining(n);
-    }
-  }
-  if (!r.ok) {
-    let code: 'LOGIN_REQUIRED' | 'INSUFFICIENT_CREDITS' | 'BACKEND_NOT_CONNECTED' | 'OTHER' = 'OTHER';
-    let msg = `Gemini 代理 ${r.status}`;
-    try {
-      const j = await r.json();
-      if (j?.code === 'LOGIN_REQUIRED' || j?.code === 'INSUFFICIENT_CREDITS' || j?.code === 'BACKEND_NOT_CONNECTED') code = j.code;
-      if (j?.error) msg = String(j.error);
-      throw new AiAccessError(code, msg, j?.cost);
-    } catch (e) {
-      if (e instanceof AiAccessError) throw e;
-      throw new AiAccessError(code, msg);
-    }
-  }
-  const j = await r.json();
-  return String(j.text ?? '');
-}
+export { AiAccessError } from '../ai-client';
 
 /** 从模型输出中稳健提取 JSON（剥离 ```json 围栏与前后杂文） */
 export function extractJson<T>(text: string): T {
@@ -92,33 +55,19 @@ const normMpn = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 export class GeminiAiProvider implements AiModelProvider {
   async generateScheme(req: AiSchemeRequest, _ctx: AccessContext): Promise<AiSchemeResult> {
-    // 多轮：带上一版方案 + 用户修改意见，让模型在既有方案上增删改
-    const revision = req.previous && req.feedback
-      ? `\n\n【上一版方案】\n${req.previous.summary ?? ''}\n器件清单：\n${req.previous.components.map((c) => `- ${c.mpn}${c.qty && c.qty > 1 ? ` ×${c.qty}` : ''}${c.group ? `（组：${c.group}${c.core ? '，核心' : ''}）` : ''}${c.reason ? ` — ${c.reason}` : ''}`).join('\n')}\n\n【用户修改意见】\n${req.feedback}\n\n请在上一版方案基础上按意见调整：保留未被提及的部分，只增删改必要的器件，并说明调整了什么。`
-      : '';
-
-    const prompt = `你是资深硬件工程师。用户需求：「${req.prompt}」${revision}
-
-请设计一个完整可工作的电路方案，输出器件清单与方案框图。要求：
-
-1. 主控/电源/接口等有源器件给出真实可购买的具体型号（如 STM32C011F4P6、AMS1117-3.3）
-2. 无源器件（电阻/电容/电感）给出通用值型号（如 RC0402FR-0710KL）与封装
-3. footprint 用 KiCad 命名规范（如 TSSOP-20_4.4x6.5mm_P0.65mm、R_0402_1005Metric、SOT-223）
-4. category 取值：mcu / power / passive / connector / ic / sensor / rf / electromech
-5. **按功能分组**：每个功能模块以一颗核心器件为中心，该模块的附属器件（去耦电容、
-   上拉电阻、晶振及负载电容、限流电阻等）与核心器件用同一个 group 名（即核心器件的型号）；
-   核心器件标 "core": true，每组至多一个核心器件。纯连接器可自成一组。
-6. **方案框图**：blocks 是功能块（与分组一一对应），blockLinks 描述块之间的电源与信号走向；
-   kind 取值 blocks: power|mcu|sensor|interface|storage|rf|display|other，links: power|signal|bus
-7. 至多 12 个有源器件条目；summary 为 120 字内的方案思路
-
-严格输出 JSON（勿输出其它任何文字）：
-{"summary":"…",
- "components":[{"mpn":"…","footprint":"…","category":"…","reason":"用途简述","qty":1,"group":"核心器件型号","core":true}],
- "blocks":[{"id":"mcu","label":"主控","core":"STM32C011F4P6","kind":"mcu"}],
- "blockLinks":[{"from":"power","to":"mcu","label":"3V3","kind":"power"}]}`;
-
-    const text = await geminiComplete(prompt);
+    // prompt 已移到服务端注册表（api/_lib/ai-operations.js）；客户端只发结构化输入。
+    // 多轮修改走 scheme.revise（3 Credit），首轮走 scheme.generate（5 Credit）——
+    // 此前修改轮也按 generate 计费，多扣了用户 2 Credit。
+    // 延迟导入：i18n 模块初始化会碰 localStorage，静态导入会让纯 Node 测试挂掉
+    const lang = (await import('../../shared/i18n')).useLangStore.getState().lang;
+    const isRevise = !!(req.previous && req.feedback);
+    const { text } = isRevise
+      ? await aiRequest('scheme.revise', {
+          requirement: req.prompt, feedback: req.feedback,
+          previous: { summary: req.previous!.summary, components: req.previous!.components.map((c) => ({ mpn: c.mpn, qty: c.qty, group: c.group, core: c.core, reason: c.reason })) },
+          lang,
+        })
+      : await aiRequest('scheme.generate', { requirement: req.prompt, lang });
     // ── 主链路：extractJson → Zod(AiSchemeSchema) → 语义校验 → DB 验证 → trust ──
     // 任何未通过 schema 校验的 Gemini 输出整条拒绝，绝不"尽力解析一部分"进 store。
     let raw: unknown;

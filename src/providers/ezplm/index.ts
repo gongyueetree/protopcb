@@ -5,6 +5,7 @@
  * 几何兜底：若组件详情未带真实封装几何，用 fallbackFootprint 按封装名估算，
  * 保证画布碰撞/面积仍可工作。
  */
+import { EzplmReferenceDesignProvider as RefDesignImpl } from '../reference-design/ezplm-provider';
 import type {
   ComponentDataProvider, ReferenceDesignProvider, IdentityProvider, ProjectProvider,
   ComponentSearchQuery, AccessContext, Paginated, ComponentSearchResult, FootprintOption,
@@ -86,6 +87,13 @@ export class EzplmReferenceDesignProvider implements ReferenceDesignProvider {
   async getRecommendedPeripheralCircuits(category: ComponentCategory): Promise<PeripheralCircuitRecommendation[]> {
     const dtos = await this.http.get<EzplmPeripheralCircuitDto[]>('/v1/reference-designs/peripheral-circuits', { category });
     return (dtos ?? []).map(mapPeripheralCircuit);
+  }
+  // 参考设计 / 应用项目：委托给统一的 reference-design 模块（带租户缓存与身份判定）
+  getApplicationProjects(componentId: string, mpn: string, ctx: AccessContext | null) {
+    return RefDesignImpl.getApplicationProjects(componentId, mpn, ctx);
+  }
+  getRelatedReferenceDesigns(componentId: string, mpn: string) {
+    return RefDesignImpl.getRelatedReferenceDesigns(componentId, mpn);
   }
 }
 

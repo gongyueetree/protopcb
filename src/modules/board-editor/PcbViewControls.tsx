@@ -8,7 +8,8 @@ import { useState } from 'react';
 import { usePcbViewStore, type PcbVisualMode } from '../../state/pcbViewStore';
 import { useDesignStore } from '../../state/designStore';
 import { tr } from '../../shared/i18n';
-import { COLORS } from '../../shared/theme';
+import { COLORS, TOOLBAR_CTRL_H } from '../../shared/theme';
+
 
 const MODES: { id: PcbVisualMode; label: string; hint: string }[] = [
   { id: '2d', label: '2D', hint: '纯 2D 编辑视图（不挂载 3D 图层，性能与原来一致）' },
@@ -36,12 +37,13 @@ export function PcbViewControls() {
   const hiddenCount = Object.keys(hidden).length;
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-      <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #E8F3EE' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative', height: CTRL_H }}>
+      <div style={{ display: 'flex', height: CTRL_H, borderRadius: 6, overflow: 'hidden', border: '1px solid #E8F3EE' }}>
         {MODES.map((m) => (
           <button key={m.id} onClick={() => setMode(m.id)} title={tr(m.hint)}
             style={{
-              padding: '7px 12px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+              padding: '0 12px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+              whiteSpace: 'nowrap', lineHeight: `${CTRL_H - 2}px`,
               background: mode === m.id ? COLORS.green : '#fff',
               color: mode === m.id ? '#fff' : '#475569',
             }}>{tr(m.label)}</button>
@@ -84,8 +86,12 @@ export function PcbViewControls() {
   );
 }
 
+/** 与 App 工具栏共用同一高度常量，避免两处各定义后慢慢漂开 */
+const CTRL_H = TOOLBAR_CTRL_H;
+
 const chip = (on: boolean): React.CSSProperties => ({
-  padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 11.5, fontWeight: 700,
+  height: CTRL_H, padding: '0 10px', borderRadius: 6, cursor: 'pointer',
+  fontSize: 11.5, fontWeight: 700, whiteSpace: 'nowrap', lineHeight: `${CTRL_H - 2}px`,
   border: `1px solid ${on ? COLORS.green : '#E8F3EE'}`,
   background: on ? COLORS.greenBg : '#fff',
   color: on ? COLORS.green : '#94a3b8',

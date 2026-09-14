@@ -19,7 +19,7 @@ function modelUrl(model) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 }
 
-async function callGemini(apiKey, prompt, temperature = 0.35, inline = null) {
+export async function callGemini(apiKey, prompt, temperature = 0.35, inline = null) {
   // GEMINI_MODEL 指定的模型排最前，但失败后仍自动降级到候选列表（配置笔误不至于全盘失效）
   const forced = (process.env.GEMINI_MODEL ?? '').trim();
   const base = workingModel ? [workingModel, ...MODEL_CANDIDATES.filter((m) => m !== workingModel)] : MODEL_CANDIDATES;
@@ -97,6 +97,11 @@ export default async function handler(req, res) {
       }
     }
     return res.status(400).send(JSON.stringify({ error: 'POST {prompt} or GET ?path=status|diag' }));
+  }
+  // ── 旧的 POST { prompt, capability } 接口已下线：浏览器决定 capability 是计费漏洞。
+  //    业务调用一律走 /api/ai（服务端拼 prompt、固定计费）。这里只保留 GET status/diag。──
+  if (req.method === 'POST') {
+    return res.status(410).send(JSON.stringify({ error: 'POST /api/gemini 已下线，请使用 POST /api/ai { operation, operationId, input }', code: 'ENDPOINT_RETIRED' }));
   }
   if (!apiKey) {
     return res.status(501).send(JSON.stringify({ error: 'GEMINI_API_KEY not configured' }));
