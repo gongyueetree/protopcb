@@ -1,6 +1,8 @@
 import { acquire, checkBodySize, checkAiPayload, deny, LIMITS, readJsonBody } from './_lib/guard.js';
 import { safeFetch } from './_lib/safe-fetch.js';
 import { fetchUpstream, UpstreamError } from './_lib/net.js';
+import { requireAiAccess } from './_lib/session.js';
+import { CREDIT_COST } from './_lib/credit-cost.js';
 
 /**
  * api/gemini.js — Vercel Serverless Function：Gemini 代理
@@ -112,6 +114,19 @@ export default async function handler(req, res) {
     if (!aiCheck.ok) return deny(res, aiCheck);
     let prompt = String(body.prompt ?? '');
     if (!prompt) return res.status(400).send(JSON.stringify({ error: 'prompt required' }));
+
+    // ── 访问关卡：未登录一律拒绝；登录用户按 Credit 扣费 ──
+    // 这一步必须在调用上游**之前**：前端藏按钮挡不住直接打这个接口的人，
+    // 而"未注册不能用 AI"要防的正是这种。
+    const capability = String(body.capability ?? 'scheme.generate');
+    // 以服务端价目表为准：客户端传来的 cost 不可信（改成 0 就白嫖了）
+    const cost = CREDIT_COST[capability] ?? 1;
+    const access = await requireAiAccess(req, capability, cost);
+    if (!access.ok) {
+      lease.release();
+      return res.status(access.status).send(JSON.stringify(access.body));
+    }
+    if (access.remaining != null) res.setHeader('X-Credits-Remaining', String(access.remaining));
     // PDF 上传直读：不经 ds2kicad 时的兜底提取链路
     if (body.pdfBase64) {
       const out = await callGemini(apiKey, prompt, Number(body.temperature ?? 0.2), { mime_type: 'application/pdf', data: String(body.pdfBase64) });

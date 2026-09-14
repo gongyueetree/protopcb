@@ -129,12 +129,21 @@ export function bomTotal(bom: BomLine[]): number {
 }
 
 /** 设计审查（实时）。 */
+/** 短稳定哈希（仅用于生成可复现的 ID，不用于安全场景） */
+function stableHash(s: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(36);
+}
+
 export function runDesignReview(doc: CircuitCanvasDocument): ReviewFinding[] {
   const out: ReviewFinding[] = [];
   const cats = new Set(doc.components.map((c) => c.category));
   const has = (c: ComponentCategory) => cats.has(c);
   const push = (level: ReviewFinding['level'], category: ReviewFinding['category'], title: string, detail?: string) =>
-    out.push({ id: nanoid(6), level, category, title, detail });
+    // 确定性 ID：随机 id 会让"导入→导出"的 JSON 每次都不同，
+    // 无法做往返比对，也让版本管理产生无意义的 diff。
+    out.push({ id: `review:${category}:${stableHash(title)}`, level, category, title, detail });
 
   if (doc.components.length === 0) { push('info', 'completeness', '画布为空', '添加器件后开始分析'); return out; }
   if (!has('mcu')) push('high', 'completeness', '缺少主控 MCU/处理器');

@@ -36,7 +36,7 @@ interface PcbViewState {
   hideComponent3D: (instanceId: string) => void;
   revealComponent3D: (instanceId: string) => void;
   showAll3D: () => void;
-  hideAll3D: (allIds: string[]) => void;
+  hideAll3D: () => void;
   soloComponent3D: (instanceId: string) => void;
   clearSolo3D: () => void;
   resetViewOptions: () => void;
@@ -74,20 +74,23 @@ export const usePcbViewStore = create<PcbViewState>((set, get) => ({
   toggleComponent3D: (id) => set((s) => {
     const next = { ...s.hidden3dIds };
     if (next[id]) delete next[id]; else next[id] = true;
-    // 单独操作某个器件时退出 solo，否则用户会觉得按钮"没反应"
-    return { hidden3dIds: next, solo3dId: s.solo3dId === id ? null : s.solo3dId };
+    // 任何单件显隐操作都退出 solo —— 只在"操作的正好是 solo 那一个"时才退出，
+    // 会让用户在 solo 状态下点别的器件时觉得按钮没反应
+    return { hidden3dIds: next, solo3dId: null, showComponent3D: true };
   }),
-  hideComponent3D: (id) => set((s) => ({ hidden3dIds: { ...s.hidden3dIds, [id]: true } })),
+  hideComponent3D: (id) => set((s) => ({ hidden3dIds: { ...s.hidden3dIds, [id]: true }, solo3dId: null })),
   revealComponent3D: (id) => set((s) => {
     const next = { ...s.hidden3dIds };
     delete next[id];
-    return { hidden3dIds: next };
+    return { hidden3dIds: next, solo3dId: null };
   }),
   showAll3D: () => set({ hidden3dIds: {}, solo3dId: null, showComponent3D: true }),
-  hideAll3D: (allIds) => set({
-    hidden3dIds: Object.fromEntries(allIds.map((id) => [id, true as const])),
-    solo3dId: null,
-  }),
+  /**
+   * 隐藏全部：只关总开关，**不枚举当前器件**。
+   * 此前把当前所有 instanceId 写进 hidden3dIds，之后新增的器件不在名单里，
+   * 会在"已隐藏全部"的状态下突然冒出来。
+   */
+  hideAll3D: () => set({ showComponent3D: false, solo3dId: null }),
   soloComponent3D: (id) => set({ solo3dId: id, showComponent3D: true }),
   clearSolo3D: () => set({ solo3dId: null }),
   resetViewOptions: () => set({

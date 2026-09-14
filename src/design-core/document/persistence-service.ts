@@ -13,6 +13,7 @@
  */
 import { parseDocument } from './schema';
 import type { CircuitCanvasDocument } from './types';
+import { UNTITLED_DOC_NAME } from './factory';
 
 const KEY = 'cc_doc_autosave';
 const LEGACY_KEY = 'cc:autosave';
@@ -29,6 +30,28 @@ function lsDel(k: string): void {
   try { if (typeof localStorage !== 'undefined') localStorage.removeItem(k); } catch { /* ignore */ }
 }
 
+/**
+ * 文档是否有值得恢复的内容。
+ *
+ * 此前恢复条件是 `components.length > 0` —— 一个改了名字、调了板框、
+ * 设了外壳参数但还没放器件的工程，刷新后会被当成空白丢弃。
+ * 判据必须覆盖用户可能做过的**任何**改动。
+ */
+export function docHasContent(doc: CircuitCanvasDocument): boolean {
+  if (doc.components.length) return true;
+  if ((doc.tracks?.length ?? 0) > 0 || (doc.vias?.length ?? 0) > 0) return true;
+  if (doc.schematicSheet) return true;
+  if ((doc.functionalBlocks?.length ?? 0) > 0 || (doc.connections?.length ?? 0) > 0) return true;
+  if (doc.designIntent) return true;
+  if (doc.enclosure?.enabled) return true;
+  if (doc.board.mountingHoles?.length) return true;
+  // 板框或项目名被改过也算有内容
+  if (doc.board.widthMm !== 100 || doc.board.heightMm !== 80) return true;   // createBoard 的默认值
+  if (doc.board.shape !== 'rect') return true;
+  if (doc.name && doc.name !== UNTITLED_DOC_NAME) return true;
+  return false;
+}
+
 export interface LoadedAutosave {
   doc: CircuitCanvasDocument;
   /** 保存时刻（本地时间字符串） */
@@ -37,6 +60,12 @@ export interface LoadedAutosave {
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 
+/**
+ * 注意：本服务是**浏览器本地**自动存档（localStorage），未登录用户同样可用 ——
+ * 它保证刷新不丢，但只在这台设备、这个浏览器里。
+ * 「保存到云端空间 / 打开我的设计」属于 design.save / design.open 能力，
+ * 需要登录，走 ezPLM 侧存储，不在本服务范围内。
+ */
 export const ProjectPersistenceService = {
   /** 防抖保存（doc 变更即调；实际写入延迟 DEBOUNCE_MS 合并） */
   saveDebounced(doc: CircuitCanvasDocument, onSaved?: (at: string) => void): void {

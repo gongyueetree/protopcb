@@ -30,6 +30,7 @@ import { parseKicadMod } from './design-core/geometry/kicad-file-parser';
 import { TRUST_META } from './providers/ai-schema';
 import { diffSchemes } from './design-core/scheme-workspace';
 import { summarizeTrust, exportGate, trustLevelOf } from './design-core/trust';
+import { filterAndRank } from './design-core/part-match-policy';
 import { useAccessContext, anonymousContext } from './state/useAccessContext';
 import { autoKicadFootprint } from './design-core/geometry/auto-kicad-footprint';
 import { useT, useLangStore, useTranslated, tr, syncDocumentLang } from './shared/i18n';
@@ -49,6 +50,8 @@ import { SchematicPanel } from './modules/schematic/SchematicPanel';
 import { SchemeWorkspace, type SchemeProposal } from './modules/scheme/SchemeWorkspace';
 import { PipelineBar } from './modules/scheme/PipelineBar';
 import { PcbViewControls } from './modules/board-editor/PcbViewControls';
+import { AccountBar, AiGateNotice } from './modules/account/AccountBar';
+import { useEntitlementStore } from './state/entitlementStore';
 import { exportBomCsv } from './modules/bom/bom-csv';
 import { usePcbViewStore } from './state/pcbViewStore';
 import { exportDocument, importDocumentFromFile, autosave, exportMarkdownReport } from './modules/report/persistence';
@@ -79,10 +82,11 @@ const SHAPES: { id: BoardShapeKind; icon: string; name: string }[] = [
 ];
 
 declare const __BUILD_STAMP__: string;
+declare const __BUILD_SHA__: string;
 
 export default function App() {
   useEffect(() => { console.info('%c硬件原型工坊 build ' + __BUILD_STAMP__, 'color:#1f5c3b;font-weight:bold'); }, []);
-  const buildStamp = __BUILD_STAMP__;
+  const buildStamp = `${__BUILD_STAMP__} · ${__BUILD_SHA__}`;
   const doc = useDesignStore((s) => s.doc);
   const selectedId = useDesignStore((s) => s.selectedId);
   const placementViolations = useDesignStore((s) => s.placementViolations);
@@ -165,25 +169,42 @@ export default function App() {
 
   /** 智能推荐：AI 型号逐级截短检索（GD32F103C8T6 → GD32F103C8 → GD32F103 → GD32），
    *  再叠加封装关键词，并集去重取前 6 —— "不能精准匹配"的也给出近似候选 */
+  /**
+   * 关联推荐：逐级截短型号做**宽召回**，但召回结果不能直接当候选。
+   * 此前把 API 返回顺序原样展示，截到 4 个字符时会捞回一堆同前缀但毫不相干的料。
+   * 现在所有召回统一过 lookup 门禁（filterAndRank）：
+   * 只有 EXACT/FAMILY 进正式候选，FUZZY 明确标注为相近，REJECTED 直接丢弃；
+   * 一个合格候选都没有时如实说"没有合格候选"，不为了凑数展示垃圾。
+   */
   const autoRecommend = async (mpn: string, footprint?: string) => {
     setLinkBusy(true); setLinkIsRec(true);
     const seen = new Set<string>();
-    const out: typeof linkResults = [];
+    const pool: typeof linkResults = [];
     const tryKw = async (kw: string) => {
-      if (!kw || kw.length < 3 || out.length >= 6) return;
-      const r = await searchEzplmParts(kw, 6).catch(() => ({ available: false, items: [] as typeof linkResults }));
+      if (!kw || kw.length < 3 || pool.length >= 40) return;
+      const r = await searchEzplmParts(kw, 10).catch(() => ({ available: false, items: [] as typeof linkResults }));
       for (const it of r.items) {
-        if (seen.has(it.componentId) || out.length >= 6) continue;
-        seen.add(it.componentId); out.push(it);
+        if (seen.has(it.componentId)) continue;
+        seen.add(it.componentId); pool.push(it);
       }
     };
     const stem = mpn.replace(/[^A-Za-z0-9]/g, '');
     const cuts = [mpn, stem, stem.slice(0, 10), stem.slice(0, 8), stem.slice(0, 6), stem.slice(0, 4)];
-    for (const c of [...new Set(cuts)]) { await tryKw(c); if (out.length >= 4) break; }
-    if (footprint && out.length < 6) await tryKw(footprint.split('_')[0].split('-')[0]);
-    setLinkResults(out);
+    for (const c of [...new Set(cuts)]) { await tryKw(c); }
+    if (footprint) await tryKw(footprint.split('_')[0].split('-')[0]);
+
+    const graded = filterAndRank(mpn, pool.map((x) => ({
+      mpn: x.mpn, description: x.description, category: x.category,
+      footprint: x.defaultFootprintName, pins: x.pins, __src: x,
+    })), 'lookup', { footprint });
+    const pick = (g: typeof graded.accepted) => g.slice(0, 6).map((x) => (x.item as unknown as { __src: typeof linkResults[number] }).__src);
+    const qualified = [...pick(graded.accepted), ...pick(graded.nearby).slice(0, Math.max(0, 6 - graded.accepted.length))];
+    setLinkResults(qualified);
+    setLinkNoMatch(qualified.length === 0 && pool.length > 0);
     setLinkBusy(false);
   };
+  /** 召回有结果但全部不合格：如实告知，而不是显示一堆不相干的料 */
+  const [linkNoMatch, setLinkNoMatch] = useState(false);
   const linkSeq = useRef(0);
   /** 关联搜索（防抖 250ms + 序号守卫，避免旧响应覆盖新结果） */
   const searchLink = useCallback((kw: string) => {
@@ -240,13 +261,21 @@ export default function App() {
   const [coreOnly, setCoreOnly] = useState(false);
   useEffect(() => { if (aiProposal) setCoreOnly(false); }, [aiProposal != null]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [aiGate, setAiGate] = useState<{ reason: 'login-required' | 'insufficient-credits' | 'credits-unknown'; cost?: number } | null>(null);
+  const checkCap = useEntitlementStore((s) => s.check);
+  const noteConsumed = useEntitlementStore((s) => s.noteConsumed);
+
   const genScheme = async () => {
     if (!aiPrompt.trim()) return;
+    // 前端门禁只为体验（少一次白跑的请求）；真正的拦截在服务端
+    const gate = checkCap('scheme.generate');
+    if (!gate.allowed) { setAiGate({ reason: gate.reason!, cost: gate.cost }); return; }
     setAiBusy(true);
     try {
       const result = await providers.ai.generateScheme({ prompt: aiPrompt }, ctx);
       // Gemini 真实链路：直接携带完整器件（已完成 ezPLM 云端映射 / 封装占位）
       if (result.items?.length) {
+        noteConsumed('scheme.generate');
         setAiProposal({
           rationale: result.rationale, source: result.source, fallbackReason: result.fallbackReason,
           details: result.items as unknown as SchemeProposal['details'],
@@ -485,6 +514,7 @@ export default function App() {
             style={{ ...hbtn, fontWeight: 800 }}>{lang === 'zh' ? tr('中 | EN') : tr('EN | 中')}</button>
           {/* 「导出PCB」与「导出设计」合并为一个导出中心：PCB 工程 / 设计文件 / BOM / 报告 一处给全 */}
           <button onClick={() => { if (ensureProjectName()) setPcbExportOpen(true); }} style={hbtn}>⬇ {t('导出设计')}</button>
+          <AccountBar />
           <button onClick={() => fileRef.current?.click()} style={hbtn}>⬆ {t('导入设计')}</button>
           <input ref={fileRef} type="file" accept=".json,.kicad_pcb,.kicad_sch,.sch,.zip" style={{ display: 'none' }} onChange={onImport} />
         </div>
@@ -507,6 +537,7 @@ export default function App() {
                 }}
                 placeholder={t('如：USB供电的温湿度采集器，带屏幕显示，低功耗，尺寸不超过 60 × 40 mm')}
                 style={{ width: '100%', minHeight: 52, maxHeight: 220, padding: '8px 10px', borderRadius: 8, border: '1px solid #dbe6dd', fontSize: 13, lineHeight: 1.5, outline: 'none', resize: 'none', overflowY: 'auto', boxSizing: 'border-box', marginBottom: 6 }} />
+              {aiGate && <div style={{ marginBottom: 6 }}><AiGateNotice reason={aiGate.reason} cost={aiGate.cost} onClose={() => setAiGate(null)} /></div>}
               <button onClick={genScheme} disabled={aiBusy || !aiPrompt.trim()} title={!aiPrompt.trim() ? t('请先输入需求描述，如：USB转串口调试器') : undefined}
                 style={{ width: '100%', padding: '9px 0', borderRadius: 8, border: 'none', background: `linear-gradient(135deg,#245b3a,${COLORS.green})`, color: '#fff', fontSize: 13, fontWeight: 700, cursor: aiBusy ? 'wait' : !aiPrompt.trim() ? 'not-allowed' : 'pointer', opacity: !aiPrompt.trim() && !aiBusy ? 0.55 : 1 }}>
                 {aiBusy ? '⟳ ' + t('生成中…') : !aiPrompt.trim() ? t('输入需求后生成方案') : t('生成方案上画布')}
@@ -763,7 +794,8 @@ export default function App() {
                   style={{ flex: 1, padding: '4px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11, outline: 'none' }} />
                 <button onClick={() => setLinkRow(null)} style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}>×</button>
               </div>
-              {linkIsRec && <div style={{ fontSize: 9.5, color: '#7c3aed', marginBottom: 4 }}>{t('按型号逐级截短自动推荐，需人工确认')}</div>}
+              {linkIsRec && <div style={{ fontSize: 9.5, color: '#7c3aed', marginBottom: 4 }}>{t('按型号逐级截短召回，已过相关性门禁；需人工确认')}</div>}
+              {linkNoMatch && <div style={{ fontSize: 10, color: '#b45309', marginBottom: 4 }}>{t('没有合格候选（召回结果与该型号相关性过低，已全部过滤）')}</div>}
               {linkBusy && <div style={{ fontSize: 10, color: '#94a3b8' }}>{t('检索中…')}</div>}
               {linkResults.map((r) => (
                 <div key={r.componentId} onClick={() => {

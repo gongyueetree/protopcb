@@ -1,0 +1,27 @@
+# CI：与本地 `npm run verify` 同一套关卡，避免"本地过了线上炸"
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # 顺序与本地 verify 一致：先拦密钥泄漏，再类型/规范/测试/构建
+      - run: npm run scan:secrets
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+        env:
+          # 构建元数据：UI 的 build tooltip 会显示它，便于确认线上跑的是哪一版
+          BUILD_SHA: ${{ github.sha }}

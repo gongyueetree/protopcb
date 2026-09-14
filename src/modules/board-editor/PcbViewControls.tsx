@@ -30,7 +30,6 @@ export function PcbViewControls() {
   const resetViewOptions = usePcbViewStore((s) => s.resetViewOptions);
   const solo3dId = usePcbViewStore((s) => s.solo3dId);
   const hidden = usePcbViewStore((s) => s.hidden3dIds);
-  const comps = useDesignStore((s) => s.doc.components);
   const selectedId = useDesignStore((s) => s.selectedId);
   const [open, setOpen] = useState(false);
 
@@ -66,7 +65,7 @@ export function PcbViewControls() {
           style={{ position: 'absolute', top: 34, right: 0, zIndex: 20, background: '#fff', borderRadius: 10, border: '1px solid #E8F3EE', boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: 6, width: 190 }}>
           {[
             ['显示全部 3D', () => showAll3D()],
-            ['隐藏全部 3D', () => hideAll3D(comps.map((c) => c.instanceId))],
+            ['隐藏全部 3D', () => hideAll3D()],
             [selectedId ? '仅显示选中器件' : '仅显示选中器件（未选中）', () => selectedId && soloComponent3D(selectedId)],
             ['取消单件模式', () => clearSolo3D()],
             ['恢复默认', () => resetViewOptions()],

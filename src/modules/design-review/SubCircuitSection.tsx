@@ -14,6 +14,7 @@ import { recommendSubCircuit, type SubCircuitItem } from '../component-search/su
 import { ReferenceDesignSection } from '../component-search/ReferenceDesignSection';
 import { autoKicadFootprint } from '../../design-core/geometry/auto-kicad-footprint';
 import { ensureKicadSymbolByMpn } from '../../design-core/geometry/lib-file-registry';
+import { useAiGate } from '../account/useAiGate';
 
 export function SubCircuitSection() {
   const doc = useDesignStore((s) => s.doc);
@@ -23,6 +24,7 @@ export function SubCircuitSection() {
   const [items, setItems] = useState<SubCircuitItem[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const { guard, gateNotice } = useAiGate();
 
   const c = doc.components.find((x) => x.instanceId === selectedId);
   const isSatellite = !!c?.display?.anchorRef;
@@ -32,7 +34,9 @@ export function SubCircuitSection() {
     if (!c || busy) return;
     setBusy(true); setMsg(''); setItems(null);
     try {
-      setItems(await recommendSubCircuit({ mpn: c.mpn, manufacturer: c.manufacturer, description: c.display?.description }));
+      const out = await guard('subcircuit.recommend', () =>
+        recommendSubCircuit({ mpn: c.mpn, manufacturer: c.manufacturer, description: c.display?.description }));
+      if (out) setItems(out);
     } catch (e) { setMsg((e as Error).message); }
     setBusy(false);
   };
@@ -84,6 +88,7 @@ export function SubCircuitSection() {
       {/* ① 参考设计 / 组织内用过该器件的项目（从器件详情页整块移来，
              与下面的 AI 推断是同一个问题的两个阶段：先复用，找不到才生成） */}
       {!isSatellite && <div style={{ marginBottom: 8 }}><ReferenceDesignSection c={c} /></div>}
+      {gateNotice && <div style={{ marginBottom: 6 }}>{gateNotice}</div>}
       {msg && <div style={{ fontSize: 10, color: msg.startsWith('✓') ? '#15803d' : '#b45309', marginBottom: 4 }}>{msg}</div>}
       {!!items?.length && (
         <>

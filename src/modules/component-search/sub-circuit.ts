@@ -89,6 +89,7 @@ export async function recommendSubCircuit(core: {
     `3. connectsTo 填该器件连到核心的管脚名（VDD/GND/XTAL1/RST/EN 等）\n` +
     `严格输出 JSON 数组，不要其他文字：\n` +
     `[{"role":"作用","value":"值或型号","category":"passive|ic|power|connector","footprint":"KiCad封装名可留空","connectsTo":"核心管脚名","qty":1}]`,
+    'subcircuit.recommend',
   );
   // 先过 Zod：结构不符直接整条拒绝，不让半成品污染画布
   const parsed = validateAi(AiSubCircuitSchema, extractJson<unknown>(raw), '子电路推荐');

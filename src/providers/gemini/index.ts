@@ -29,13 +29,46 @@ export async function geminiAvailable(): Promise<boolean> {
 }
 
 /** 一次性文本补全（经服务端代理） */
-export async function geminiComplete(prompt: string): Promise<string> {
+/** AI 调用被拒（未登录 / 额度不足 / 后端未接通）—— UI 据此给出对应引导 */
+export class AiAccessError extends Error {
+  constructor(public code: 'LOGIN_REQUIRED' | 'INSUFFICIENT_CREDITS' | 'BACKEND_NOT_CONNECTED' | 'OTHER', message: string, public cost?: number) {
+    super(message);
+    this.name = 'AiAccessError';
+  }
+}
+
+/**
+ * @param capability 本次调用属于哪项能力（服务端据此按价目表扣 Credit）。
+ *   客户端传的只是**标识**，费用以服务端价目表为准，改不动。
+ */
+export async function geminiComplete(prompt: string, capability: string = 'scheme.generate'): Promise<string> {
   const r = await fetch('/api/gemini', {
     method: 'POST',
+    credentials: 'include',              // 带上 ezPLM / EEHub 会话
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, capability }),
   });
-  if (!r.ok) throw new Error(`Gemini 代理 ${r.status}`);
+  const remaining = r.headers.get('X-Credits-Remaining');
+  if (remaining != null) {
+    const n = Number(remaining);
+    if (Number.isFinite(n)) {
+      const { useEntitlementStore } = await import('../../state/entitlementStore');
+      useEntitlementStore.getState().setRemaining(n);
+    }
+  }
+  if (!r.ok) {
+    let code: 'LOGIN_REQUIRED' | 'INSUFFICIENT_CREDITS' | 'BACKEND_NOT_CONNECTED' | 'OTHER' = 'OTHER';
+    let msg = `Gemini 代理 ${r.status}`;
+    try {
+      const j = await r.json();
+      if (j?.code === 'LOGIN_REQUIRED' || j?.code === 'INSUFFICIENT_CREDITS' || j?.code === 'BACKEND_NOT_CONNECTED') code = j.code;
+      if (j?.error) msg = String(j.error);
+      throw new AiAccessError(code, msg, j?.cost);
+    } catch (e) {
+      if (e instanceof AiAccessError) throw e;
+      throw new AiAccessError(code, msg);
+    }
+  }
   const j = await r.json();
   return String(j.text ?? '');
 }

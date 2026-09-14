@@ -15,6 +15,9 @@ import { buildMatchQuery, rankCandidates, parseConstraints, CLASS_LABEL as PART_
 import { autoMatchBom, summarizeMatches, type BomMatchResult } from './auto-match';
 import { summarizeBomPricing } from './pricing-summary';
 import { searchEzplmParts } from '../../providers/ezplm-live';
+import { useEntitlementStore } from '../../state/entitlementStore';
+import { AiGateNotice } from '../account/AccountBar';
+import type { DenyReason } from '../../design-core/entitlements';
 
 export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: boolean; onToggleFullscreen?: () => void } = {}) {
   const bom = useDesignStore((s) => s.doc.bom);
@@ -36,6 +39,8 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   /** 批量关联：结果按位号索引，供表格逐行展示 */
   const [autoRes, setAutoRes] = useState<Record<string, BomMatchResult>>({});
   const [autoBusy, setAutoBusy] = useState<{ done: number; total: number } | null>(null);
+  const checkCap = useEntitlementStore((s) => s.check);
+  const [aiGate, setAiGate] = useState<{ reason: DenyReason; cost?: number } | null>(null);
   const abortRef = useRef<{ aborted: boolean }>({ aborted: false });
 
   /**
@@ -48,6 +53,11 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
     abortRef.current = signal;
     setAutoBusy({ done: 0, total: bom.length });
     const aiOk = await geminiAvailable().catch(() => false);
+    // 估价是 AI 能力：没登录/额度不够就只跑 ezPLM 与分销商，
+    // 并在结束后说明"估价未启用"，而不是静默少一列价格
+    const estGate = checkCap('bom.estimate');
+    const estimateAllowed = estGate.allowed;
+    if (!estimateAllowed) setAiGate({ reason: estGate.reason!, cost: estGate.cost });
     const results = await autoMatchBom(
       bom.map((l) => ({ reference: l.reference, mpn: l.mpn, footprint: l.footprint, description: l.description, quantity: l.quantity })),
       {
@@ -73,7 +83,8 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
           return out;
         },
         // AI 估价只在前两步都没有价格时触发，结果显式标注为估算
-        estimatePrice: aiOk ? async (l) => {
+        // AI 估价同样受门禁约束：批量跑之前先判一次，避免逐行弹提示
+        estimatePrice: aiOk && estimateAllowed ? async (l) => {
           const txt = await geminiComplete(
             `估算该电子元件在国内小批量（100 片）采购的单价，只回一个 JSON：{"cny":数字,"note":"20字内依据"}\n` +
             `位号 ${l.reference} · 型号/值 ${l.mpn} · 封装 ${l.footprint ?? '未知'}`);
@@ -163,6 +174,9 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
 
   /** 网络参考价：AI 按公开市场行情给区间。明确标注为估算，必须人工确认后才落为录入价。 */
   const askMarketPrice = async (l: BomLine) => {
+    // 市场价属于 AI 估价能力
+    const g = checkCap('bom.estimate');
+    if (!g.allowed) { setAiGate({ reason: g.reason!, cost: g.cost }); return; }
     setMarket({ busy: true });
     try {
       const desc = [l.mpn, l.footprint, l.description].filter(Boolean).join(' / ');
@@ -393,6 +407,11 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
               </span>
             );
           })()}
+          {aiGate && (
+            <div style={{ width: '100%', marginBottom: 6 }}>
+              <AiGateNotice reason={aiGate.reason} cost={aiGate.cost} onClose={() => setAiGate(null)} />
+            </div>
+          )}
           <button onClick={runAutoMatch}
             title={tr('按位号性质 + 描述/值 + 封装，先查 ezPLM 再查分销商，都没有才用 AI 估价；结果需人工确认后才写回设计')}
             style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: autoBusy ? '#b45309' : COLORS.green, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginRight: 6 }}>

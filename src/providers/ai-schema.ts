@@ -17,21 +17,29 @@ export type TrustLevel = z.infer<typeof TrustLevel>;
 const CATEGORY = z.enum(['mcu', 'power', 'passive', 'connector', 'sensor', 'rf', 'electromech', 'ic', 'other']);
 
 /** 单个 AI 建议器件 */
+/**
+ * AI 的 optional 字段必须接受 null。
+ * 真实 Gemini 会返回 `"core": null`、`"manufacturer": null`，而 z.optional()
+ * 只接受 undefined —— 一个 null 就让整条方案校验失败、整轮生成作废。
+ * 这里统一成"缺失 / undefined / null 都当作没有"，必填字段仍然严格。
+ */
+const optStr = (max: number) => z.string().max(max).nullish().transform((v) => v ?? undefined);
+
 export const AiComponentSchema = z.object({
   mpn: z.string().min(1).max(64),
-  manufacturer: z.string().max(64).optional(),
+  manufacturer: optStr(64),
   category: CATEGORY.catch('ic'),
-  description: z.string().max(200).optional(),
-  footprint: z.string().max(80).optional(),
+  description: optStr(200),
+  footprint: optStr(80),
   qty: z.number().int().min(1).max(64).catch(1),
-  reason: z.string().max(200).optional(),
+  reason: optStr(200),
   /**
    * 功能分组：以核心器件为组名（如 "STM32F103C8T6"、"电源"），
    * 该组的附属器件（去耦、上拉、晶振…）挂在同一组名下。
    */
-  group: z.string().max(48).optional(),
+  group: optStr(48),
   /** 是否为该组的核心器件（每组至多一个） */
-  core: z.boolean().optional(),
+  core: z.boolean().nullish().transform((v) => v ?? undefined),
 });
 export type AiComponent = z.infer<typeof AiComponentSchema>;
 
@@ -41,19 +49,19 @@ export const AiBlockSchema = z.object({
   id: z.string().min(1).max(40),
   label: z.string().min(1).max(40),
   /** 该块的核心器件型号（对应 components[].group） */
-  core: z.string().max(64).optional(),
+  core: optStr(64),
   kind: z.enum(['power', 'mcu', 'sensor', 'interface', 'storage', 'rf', 'display', 'other']).catch('other'),
 });
 export const AiBlockLinkSchema = z.object({
   from: z.string().min(1).max(40),
   to: z.string().min(1).max(40),
   /** 连接性质：总线名或电源轨，如 I2C / SPI / 3V3 */
-  label: z.string().max(24).optional(),
+  label: optStr(24),
   kind: z.enum(['power', 'signal', 'bus']).catch('signal'),
 });
 
 export const AiSchemeSchema = z.object({
-  summary: z.string().max(600).optional(),
+  summary: optStr(600),
   boardWidthMm: z.number().positive().max(500).optional(),
   boardHeightMm: z.number().positive().max(500).optional(),
   components: z.array(AiComponentSchema).min(1).max(60),
@@ -81,10 +89,10 @@ export type AiAdvisorItem = z.infer<typeof AiAdvisorItemSchema>;
 export const AiSubCircuitItemSchema = z.object({
   role: z.string().min(1).max(40),
   value: z.string().min(1).max(40),
-  mpn: z.string().max(64).optional(),
+  mpn: optStr(64),
   category: CATEGORY.catch('passive'),
-  footprint: z.string().max(80).optional(),
-  connectsTo: z.string().max(24).optional(),
+  footprint: optStr(80),
+  connectsTo: optStr(24),
   qty: z.number().int().min(1).max(8).catch(1),
 });
 // 上限 40：ESP32/FPGA 这类器件的典型应用电路本来就有二三十个周边件（多路去耦、

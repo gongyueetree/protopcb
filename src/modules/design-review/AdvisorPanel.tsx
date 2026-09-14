@@ -15,6 +15,7 @@ import type { PeripheralCircuitRecommendation } from '../../providers/types';
 import type { ComponentCategory, ReviewLevel } from '../../design-core/document/types';
 import { SubCircuitSection } from './SubCircuitSection';
 import { useAccessContext, anonymousContext } from '../../state/useAccessContext';
+import { useAiGate } from '../account/useAiGate';
 
 const providers = getProviders();
 // 身份来自 providers.identity（demo 模式自然是 demo-user，集成模式是真实身份）
@@ -65,6 +66,7 @@ const geminiCache = new Map<string, { name: string; reason: string }[]>();
 
 export function AdvisorPanel() {
   const ctx = useAccessContext() ?? anonymousContext();
+  const { guard, gateNotice } = useAiGate();
   const doc = useDesignStore((s) => s.doc);
   const addComponent = useDesignStore((s) => s.addComponent);
   const [subs, setSubs] = useState<Record<string, PeripheralCircuitRecommendation[]>>({});
@@ -82,7 +84,8 @@ export function AdvisorPanel() {
     if (await geminiAvailable()) {
       try {
         const prompt = `你是资深硬件工程师。当前 PCB 画布上已有器件：\n${all.map((c) => `- ${c.mpn}（${c.category}${c.family ? '/' + c.family : ''}）`).join('\n')}\n\n请分析构成完整可工作系统还缺哪些功能器件/子电路（晶振、复位、去耦、ESD、接口、供电等），按重要性给出至多8条。${useLangStore.getState().lang === 'en' ? 'name 与 reason 用英文输出。' : ''}严格输出 JSON 数组，勿输出其它文字：\n[{"name":"器件/子电路名","reason":"必要性(30字内)"}]`;
-        const text = await geminiComplete(prompt);
+        const text = await guard('advisor.analyze', () => geminiComplete(prompt, 'advisor.analyze'));
+        if (text == null) { setAnalyzing(false); return; }   // 被门禁拦下：不回落规则引擎，让用户看到明确原因
         // Zod 校验：结构不符则回落规则引擎，不让模型的半成品进 UI
         const v = validateAi(z.array(AiAdvisorItemSchema).max(8), extractJson<unknown>(text), 'AI 建议');
         if (!v.ok) throw new Error(v.error);
@@ -148,6 +151,7 @@ export function AdvisorPanel() {
 
       {/* 板级补全：不针对某一颗器件，而是看整块板还缺什么子系统 */}
       <Section title={"🧠 " + tr('板级系统补全')} badge={sysSugs.length || undefined}>
+        {gateNotice && <div style={{ marginBottom: 6 }}>{gateNotice}</div>}
         {doc.components.length === 0 ? <Empty text={tr('添加器件后，AI 分析系统还缺什么')} /> : analyzing ? <Empty text={tr('分析中...')} /> : (
           <>
             <div style={{ fontSize: 9.5, color: '#94a3b8', marginBottom: 6 }}>{sysSource === 'gemini' ? tr('由 Gemini 基于画布器件实时生成')

@@ -3,7 +3,7 @@
  * App 只做 UI composition；持久化细节全部在 ProjectPersistenceService。
  */
 import { useEffect, useRef, useState } from 'react';
-import { ProjectPersistenceService } from '../../design-core/document/persistence-service';
+import { ProjectPersistenceService, docHasContent } from '../../design-core/document/persistence-service';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
 
 export function useProjectPersistence(
@@ -18,7 +18,8 @@ export function useProjectPersistence(
     if (restored.current) return;
     restored.current = true;
     const saved = ProjectPersistenceService.load();
-    if (saved && saved.doc.components.length && !docHasContent(doc)) {
+    // 恢复条件用同一个 docHasContent：存档有内容、当前画布还没内容
+    if (saved && docHasContent(saved.doc) && !docHasContent(doc)) {
       loadDocument(saved.doc);
       setSavedAt(saved.at);
     }
@@ -33,6 +34,3 @@ export function useProjectPersistence(
   return { savedAt };
 }
 
-function docHasContent(doc: CircuitCanvasDocument): boolean {
-  return doc.components.length > 0 || (doc.tracks?.length ?? 0) > 0 || !!doc.schematicSheet;
-}

@@ -16,15 +16,23 @@ import { useDesignStore } from '../../state/designStore';
 import { usePcbViewStore } from '../../state/pcbViewStore';
 import { useLibFileStore } from '../../design-core/geometry/lib-file-registry';
 import { buildComponent3D } from './footprint3d';
+import { stepStatusFor } from './step-loader';
+import { cloneMaterialsForView } from './material-isolation';
 import { applyComponent3DTransform } from './component-3d-transform';
 import { orthoCameraParams } from './board-view-constants';
 import type { PlacedComponent } from '../../design-core/document/types';
 
 const BOARD_THK = 1.6;
 
-/** 决定某个器件的模型是否需要重建（与"只是挪了个位置"区分开） */
-function modelKey(c: PlacedComponent, libVersion: number): string {
-  return [c.footprint.name, c.display?.stepUrl ?? '', c.mpn, libVersion].join('|');
+/**
+ * 决定某个器件的模型是否需要重建。
+ *
+ * ⚠ 绝不能把全局 libVersion 放进来：任意一个器件的 STEP 加载完成都会 bump 它，
+ * 于是 100 个器件的 key 同时变化 → 整板重建。
+ * 只取**这一个器件自身**依赖的东西：封装名、STEP 地址、该 STEP 的加载状态。
+ */
+export function modelKey(c: PlacedComponent, stepStatus: string): string {
+  return [c.footprint.name, c.display?.stepUrl ?? '', stepStatus].join('|');
 }
 
 export function PcbProjection3DLayer({ activeLayer }: { activeLayer: 'TOP' | 'BOTTOM' }) {
@@ -136,13 +144,17 @@ export function PcbProjection3DLayer({ activeLayer }: { activeLayer: 'TOP' | 'BO
 
     for (const comp of doc.components) {
       seen.add(comp.instanceId);
-      const key = modelKey(comp, libVersion);
+      const key = modelKey(comp, comp.display?.stepUrl ? stepStatusFor(comp.display.stepUrl) : '-');
       let entry = map.get(comp.instanceId);
 
       // 模型变了（换封装/STEP 加载完成/库更新）才重建，否则只更新位姿
       if (!entry || entry.key !== key) {
         if (entry) scene.remove(entry.obj);
         const obj = buildComponent3D(comp);
+        // STEP 模型是从缓存 clone 出来的，geometry/material 仍与缓存共享。
+        // 投影层要改 opacity/transparent，必须先把材质按实例克隆，
+        // 否则会顺手改掉 3D 全视图和缓存里同一颗料的材质。
+        cloneMaterialsForView(obj);
         scene.add(obj);
         entry = { obj, key };
         map.set(comp.instanceId, entry);

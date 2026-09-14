@@ -661,7 +661,6 @@ const DICT: Record<string, string> = {
   '请先选择符号库': 'Select a symbol library first',
   '型号已核对': 'MPNs checked',
   '待人工确认': 'Needs confirmation',
-  '未验证': 'Unverified',
   '报价覆盖': 'Price coverage',
   '行无价格': 'lines without price',
   '已报价小计': 'Quoted subtotal',
@@ -670,6 +669,27 @@ const DICT: Record<string, string> = {
   '币种不统一，不汇总总价': 'Mixed currencies — no combined total',
   '仍有行未取到价格，不显示总价': 'Some lines have no price — total withheld',
   '以下器件的型号未经器件库精确匹配核实（AI 建议、占位或近似候选），投产前必须人工确认：': 'These MPNs have not been exact-matched against a part library (AI suggestion, placeholder or approximate candidate) — confirm before production:',
+  '按型号逐级截短召回，已过相关性门禁；需人工确认': 'Recalled by progressively trimming the MPN, then filtered by relevance — confirm manually',
+  '没有合格候选（召回结果与该型号相关性过低，已全部过滤）': 'No qualified candidate — everything recalled was too weakly related and was filtered out',
+  '相近候选': 'Nearby candidates',
+  '网络返回的': 'Filtered out',
+  '条结果与该型号相关性过低，已过滤': 'network results as too weakly related',
+  '登录解锁 AI': 'Sign in for AI',
+  '已登录': 'Signed in',
+  '余额未知': 'unknown',
+  '购买': 'Buy',
+  'AI 功能按次消耗 Credit；不同功能消耗不同': 'AI features consume Credits per call; cost varies by feature',
+  '登录后可使用 AI 方案生成、子电路推荐等功能，并把设计保存到你的空间。未登录同样可以完整体验画布、导入 KiCad 工程与导出原型文件。': 'Sign in to use AI scheme generation, sub-circuit recommendations and cloud save. Without signing in you can still use the canvas, import KiCad projects and export prototype files.',
+  'AI 功能需要登录': 'Sign in to use AI',
+  '未登录可以完整体验画布、导入 KiCad 工程、检索器件库与导出原型文件；AI 生成与云端保存需要登录后使用。新注册赠送体验 Credit。': 'Without signing in you can use the canvas, import KiCad projects, search part libraries and export prototype files. AI generation and cloud save require an account — new accounts get free Credits.',
+  '去登录': 'Sign in',
+  'Credit 余额不足': 'Not enough Credits',
+  '本次操作需要': 'This action needs',
+  '可购买 Credit 后继续，已完成的设计不受影响。': 'Buy Credits to continue — your design is unaffected.',
+  '购买 Credit': 'Buy Credits',
+  '暂时无法确认额度': 'Cannot verify Credits',
+  '额度服务未接通，为避免误扣费，AI 功能暂不可用。请稍后再试。': 'The Credit service is unreachable; AI is disabled to avoid incorrect charges. Please try again later.',
+  '知道了': 'Got it',
   '包内无原理图，符号用名字解析': 'No schematic in package; symbols resolved by name',
   '区间': 'range',
   '单价': 'Unit price',
@@ -1019,8 +1039,13 @@ async function flushQueue() {
   if (!batch.length) return;
   try {
     if (!(await geminiAvailable())) return;
+    // 动态文本的 AI 翻译也是 AI 调用：匿名用户不该因为切了个语言就撞 401。
+    // 没有权限时静默保留原文 —— 固定 UI 走词典表，本来就不依赖 AI。
+    const { useEntitlementStore } = await import('../state/entitlementStore');
+    if (!useEntitlementStore.getState().check('advisor.analyze').allowed) return;
     const text = await geminiComplete(
       `将以下电子元器件领域的中文文本翻译成简洁的英文（专业术语标准化，如"运算放大器"→"op-amp"）。严格输出 JSON 字符串数组，与输入等长、顺序一致，勿输出其它文字：\n${JSON.stringify(batch)}`,
+      'advisor.analyze',
     );
     const out = extractJson<string[]>(text);
     batch.forEach((src, i) => { if (typeof out[i] === 'string' && out[i]) trCache.set(src, out[i]); });

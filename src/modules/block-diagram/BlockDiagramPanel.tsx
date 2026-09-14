@@ -11,6 +11,7 @@ import { useDesignStore } from '../../state/designStore';
 import { blocksFromNetlist, layoutNetBlocks } from '../../design-core/block-diagram/from-netlist';
 import { bdShapes, BdShape } from './shapes';
 import type { FunctionalBlock } from '../../design-core/document/types';
+import { useAiGate } from '../account/useAiGate';
 
 export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: boolean; onToggleFullscreen?: () => void }) {
   const blocks = useDesignStore((s) => s.doc.functionalBlocks);
@@ -27,6 +28,7 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [archBusy, setArchBusy] = useState(false);
+  const { guard, gateNotice } = useAiGate();
   const [archMsg, setArchMsg] = useState('');
   /** 按真实网表生成：核心器件成块、共享网络成连线 —— 比按类别聚合信息量高得多 */
   const genFromNets = () => {
@@ -61,7 +63,8 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
     setArchBusy(true); setArchMsg('');
     try {
       const doc = useDesignStore.getState().doc;
-      const r = await analyzeArchitecture(doc);
+      const r = await guard('block.analyze', () => analyzeArchitecture(doc));
+      if (!r) { setArchBusy(false); return; }   // 被门禁拦下，提示已在面板上
       const pos = layoutArchBlocks(r.blocks);
       const refToId = new Map(doc.components.map((c) => [c.reference, c.instanceId]));
       setBlocks(r.blocks.map((b) => ({
@@ -345,6 +348,9 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
           <span onClick={fitView} style={{ minWidth: 34, textAlign: 'center', fontWeight: 600, cursor: 'pointer' }}>{Math.round(zoom * 100)}%</span>
           <button onClick={() => setZoom((z) => Math.min(4, z * 1.25))} style={zb}>+</button>
         </div>
+        {gateNotice && (
+          <div style={{ position: 'absolute', top: 8, left: 8, right: 8, zIndex: 6 }}>{gateNotice}</div>
+        )}
         {archMsg && (
           <div style={{ position: 'absolute', top: 8, left: 8, right: 8, zIndex: 5, fontSize: 11, padding: '6px 26px 6px 10px', borderRadius: 8, background: archMsg.startsWith(tr('分析失败')) ? '#fef2f2' : '#f0fdf4', border: '1px solid ' + (archMsg.startsWith(tr('分析失败')) ? '#fecaca' : '#bbf7d0'), color: archMsg.startsWith(tr('分析失败')) ? '#b91c1c' : '#166534' }}>
             {archMsg}

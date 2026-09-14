@@ -9,6 +9,7 @@ import { searchEzplmParts, ezplmLiveAvailable } from '../../providers/ezplm-live
 import { useDesignStore } from '../../state/designStore';
 import { useT, useTranslated, tr } from '../../shared/i18n';
 import { COLORS, fmtMoney } from '../../shared/theme';
+import { filterAndRank, looksLikeMpn } from '../../design-core/part-match-policy';
 import type { ComponentSearchResult } from '../../providers/types';
 import type { ComponentCategory } from '../../design-core/document/types';
 import { useAccessContext, anonymousContext } from '../../state/useAccessContext';
@@ -33,7 +34,24 @@ export function ComponentSearchPanel() {
   const [srcTab, setSrcTab] = useState<'org' | 'ezplm' | 'net'>('ezplm');
   // 型号重合去重：ezPLM 已收录的型号不再出现在"网络" Tab（ezPLM 数据更权威）
   const ezplmMpns = new Set(ezplmResults.map((x) => x.mpn.toUpperCase()));
-  const dedupedNet = netResults.filter((x) => !ezplmMpns.has(x.mpn.toUpperCase()));
+  const rawNet = netResults.filter((x) => !ezplmMpns.has(x.mpn.toUpperCase()));
+  /**
+   * 相关性门禁：上游按全文相关度返回，搜 CH340C 会混进 Servo PHAT / RFID Reader
+   * 这类完全不相干的结果。查询串像型号时用 lookup 严格模式，否则 browse 放宽；
+   * FUZZY 归入"相近候选"单独展示，REJECTED 一律不出现在正式结果里。
+   */
+  const netGate = useMemo(() => {
+    const q = keyword.trim();
+    if (!q) return { accepted: rawNet, nearby: [] as ComponentSearchResult[], rejected: 0 };
+    const r = filterAndRank(q, rawNet.map((x) => ({
+      mpn: x.mpn, description: x.description, category: x.category,
+      footprint: x.defaultFootprintName, pins: x.pins, __src: x,
+    })), looksLikeMpn(q) ? 'lookup' : 'browse');
+    const pick = (g: typeof r.accepted) => g.map((x) => (x.item as unknown as { __src: ComponentSearchResult }).__src);
+    return { accepted: pick(r.accepted), nearby: pick(r.nearby), rejected: r.rejected.length };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawNet, keyword]);
+  const dedupedNet = netGate.accepted;
   // 有数据的源才显示 Tab（要求：无本组织数据不显示该 Tab，ezPLM 搜不到也不显示）
   const availTabs = ([
     orgResults.length ? 'org' : null,
@@ -155,6 +173,11 @@ export function ComponentSearchPanel() {
       {!availTabs.length && keyword.trim() !== '' && !netBusy && (
         <div style={{ padding: '10px 12px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a', fontSize: 11, color: '#92400e', marginBottom: 8 }}>
           {tr('本组织、ezPLM 与网络（DigiKey/Mouser）均未查询到结果')}
+          {netGate.rejected > 0 && (
+            <div style={{ marginTop: 4, fontSize: 10, color: '#b45309' }}>
+              {tr('网络返回的')} {netGate.rejected} {tr('条结果与该型号相关性过低，已过滤')}
+            </div>
+          )}
           {netMsg && <div style={{ marginTop: 3, fontSize: 10, color: '#a16207' }}>{netMsg}</div>}
         </div>
       )}

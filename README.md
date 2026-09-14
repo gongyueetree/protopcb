@@ -182,3 +182,34 @@ EZPLM_API_KEY=xxx node scripts/check-ezplm-refdesign.mjs TPS79301DBVR
 > **应用项目**（组织内部用过该器件的历史项目）目前**不在**这两个公开接口里。
 > 前端的 `getApplicationProjects` 已写好完整 contract，端点未提供时如实显示
 > `BACKEND_NOT_CONNECTED`，不渲染任何假项目。上面的脚本会顺带探测三个候选路径。
+
+## 访问层级：匿名体验 / 注册用 AI
+
+面向两种投放场景（电子森林、tindie.com 内嵌）设计了两档权限：
+
+| | 匿名（未登录） | 注册（ezplm.cn / eehub.io） |
+|---|---|---|
+| 画布、导入 KiCad、3D、外壳、导出原型文件 | ✅ | ✅ |
+| 器件库检索（ezPLM / 分销商） | ✅ | ✅ |
+| 浏览器本地自动存档（刷新不丢） | ✅ | ✅ |
+| **AI 功能**（方案生成、子电路推荐、顾问分析、估价…） | ❌ | 按 Credit 计费 |
+| **云端保存 / 打开我的设计** | ❌ | ✅ |
+
+新注册赠送 `WELCOME_CREDITS`（默认 100）体验额度，用完需购买。
+
+### 强制点在服务端
+
+UI 的按钮门禁只为体验（少一次白跑的请求）。**真正的拦截在 `api/_lib/session.js`**：
+`/api/gemini` 在调用上游之前先 `requireAiAccess()` —— 未登录返回 401，
+额度不足返回 402，且**不产生任何上游计费调用**（有测试断言零次调用）。
+客户端传来的 `cost` 不可信，服务端以 `api/_lib/credit-cost.js` 的价目表为准。
+
+### 需要的环境变量
+
+- `EZPLM_AUTH_BASE` — 鉴权与额度服务基址（如 `https://ezplm.cn/api/v1`），
+  需提供 `GET /me`（返回 userId / credits）与 `POST /credits/consume`（余额不足返回 402）
+- `AI_REQUIRE_AUTH` — 默认 `1`。未配置 `EZPLM_AUTH_BASE` 时 AI 一律不可用；
+  设为 `0` 仅供本地开发，响应里会标 `authBypassed`
+
+会话由 ezPLM / EEHub 签发，本应用只校验不签发，读取
+`Authorization: Bearer` 或 `ezplm_session` / `eehub_session` Cookie。

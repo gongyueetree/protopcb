@@ -92,6 +92,7 @@ export async function analyzeArchitecture(doc: CircuitCanvasDocument): Promise<A
     `严格输出 JSON，不要其它文字：\n` +
     `{"summary":"…","blocks":[{"id":"b1","label":"名称","role":"职责","kind":"mcu|power|analog|rf|interface|memory|sensor|clock|protection|other","refs":["U1","C1"]}],` +
     `"edges":[{"from":"b1","to":"b2","signal":"SPI","kind":"power|digital|analog|clock|bus"}]}`,
+    'block.analyze',
   );
 
   const parsed = extractJson<{ summary?: string; blocks?: Partial<ArchBlock>[]; edges?: Partial<ArchEdge>[] }>(raw);

@@ -16,6 +16,10 @@ import {
 } from '../../design-core/custom-lib';
 import { validateCustomPartDraft } from '../../design-core/custom-part-schema';
 import type { ComponentCategory } from '../../design-core/document/types';
+import { useAiGate } from '../account/useAiGate';
+import { useEntitlementStore } from '../../state/entitlementStore';
+import { AiGateNotice } from '../account/AccountBar';
+import type { DenyReason } from '../../design-core/entitlements';
 
 const FAMILIES: [CustomPkg['family'], string][] = [
   ['dual', tr('双列贴片 (SOP/TSSOP)')], ['quad', tr('四边鸥翼 (QFP)')], ['qfn', tr('四边无脚 (QFN)')], ['header', tr('单排针 (2.54)')], ['chip', tr('两端贴片 (阻容)')],
@@ -38,6 +42,9 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
   const [aiUrl, setAiUrl] = useState('');
   const [aiText, setAiText] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
+  const { guard, gateNotice } = useAiGate();
+  const checkCap = useEntitlementStore((st) => st.check);
+  const [gateState, setGateState] = useState<{ reason: DenyReason; cost?: number } | null>(null);
   const [aiMsg, setAiMsg] = useState('');
   /** AI 提取后置 true：表单顶部显示"AI 提取 — 未人工确认"，保存即视为人工确认 */
   const [aiDraft, setAiDraft] = useState(false);
@@ -221,11 +228,18 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
       if (!(await geminiAvailable())) { setAiMsg(tr('未配置 GEMINI_API_KEY（或配置 DS2KICAD_URL 使用提取引擎）')); setAiBusy(false); return; }
       let text: string;
       if (payload.text) {
-        text = await geminiComplete(`以下是器件资料文本：\n${payload.text.slice(0, 60000)}\n\n${EXTRACT_PROMPT}`);
+        const src = payload.text;
+        const out = await guard('part.extract', () =>
+          geminiComplete(`以下是器件资料文本：\n${src.slice(0, 60000)}\n\n${EXTRACT_PROMPT}`, 'part.extract'));
+        if (out == null) { setAiBusy(false); return; }   // 被门禁拦下，提示已展示
+        text = out;
       } else {
+        const pre = checkCap('part.extract');
+        if (!pre.allowed) { setGateState({ reason: pre.reason!, cost: pre.cost }); setAiBusy(false); return; }
         const r = await fetch('/api/gemini', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: EXTRACT_PROMPT, ...payload }),
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: EXTRACT_PROMPT, capability: 'part.extract', ...payload }),
         });
         if (!r.ok) throw new Error(`提取失败 HTTP ${r.status}`);
         text = String((await r.json()).text ?? '');
@@ -320,6 +334,8 @@ pin type 取值：${KICAD_PIN_TYPES.join('|')}`;
           <textarea value={aiText} onChange={(e) => setAiText(e.target.value)} placeholder={tr('或直接粘贴 datasheet 关键文本（管脚表/封装尺寸）…')} rows={2}
             style={{ ...inp, width: '100%', marginTop: 8, boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }} />
           {aiText.trim() && <button disabled={aiBusy} onClick={() => runAi({ text: aiText })} style={{ marginTop: 6, padding: '5px 12px', borderRadius: 6, border: 'none', background: '#6d28d9', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{aiBusy ? tr('提取中…') : tr('从文本提取')}</button>}
+          {gateNotice && <div style={{ marginTop: 6 }}>{gateNotice}</div>}
+          {gateState && <div style={{ marginTop: 6 }}><AiGateNotice reason={gateState.reason} cost={gateState.cost} onClose={() => setGateState(null)} /></div>}
           {aiMsg && <div style={{ marginTop: 6, fontSize: 10.5, color: aiMsg.startsWith('✓') ? '#16a34a' : '#b91c1c' }}>{aiMsg}</div>}
         </div>
 
