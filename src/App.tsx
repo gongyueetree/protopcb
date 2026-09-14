@@ -263,6 +263,12 @@ export default function App() {
 
   const [aiGate, setAiGate] = useState<{ reason: 'login-required' | 'insufficient-credits' | 'credits-unknown'; cost?: number } | null>(null);
   const checkCap = useEntitlementStore((s) => s.check);
+  /** 定制器件需登录：建好的器件属于账户资产，且提取走 AI */
+  const guardCustomPart = () => {
+    const g = checkCap('part.custom');
+    if (!g.allowed) { setAiGate({ reason: g.reason!, cost: g.cost }); return false; }
+    return true;
+  };
   const noteConsumed = useEntitlementStore((s) => s.noteConsumed);
 
   const genScheme = async () => {
@@ -544,11 +550,16 @@ export default function App() {
               </button>
             </div>
             <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-              {([['model', '🔍 ' + t('型号搜索')], ['footprint', '📦 ' + t('KiCad封装库')], ['custom', '🛠 ' + t('定制模块')]] as const).map(([id, label]) => (
-                <button key={id} onClick={() => setLeftTab(id)} style={{ flex: 1, padding: '7px 0', fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1px solid ${leftTab === id ? COLORS.green : '#dbe6dd'}`, borderRadius: 8, background: leftTab === id ? COLORS.greenBg : '#fff', color: leftTab === id ? COLORS.green : '#64748b' }}>{label}</button>
+              {([['model', '🔍 ' + t('型号搜索')], ['footprint', '📦 ' + t('KiCad封装库')],
+                 ['custom', (checkCap('part.custom').allowed ? '🛠 ' : '🔑 ') + t('定制模块')]] as const).map(([id, label]) => (
+                <button key={id} onClick={() => { if (id === 'custom' && !guardCustomPart()) return; setLeftTab(id); }} style={{ flex: 1, padding: '7px 0', fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1px solid ${leftTab === id ? COLORS.green : '#dbe6dd'}`, borderRadius: 8, background: leftTab === id ? COLORS.greenBg : '#fff', color: leftTab === id ? COLORS.green : '#64748b' }}>{label}</button>
               ))}
             </div>
-            {leftTab === 'model' ? <ComponentSearchPanel /> : leftTab === 'footprint' ? <FootprintLibraryPanel /> : <CustomLibPanel onOpenWizard={() => setWizard({ open: true })} onEditPart={(p) => setWizard({ open: true, editPart: p })} wizardTick={wizardTick} />}
+            {aiGate && <div style={{ padding: '0 10px 8px' }}><AiGateNotice reason={aiGate.reason} cost={aiGate.cost} onClose={() => setAiGate(null)} /></div>}
+            {leftTab === 'model' ? <ComponentSearchPanel /> : leftTab === 'footprint' ? <FootprintLibraryPanel /> : <CustomLibPanel
+                onOpenWizard={() => { if (guardCustomPart()) setWizard({ open: true }); }}
+                onEditPart={(p) => { if (guardCustomPart()) setWizard({ open: true, editPart: p }); }}
+                wizardTick={wizardTick} />}
           </div>
         </aside>
 
@@ -983,10 +994,6 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
       </div>
       </>)}
 
-      {/* 子电路推荐已移至右侧「AI 顾问」页（避免两处并存），这里只留入口提示 */}
-      <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: 10.5, color: '#4d7c0f', lineHeight: 1.6 }}>
-        🧩 {tr('子电路推荐与「重排附属器件」已移到右上角「AI 顾问」页。')}
-      </div>
 
       {/* 替代料（本组织映射） */}
       {alts.length > 0 && (

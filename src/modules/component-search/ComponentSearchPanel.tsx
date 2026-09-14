@@ -10,6 +10,9 @@ import { useDesignStore } from '../../state/designStore';
 import { useT, useTranslated, tr } from '../../shared/i18n';
 import { COLORS, fmtMoney } from '../../shared/theme';
 import { filterAndRank, looksLikeMpn } from '../../design-core/part-match-policy';
+import { useEntitlementStore } from '../../state/entitlementStore';
+import { loginUrl } from '../../design-core/entitlements';
+import { useLangStore } from '../../shared/i18n';
 import type { ComponentSearchResult } from '../../providers/types';
 import type { ComponentCategory } from '../../design-core/document/types';
 import { useAccessContext, anonymousContext } from '../../state/useAccessContext';
@@ -26,6 +29,8 @@ export function ComponentSearchPanel() {
   const [keyword, setKeyword] = useState('');
   const [category] = useState<ComponentCategory | null>(null);
   const [orgOnly] = useState(false);
+  /** 未登录只检索 ezPLM 器件库；分销商实时检索需要登录 */
+  const webAllowed = useEntitlementStore((st) => st.check('search.web').allowed);
   const [orgResults, setOrgResults] = useState<ComponentSearchResult[]>([]);
   const [ezplmResults, setEzplmResults] = useState<ComponentSearchResult[]>([]);
   const [netResults, setNetResults] = useState<ComponentSearchResult[]>([]);
@@ -59,6 +64,7 @@ export function ComponentSearchPanel() {
     dedupedNet.length ? 'net' : null,
   ].filter(Boolean) as ('org' | 'ezplm' | 'net')[]);
   const results = srcTab === 'org' ? orgResults : srcTab === 'ezplm' ? ezplmResults : dedupedNet;
+  const lang = useLangStore((st) => st.lang) === 'en' ? 'en' as const : 'zh' as const;
   const setResults = setEzplmResults;   // 兼容既有赋值路径（ezPLM 主源）
   const [expanded, setExpanded] = useState<string | null>(null);
   const addComponent = useDesignStore((s) => s.addComponent);
@@ -84,6 +90,9 @@ export function ComponentSearchPanel() {
       providers.components.searchComponents({ keyword: q, orgOnly: true }, ctx)
         .then((r: { items: ComponentSearchResult[] }) => { if (seq === searchSeq.current) setOrgResults(r.items ?? []); })
         .catch(() => { if (seq === searchSeq.current) setOrgResults([]); });
+      // 分销商实时检索用的是我们的 DigiKey/Mouser Key，未登录不发起 ——
+      // 既是配额保护，也让"未注册只能用 ezPLM 库"这条规则在网络层就成立
+      if (!webAllowed) { setNetResults([]); setNetBusy(false); setNetMsg(''); return; }
       setNetBusy(true); setNetMsg('');
       searchSupplierParts(q, 10)
         .then((r) => {
@@ -162,6 +171,12 @@ export function ComponentSearchPanel() {
             </button>
           ))}
           {netBusy && <span style={{ alignSelf: 'center', fontSize: 10, color: '#94a3b8' }}>⟳</span>}
+          {!webAllowed && (
+            <a href={loginUrl(lang)} title={tr('分销商实时检索需要登录后使用。未登录可以检索 ezPLM 器件库。')}
+              style={{ flex: 1, padding: '5px 0', borderRadius: 6, border: '1px dashed #cbd5e1', background: '#fff', color: '#94a3b8', fontSize: 11, fontWeight: 700, textAlign: 'center', textDecoration: 'none' }}>
+              🔑 {tr('网络检索')}
+            </a>
+          )}
         </div>
       )}
       <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>{t('找到')} {results.length} {t('个结果')}</div>
@@ -172,7 +187,7 @@ export function ComponentSearchPanel() {
       )}
       {!availTabs.length && keyword.trim() !== '' && !netBusy && (
         <div style={{ padding: '10px 12px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a', fontSize: 11, color: '#92400e', marginBottom: 8 }}>
-          {tr('本组织、ezPLM 与网络（DigiKey/Mouser）均未查询到结果')}
+          {webAllowed ? tr('本组织、ezPLM 与网络（DigiKey/Mouser）均未查询到结果') : tr('ezPLM 器件库未查询到结果')}
           {netGate.rejected > 0 && (
             <div style={{ marginTop: 4, fontSize: 10, color: '#b45309' }}>
               {tr('网络返回的')} {netGate.rejected} {tr('条结果与该型号相关性过低，已过滤')}

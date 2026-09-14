@@ -16,6 +16,8 @@ import type { ComponentCategory, ReviewLevel } from '../../design-core/document/
 import { SubCircuitSection } from './SubCircuitSection';
 import { useAccessContext, anonymousContext } from '../../state/useAccessContext';
 import { useAiGate } from '../account/useAiGate';
+import { useEntitlementStore } from '../../state/entitlementStore';
+import { loginUrl } from '../../design-core/entitlements';
 
 const providers = getProviders();
 // 身份来自 providers.identity（demo 模式自然是 demo-user，集成模式是真实身份）
@@ -67,6 +69,13 @@ const geminiCache = new Map<string, { name: string; reason: string }[]>();
 export function AdvisorPanel() {
   const ctx = useAccessContext() ?? anonymousContext();
   const { guard, gateNotice } = useAiGate();
+  /**
+   * 未登录时整页收起：这一页的每个区块（配套电路推荐、板级系统补全、
+   * 按类别建议）都依赖 AI 或需要账户边界。逐块显示"需要登录"会让页面
+   * 变成三段重复的挡板 —— 不如一次说清，把位置让给一句有用的说明。
+   */
+  const aiAllowed = useEntitlementStore((st) => st.check('advisor.analyze').allowed);
+  const lang = useLangStore((st) => st.lang) === 'en' ? 'en' as const : 'zh' as const;
   const doc = useDesignStore((s) => s.doc);
   const addComponent = useDesignStore((s) => s.addComponent);
   const [subs, setSubs] = useState<Record<string, PeripheralCircuitRecommendation[]>>({});
@@ -140,6 +149,26 @@ export function AdvisorPanel() {
 
   const layers = recommendLayers(doc);
   const highCount = doc.reviewResults.filter((r) => r.level === 'high').length;
+
+  if (!aiAllowed) {
+    return (
+      <div style={{ padding: '22px 16px', textAlign: 'center' }}>
+        <div style={{ fontSize: 28, marginBottom: 8 }}>🤖</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.green, marginBottom: 6 }}>{tr('AI 顾问需要登录')}</div>
+        <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.75, marginBottom: 12 }}>
+          {tr('这里会基于画布上的器件给出配套电路、参考设计与板级补全建议。登录后即可使用，新注册赠送体验 Credit。')}
+        </div>
+        <a href={loginUrl(lang)}
+          style={{ display: 'inline-block', padding: '7px 18px', borderRadius: 8, background: COLORS.green, color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+          {tr('去登录')}
+        </a>
+        <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 12, lineHeight: 1.7 }}>
+          {tr('未登录仍可使用：画布编辑、KiCad 工程导入、ezPLM 器件库检索、3D 与外壳、导出原型文件。')}
+        </div>
+      </div>
+    );
+  }
+
 
   return (
     <div>

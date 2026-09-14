@@ -30,7 +30,10 @@ export type AiCapability =
 export type AccountCapability =
   | 'design.save'          // 保存到云端空间
   | 'design.open'          // 打开自己空间里的设计
-  | 'design.share';        // 分享
+  | 'design.share'         // 分享
+  // 下面两项不耗 Credit，但同样消耗我们的上游配额 / 需要身份边界：
+  | 'search.web'           // 分销商 API 检索（DigiKey/Mouser 用的是我们的 Key）
+  | 'part.custom';         // 定制器件（建库属于账户资产，且提取走 AI）
 
 export type Capability = AiCapability | AccountCapability;
 
@@ -91,7 +94,11 @@ export function checkCapability(ent: Entitlements, cap: Capability): CapabilityC
       allowed: false, cost, reason: 'login-required',
       message: isAiCapability(cap)
         ? 'AI 功能需要登录后使用。未登录可以完整体验画布、导入工程与导出原型文件。'
-        : '保存与云端空间需要登录后使用。',
+        : cap === 'search.web'
+          ? '分销商实时检索需要登录后使用。未登录可以检索 ezPLM 器件库。'
+          : cap === 'part.custom'
+            ? '定制器件需要登录后使用 —— 建好的器件会存进你的账户器件库。'
+            : '保存与云端空间需要登录后使用。',
     };
   }
 

@@ -88,3 +88,28 @@ describe('价目表与入口', () => {
     expect(loginUrl('zh', 'https://proto.tindie.com/?x=1')).toContain(encodeURIComponent('https://proto.tindie.com/?x=1'));
   });
 });
+
+describe('未登录时的非 AI 限制', () => {
+  it('分销商实时检索需要登录（用的是我们的 DigiKey/Mouser Key）', () => {
+    const r = checkCapability(ANONYMOUS, 'search.web');
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toBe('login-required');
+    expect(r.cost).toBe(0);                       // 不耗 Credit
+    expect(r.message).toMatch(/ezPLM 器件库/);     // 但要说清还能用什么
+  });
+
+  it('定制器件需要登录（器件属于账户资产）', () => {
+    const r = checkCapability(ANONYMOUS, 'part.custom');
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toBe('login-required');
+    expect(r.cost).toBe(0);
+  });
+
+  it('注册用户零余额时，这两项仍然可用（不耗 Credit）', () => {
+    const zero: Entitlements = { tier: 'registered', credits: 0, creditsKnown: true };
+    expect(checkCapability(zero, 'search.web').allowed).toBe(true);
+    expect(checkCapability(zero, 'part.custom').allowed).toBe(true);
+    // 但 AI 功能仍然被额度挡住
+    expect(checkCapability(zero, 'scheme.generate').allowed).toBe(false);
+  });
+});
