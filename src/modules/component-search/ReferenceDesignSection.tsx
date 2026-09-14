@@ -88,10 +88,13 @@ export function ReferenceDesignSection({ c }: { c: PlacedComponent }) {
     setRelated({ state: 'LOADING', items: [] });
     // 只能走 ProviderRegistry，且应用项目必须带真实身份（私有数据；匿名不发请求）
     const rd = getProviders().referenceDesigns;
-    rd.getApplicationProjects(c.componentId, c.mpn, ctx).then((r) => { if (alive) setAppProjects(r); });
+    // 身份未就绪 → 不发私有请求；身份到位后本 effect 因 deps 含 userId/orgId 自动重跑。
+    // 此前 deps 漏了 ctx：首屏 ctx=null 时发出匿名请求，登录后也不再重查。
+    if (ctx?.userId) rd.getApplicationProjects(c.componentId, c.mpn, ctx).then((r) => { if (alive) setAppProjects(r); });
+    else setAppProjects({ state: 'UNAUTHORIZED', items: [], detail: '应用项目是私有数据，登录后可见' });
     rd.getRelatedReferenceDesigns(c.componentId, c.mpn, ctx).then((r) => { if (alive) setRelated(r); });
     return () => { alive = false; };
-  }, [c.componentId, c.mpn]);
+  }, [c.componentId, c.mpn, ctx?.userId, ctx?.organizationId]);
 
   const doExtract = () => {
     const out = extractCircuitFragment({ doc, anchorReference: c.reference });

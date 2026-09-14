@@ -126,7 +126,10 @@ export function PcbProjection3DLayer({ activeLayer }: { activeLayer: 'TOP' | 'BO
     const { w, h } = sizeRef.current;
     if (!cam || !w || !h) return;
     const vp = usePcbViewStore.getState().viewport;
-    const p = orthoCameraParams(w, h, doc.board.widthMm, doc.board.heightMm, vp);
+    // 板尺寸也从 store 现读：ResizeObserver 是挂载时注册的，闭包里的 doc.board 是首帧的值，
+    // 板框改过之后再拖侧栏，会按旧尺寸算相机（60×40 → 80×60 后错位）
+    const board = useDesignStore.getState().doc.board;
+    const p = orthoCameraParams(w, h, board.widthMm, board.heightMm, vp);
     cam.left = -p.halfWmm; cam.right = p.halfWmm;
     // up 已经取 (0,0,-1)：相机的 y 轴就是世界 -z，屏幕向下 = 板坐标 y 增大。
     // 这里再把 top/bottom 取反等于翻第二次，整张图会上下颠倒（模型飞到板外的根因之一）。

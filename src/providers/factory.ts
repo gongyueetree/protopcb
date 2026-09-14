@@ -15,6 +15,7 @@ import {
   LocalStorageProjectProvider, MockAiModelProvider,
 } from './mock';
 import { HttpClient } from './http/client';
+import { AiAccessError } from './ai-client';
 import { GeminiAiProvider } from './gemini';
 import {
   EzplmComponentDataProvider, EzplmReferenceDesignProvider,
@@ -25,6 +26,16 @@ import { geminiAvailable } from './gemini';
 import type { AiModelProvider, AiSchemeRequest, AccessContext } from './types';
 
 /** 动态 AI Provider：每次调用时检查 Gemini Key（localStorage/env），有则走 Gemini，无则回退 Mock */
+/**
+ * Mock 回退只在 demo 模式、或开发环境显式开启时允许。
+ * integrated / production 一律把真实错误抛给 UI —— 静默回退等于"假成功"。
+ */
+function mockFallbackAllowed(): boolean {
+  if (appConfig.mode === 'demo') return true;
+  const env = (import.meta as unknown as { env?: Record<string, string | boolean | undefined> }).env ?? {};
+  return env.DEV === true && env.VITE_ENABLE_AI_MOCK_FALLBACK === '1';
+}
+
 function makeAi(): AiModelProvider {
   const mock = new MockAiModelProvider();
   return {
@@ -35,9 +46,15 @@ function makeAi(): AiModelProvider {
           const out = await new GeminiAiProvider().generateScheme(req, ctx);
           return { ...out, source: 'gemini' as const };
         } catch (e) {
+          // 权限/计费类错误绝不能被 Mock 吞掉：401/402/鉴权故障回一份假方案，
+          // 用户会以为"生成成功"，既掩盖了问题也破坏了计费边界
+          if (e instanceof AiAccessError) throw e;
+          if (!mockFallbackAllowed()) throw e;
           fallbackReason = String((e as Error).message ?? e).slice(0, 140);
-          console.warn('[AI] Gemini 调用失败，回退 Mock:', fallbackReason);
+          console.warn('[AI] Gemini 调用失败，回退 Mock（仅 demo/开发允许）:', fallbackReason);
         }
+      } else if (!mockFallbackAllowed()) {
+        throw new AiAccessError('BACKEND_NOT_CONNECTED', 'AI 服务未配置（GEMINI_API_KEY）');
       }
       const mockOut = await (mock.generateScheme as (r: AiSchemeRequest, c?: AccessContext) => ReturnType<AiModelProvider['generateScheme']>)(req, ctx);
       return { ...mockOut, source: 'mock' as const, fallbackReason };

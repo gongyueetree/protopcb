@@ -54,7 +54,7 @@ import { AccountBar, AiGateNotice } from './modules/account/AccountBar';
 import { useEntitlementStore } from './state/entitlementStore';
 import { exportBomCsv } from './modules/bom/bom-csv';
 import { usePcbViewStore } from './state/pcbViewStore';
-import { exportDocument, importDocumentFromFile, autosave, exportMarkdownReport } from './modules/report/persistence';
+import { exportDocument, importDocumentFromFile, exportMarkdownReport } from './modules/report/persistence';
 import { COLORS, CATEGORY_DISPLAY, TOOLBAR_CTRL_H } from './shared/theme';
 import type { BoardShapeKind } from './design-core/document/types';
 
@@ -229,8 +229,6 @@ export default function App() {
 
   const selObj = doc.components.find((c) => c.instanceId === selectedId);
 
-  // autosave
-  useEffect(() => { autosave(doc); }, [doc]);
 
   // 画布点中网络 → 右侧自动切到「网络」页签（取消高亮时保留当前页签，
   // 因为「网络」页在未选网络时会显示"与选中器件相连的器件"，仍然有用）
@@ -713,7 +711,7 @@ export default function App() {
               // 详情面板里有十几处局部 state（补充信息输入框、KiCad 符号/封装检索关键词、
               // 检索结果、诊断信息…），不重挂载就会留在上一个器件的值上 —— 顶部已经换了型号，
               // 下面几个框还显示着上一颗料的内容。
-              : selObj ? <CompDetail key={selObj.instanceId} iid={selObj.instanceId} onBuild={(mpn) => setWizard({ open: true, mpn })} /> : <div style={{ textAlign: 'center', padding: 40, color: '#7F8C8D', fontSize: 12 }}>{t('点击画布中的元件查看详情')}</div>}
+              : selObj ? <CompDetail key={selObj.instanceId} iid={selObj.instanceId} onBuild={(mpn) => { if (guardCustomPart()) setWizard({ open: true, mpn }); }} /> : <div style={{ textAlign: 'center', padding: 40, color: '#7F8C8D', fontSize: 12 }}>{t('点击画布中的元件查看详情')}</div>}
           </div>
         </aside>
       </div>
@@ -854,6 +852,7 @@ export default function App() {
 
 function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => void }) {
   const ctx = useAccessContext() ?? anonymousContext();
+  const webAllowed = useEntitlementStore((s2) => s2.check('search.web').allowed);
   const t = useT();
   const c = useDesignStore((s) => s.doc.components.find((x) => x.instanceId === iid));
   const [alts, setAlts] = useState<{ mpn: string; manufacturer: string; note: string; channel: string; footprint?: string; description?: string }[]>([]);
@@ -866,13 +865,15 @@ function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => 
     setDkOffer(null);
     // 自建/占位器件的型号不是真实厂商料号，不查供应商（否则会匹配到无关器件的图片与价格）
     const isSynthetic = c.componentId?.startsWith('custom_') || c.componentId?.startsWith('fp_');
-    if (!isSynthetic) fetchDigikeyOffer(c.mpn).then((o) => { if (o?.found) setDkOffer(o); });
+    // 分销商实时查询用的是平台 Key：未登录不发请求（服务端本来也会 401，但别白跑一趟）
+    if (!isSynthetic && webAllowed) fetchDigikeyOffer(c.mpn).then((o) => { if (o?.found) setDkOffer(o); });
     setSupOffers([]);
-    if (!isSynthetic) fetchSupplierOffers(c.mpn).then(setSupOffers);
+    if (!isSynthetic && webAllowed) fetchSupplierOffers(c.mpn).then(setSupOffers);
     providers.components.getAlternatives(c.componentId, ctx).then(setAlts);
     providers.components.getSupplierOffers(c.componentId, ctx).then(setOffers);
     providers.components.getComponentDetail(c.componentId, ctx).then(setDetail);
-  }, [c?.componentId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [c?.componentId, webAllowed, ctx?.userId]);
   if (!c) return null;
   const disp = CATEGORY_DISPLAY[c.category];
   const coreParams = detail?.coreParams ?? c.display?.attributes ?? {};

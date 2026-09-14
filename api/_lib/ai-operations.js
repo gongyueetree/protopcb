@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 /**
  * api/_lib/ai-operations.js
  * AI 操作注册表 —— 计费边界的**唯一**定义。
@@ -142,13 +143,19 @@ Estimate the unit price for a 100-piece small-batch purchase in mainland China. 
     cost: 4,
     maxInputChars: 60000,
     allowAttachments: true,
-    validate: S.obj({
-      mode: S.opt(S.oneOf(['text', 'image', 'pdf', 'url'])),
-      text: S.opt(S.str(60000)),
-      url: S.opt(S.str(2000)),
-      lang: S.opt(S.oneOf(['zh', 'en'])),
-      // 附件在 body 顶层（pdfBase64 / imageBase64），不放进 input，见 /api/ai
-    }),
+    // 判别校验：mode 决定哪个字段必填。此前 input={} 也能通过，等于免费空转一次模型。
+    validate: (v) => {
+      if (!S.obj({ mode: S.oneOf(['text', 'image', 'pdf', 'url']), text: S.opt(S.str(60000)), url: S.opt(S.str(2000)), lang: S.opt(S.oneOf(['zh', 'en'])) })(v)) return false;
+      if (v.mode === 'text') return typeof v.text === 'string' && v.text.trim().length >= 20;
+      if (v.mode === 'url') return typeof v.url === 'string' && /^https:\/\/[^\s]+$/i.test(v.url);
+      return true;   // image / pdf：附件必填由 /api/ai 在 body 顶层校验（validateAttachments）
+    },
+    /** 附件必填规则（/api/ai 调用）：image 必须带 imageBase64，pdf 必须带 pdfBase64 */
+    validateAttachments: (input, body) => {
+      if (input.mode === 'image') return !!body?.imageBase64;
+      if (input.mode === 'pdf') return !!body?.pdfBase64;
+      return true;
+    },
     buildPrompt: ({ mode, text, url, lang }) => {
       const imageHint = mode === 'image'
         ? '\n补充：这是一张图片。请先判断它是「引脚定义图」还是「封装尺寸图」：引脚图 → 重点提取 pins（脚号+名称+类型）；封装尺寸图 → 重点提取 package（bodyW/bodyH/pitch，单位 mm，并按脚号数量推断 family）。两类信息都可见时都提取。'
@@ -169,14 +176,14 @@ ${pins.map((p) => `${p.number}: ${p.name}${p.type ? ` (${p.type})` : ''}`).join(
 };
 
 /** 定制器件提取的固定提示词（原在前端 CustomPartWizard，现移到服务端） */
-// 字段名必须与前端 CustomPartWizard.applyExtract 一致（num/desc/side、family 枚举），
-// 这是原来前端 EXTRACT_PROMPT_BASE 的服务端版本
+// 提取输出的结构与枚举来自 contracts/custom-part-enums.json（前端 custom-lib 读的是同一个文件）。
+// ⚠ 尺寸字段必须在 package{} 下：前端 applyExtract 只认 package.family / package.bodyW…
+//   此前写在根对象上，模型给了尺寸前端一个都收不到（真实回归）。
+const ENUMS = JSON.parse(readFileSync(new URL('../../contracts/custom-part-enums.json', import.meta.url), 'utf8'));
 const EXTRACT_PROMPT_BASE = `请从以上器件资料中提取信息，严格输出 JSON（勿输出其它文字）：
-{"mpn":"型号","description":"30字内功能描述","category":"ic|mcu|power|sensor|connector|passive|module|rf|electromech",
-"pins":[{"num":"1","name":"VCC","type":"power_in","desc":"电源","side":"top|bottom|left|right"}],
-"family":"dual|quad|sot|dip|qfn|bga|custom","bodyW":4.9,"bodyH":3.9,"pitch":1.27,"leadSpan":6.0,"padLen":1.5,"padWidth":0.6,"heightMm":1.75,
-"footprintName":"KiCad 封装名（如 SOIC-8_3.9x4.9mm_P1.27mm）"}
-pin.type 取 KiCad 电气类型：input|output|bidirectional|tri_state|passive|free|unspecified|power_in|power_out|open_collector|open_emitter|no_connect。
+{"mpn":"型号","description":"30字内功能描述","category":"${ENUMS.categories.join('|')}",
+"pins":[{"num":"1","name":"VCC","type":"${ENUMS.pinTypes.join('|')}","desc":"电源","side":"${ENUMS.pinSides.join('|')}"}],
+"package":{"family":"${ENUMS.families.join('|')}","bodyW":4.9,"bodyH":3.9,"pitch":1.27,"leadSpan":6.0,"padLen":1.5,"padWidth":0.6,"heightMm":1.75,"outlineW":null,"outlineH":null,"name":"KiCad 封装名（如 SOIC-8_3.9x4.9mm_P1.27mm）"}}
 side 按 KLC：电源在 top、地在 bottom、输入在 left、输出在 right。
 只填写资料里能确认的字段；不确定的留空或省略，不要编造。`;
 

@@ -149,6 +149,10 @@ export function checkAiPayload(body) {
       return { ok: false, status: 415, error: '图片仅支持 PNG / JPEG / WebP' };
     }
   }
+  // PDF 魔数：base64 的 "%PDF" 固定是 "JVBERi0"，不是 PDF 的字节别当 PDF 送模型
+  if (body?.pdfBase64 && !String(body.pdfBase64).startsWith('JVBERi0')) {
+    return { ok: false, status: 415, error: '附件不是有效的 PDF 文件' };
+  }
   return { ok: true };
 }
 

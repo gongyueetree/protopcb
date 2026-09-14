@@ -1,0 +1,6 @@
+{
+  "families": ["dual", "quad", "qfn", "header", "chip", "sot", "sod", "dpak", "to220", "bga", "manual"],
+  "categories": ["ic", "mcu", "power", "connector", "passive", "electromech", "sensor", "rf"],
+  "pinTypes": ["input", "output", "bidirectional", "tri_state", "passive", "free", "unspecified", "power_in", "power_out", "open_collector", "open_emitter", "no_connect"],
+  "pinSides": ["top", "bottom", "left", "right"]
+}

@@ -235,3 +235,19 @@ UI 的按钮门禁只为体验（少一次白跑的请求）。**真正的拦截
 - Cloud Project API（保存到我的空间 / 打开我的设计）
 - Cloud Custom Part API — 定制器件目前保存在本浏览器
 - Application Projects 用户级端点 — `api/ezplm.js` 仍用全局 `EZPLM_API_KEY` 转发，租户边界依赖后端按 partlibId 的可见性
+
+### 定制器件提取契约
+
+`contracts/custom-part-enums.json` 是 family / category / pin type / side 的唯一来源：
+前端 `custom-lib.ts` 与服务端 `api/_lib/ai-operations.js` 都从它读；
+提取结果的结构由 `design-core/custom-part-extract-contract.ts` 定义（尺寸在 `package{}` 下），
+模型输出先过该契约再进表单。测试会比对两边枚举与 prompt 形状。
+
+### part.extract 的服务端行为
+
+- `mode` 判别校验：text 需 ≥20 字正文、url 需 https、image/pdf 需对应附件；`input={}` → 400
+- 附件走 `checkAiPayload`：大小上限、MIME 白名单、PDF 魔数
+- `mode=url`：服务端 `safeFetch`（SSRF/重定向/大小/超时防护）抓取，PDF 转内联、HTML 剥标签取正文后再交模型，**不让模型只凭 URL 猜内容**
+- 顺序：校验 → 会话 → 执行器已配置 → 扣费 → 执行；`GEMINI_API_KEY` 未配置时 0 Credit
+- `/api/ds2kicad` 外部匿名 POST → 401；`/api/ezplm?path=application-projects` → 501（不再用全局 Key 代理私有数据）
+- integrated/production 模式下 AI 权限/计费错误原样抛出，**不再回退 Mock**（demo 或 `VITE_ENABLE_AI_MOCK_FALLBACK=1` 的开发环境除外）

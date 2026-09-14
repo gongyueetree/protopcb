@@ -13,10 +13,11 @@
  *
  * 旧的 /api/gemini 保留为管理员兼容入口，业务代码不再调用它。
  */
-import { acquire, deny, checkBodySize, readJsonBody } from './_lib/guard.js';
-import { requireAiAccess } from './_lib/session.js';
+import { acquire, deny, checkBodySize, readJsonBody, checkAiPayload } from './_lib/guard.js';
+import { requireAiAccess, verifySession } from './_lib/session.js';
 import { lookupOperation } from './_lib/ai-operations.js';
 import { callGemini } from './gemini.js';
+import { safeFetch } from './_lib/safe-fetch.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -44,23 +45,54 @@ export default async function handler(req, res) {
     if (!op.validate(input)) return res.status(400).send(JSON.stringify({ error: `invalid input for ${operation}`, code: 'INVALID_INPUT' }));
     if (JSON.stringify(input).length > op.maxInputChars) return res.status(413).send(JSON.stringify({ error: 'input too large', code: 'INPUT_TOO_LARGE' }));
 
-    // 附件只允许在标注 allowAttachments 的操作上
-    const inline = op.allowAttachments
-      ? (body.pdfBase64 ? { mime_type: 'application/pdf', data: String(body.pdfBase64) }
-        : body.imageBase64 ? { mime_type: String(body.imageMime ?? 'image/png'), data: String(body.imageBase64) } : null)
-      : null;
+    // 附件：只允许在标注 allowAttachments 的操作上；大小 / MIME / PDF 魔数复用 checkAiPayload
     if (!op.allowAttachments && (body.pdfBase64 || body.imageBase64)) {
       return res.status(400).send(JSON.stringify({ error: 'attachments not allowed for this operation', code: 'INVALID_INPUT' }));
     }
+    if (op.allowAttachments) {
+      const pc = checkAiPayload(body);
+      if (!pc.ok) return res.status(pc.status).send(JSON.stringify({ error: pc.error, code: pc.status === 413 ? 'ATTACHMENT_TOO_LARGE' : 'ATTACHMENT_INVALID' }));
+      if (op.validateAttachments && !op.validateAttachments(input, body)) {
+        return res.status(400).send(JSON.stringify({ error: `${input.mode} 模式必须附带对应附件`, code: 'INVALID_INPUT' }));
+      }
+    }
 
-    // 关卡：会话 + 扣费（价格来自注册表，不来自请求）
-    const access = await requireAiAccess(req, operation, op.cost, { operationId });
-    if (!access.ok) return res.status(access.status).send(JSON.stringify(access.body));
-
+    // ── 顺序：校验 → 会话 → 执行器已配置 → 扣费 → 执行 ──
+    // 扣费必须在"确认能执行"之后：GEMINI_API_KEY 没配就先扣钱再报 501，用户白白掉 Credit。
     const apiKey = (process.env.GEMINI_API_KEY ?? '').trim();
+    const sess = await verifySession(req);
+    if (!sess.ok) return res.status(sess.status).send(JSON.stringify({ error: sess.message, code: sess.code, capability: operation }));
     if (!apiKey) return res.status(501).send(JSON.stringify({ error: 'GEMINI_API_KEY not configured', code: 'AI_NOT_CONFIGURED' }));
 
-    const prompt = op.buildPrompt(input);
+    // URL 模式：服务端安全抓取（SSRF 防护 / 重定向校验 / 大小与超时上限），
+    // 把真实内容交给模型 —— 绝不让模型只凭一个 URL 字符串"猜"页面内容
+    let inline = body.pdfBase64 ? { mime_type: 'application/pdf', data: String(body.pdfBase64) }
+      : body.imageBase64 ? { mime_type: String(body.imageMime ?? 'image/png'), data: String(body.imageBase64) } : null;
+    let effectiveInput = input;
+    if (operation === 'part.extract' && input.mode === 'url') {
+      let fetched;
+      try {
+        fetched = await safeFetch(input.url, { maxBytes: 6 * 1024 * 1024, timeoutMs: 15000, allowedContentTypes: [/^application\/pdf/, /^text\/html/, /^text\/plain/] });
+      } catch (e) {
+        return res.status(422).send(JSON.stringify({ error: `无法抓取该 URL：${String(e?.message ?? e).slice(0, 160)}`, code: 'URL_FETCH_FAILED' }));
+      }
+      if (/^application\/pdf/.test(fetched.contentType)) {
+        inline = { mime_type: 'application/pdf', data: fetched.buffer.toString('base64') };
+        effectiveInput = { ...input, mode: 'pdf' };
+      } else {
+        // HTML/文本：确定性抽正文（去脚本样式标签、压空白），再交模型
+        const html = fetched.buffer.toString('utf8');
+        const text = html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (text.length < 20) return res.status(422).send(JSON.stringify({ error: '页面没有可提取的文本', code: 'URL_EMPTY' }));
+        effectiveInput = { ...input, mode: 'text', text: text.slice(0, 60000) };
+      }
+    }
+
+    // 扣费（价格来自注册表；operationId 作幂等键）—— 到这里已确认能执行
+    const access = await requireAiAccess(req, operation, op.cost, { operationId, session: sess });
+    if (!access.ok) return res.status(access.status).send(JSON.stringify(access.body));
+
+    const prompt = op.buildPrompt(effectiveInput);
     const out = await callGemini(apiKey, prompt, Number(body.temperature ?? 0.2), inline);
     return res.status(200).send(JSON.stringify({
       data: { text: out.text, model: out.model },

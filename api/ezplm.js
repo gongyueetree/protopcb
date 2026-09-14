@@ -25,7 +25,11 @@ const BASE_URL = 'https://www.ezplm.cn';
 // application-projects：ezPLM 网页端已有"应用项目"数据，但 API-Key 开放接口是否提供
 // 该端点尚未确认。此处放行透传：上游存在则直接接通；上游 404 由前端 Provider 映射为
 // BACKEND_NOT_CONNECTED 如实展示（绝不返回假项目数据）。
-const ALLOWED_PATHS = new Set(['parts', 'reference-designs', 'application-projects']);
+// application-projects 是**私有**数据：在 ezPLM 提供用户级端点之前，
+// 不能用全局 EZPLM_API_KEY 冒充用户去拿 —— 那会把整个组织的项目暴露给任何会话。
+// 明确 501，前端如实显示 NOT_CONNECTED。
+const ALLOWED_PATHS = new Set(['parts', 'reference-designs']);
+const PRIVATE_NOT_CONNECTED = new Set(['application-projects']);
 
 /** 与官方 demo 相同的 query 规范化：过滤空值 → 字典序排序 → encodeURIComponent 拼接 */
 export function canonicalQuery(params) {
@@ -110,6 +114,9 @@ export default async function handler(req, res) {
 
   if (!apiKey) {
     return res.status(501).send(JSON.stringify({ error: 'EZPLM_API_KEY not configured', hint: 'Vercel → Settings → Environment Variables 添加 EZPLM_API_KEY 后 Redeploy' }));
+  }
+  if (PRIVATE_NOT_CONNECTED.has(path)) {
+    return res.status(501).send(JSON.stringify({ error: '应用项目端点需要 ezPLM 提供用户级授权接口，尚未接通', code: 'APPLICATION_PROJECTS_NOT_CONNECTED' }));
   }
   if (!ALLOWED_PATHS.has(path)) {
     return res.status(400).send(JSON.stringify({ error: 'invalid path', allowed: [...ALLOWED_PATHS, 'status'] }));

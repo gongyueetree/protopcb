@@ -106,8 +106,9 @@ export async function consumeCredits(req, { capability, cost, userId, operationI
  * AI 端点统一入口：校验会话 → 扣费。任一步失败都返回可直接下发的错误体。
  * @returns {Promise<{ok:true, identity:object, remaining:number|null} | {ok:false, status:number, body:object}>}
  */
-export async function requireAiAccess(req, capability, cost, { operationId } = {}) {
-  const sess = await verifySession(req);
+export async function requireAiAccess(req, capability, cost, { operationId, session } = {}) {
+  // 调用方已经验过会话时直接复用，避免同一请求打两次 /me
+  const sess = session ?? await verifySession(req);
   if (!sess.ok) {
     return { ok: false, status: sess.status, body: { error: sess.message, code: sess.code, capability } };
   }

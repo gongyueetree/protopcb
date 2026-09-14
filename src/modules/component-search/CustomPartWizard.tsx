@@ -11,6 +11,7 @@ import { useMemo, useState , useEffect} from 'react';
 import { COLORS } from '../../shared/theme';
 import { geminiAvailable } from '../../providers/gemini';
 import { aiRequest, extractJson } from '../../providers/ai-client';
+import { parseExtraction } from '../../design-core/custom-part-extract-contract';
 import {
   KICAD_PIN_TYPES, type CustomPin, type CustomPkg, type CustomPart, type PinSide,
   saveCustomPart, defaultSide, buildCustomFootprint, customFootprintName,
@@ -225,7 +226,9 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
         if (out == null) { setAiBusy(false); return; }
         text = out;
       }
-      applyExtract(extractJson(text));
+      const parsed = parseExtraction(extractJson(text));
+      if (!parsed.ok) throw new Error(tr('提取结果结构不符') + `：${parsed.error}`);
+      applyExtract(parsed.data as Parameters<typeof applyExtract>[0]);
       setAiMsg(`✓ 已提取（${usedEngine}），请核对下方表单后保存`);
     } catch (e) {
       setAiMsg(tr('提取失败：') + (e as Error).message);

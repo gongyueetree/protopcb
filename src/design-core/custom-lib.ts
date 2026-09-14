@@ -24,10 +24,13 @@ export interface ManualPad { num: string; x: number; y: number; w: number; h: nu
  * 此前 Prompt 里复制了一份过期列表（只有 dual|quad|qfn|header|chip），
  * 每加一个族就漂移一次；现在 Prompt 动态构建，不再漂移。
  */
-export const CUSTOM_FAMILIES = ['dual', 'quad', 'qfn', 'header', 'chip', 'sot', 'sod', 'dpak', 'to220', 'bga', 'manual'] as const;
+// 枚举来自 contracts/custom-part-enums.json —— 服务端 AI 提取的 prompt/校验也读同一个文件，
+// 前后端不再各维护一份会过期的列表
+import enums from '../../contracts/custom-part-enums.json';
+export const CUSTOM_FAMILIES = enums.families as unknown as readonly ['dual', 'quad', 'qfn', 'header', 'chip', 'sot', 'sod', 'dpak', 'to220', 'bga', 'manual'];
 export type CustomFamily = (typeof CUSTOM_FAMILIES)[number];
 /** 器件类别中央 enum（与 ComponentCategory 保持一致的子集，供 Prompt/校验共用） */
-export const CUSTOM_CATEGORIES = ['ic', 'mcu', 'power', 'connector', 'passive', 'electromech', 'sensor', 'rf'] as const;
+export const CUSTOM_CATEGORIES = enums.categories as unknown as readonly ['ic', 'mcu', 'power', 'connector', 'passive', 'electromech', 'sensor', 'rf'];
 
 export interface CustomPkg {
   family: CustomFamily;

@@ -8,6 +8,10 @@
  *   - 分销商端点匿名 → 401，零上游调用
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+// safeFetch 会真的做 DNS 解析（SSRF 防护）；测试里把示例域名解析到公网地址
+vi.mock('node:dns/promises', () => ({
+  lookup: async (host) => (host === 'vendor.example' ? [{ address: '93.184.216.34', family: 4 }] : Promise.reject(new Error('ENOTFOUND'))),
+}));
 import aiHandler from '../ai.js';
 import digikeyHandler from '../digikey.js';
 import suppliersHandler from '../suppliers.js';
@@ -104,7 +108,7 @@ describe('/api/ai 服务端边界', () => {
     expect((await run('scheme.generate', { requirement: 'USB 串口' })).remaining).toBe(95);
     expect((await run('scheme.revise', { requirement: 'USB 串口', feedback: '加 ESD', previous: { components: [{ mpn: 'CH340C' }] } })).remaining).toBe(92);
     expect((await run('bom.estimate', { reference: 'R1', mpn: '10k' })).remaining).toBe(91);
-    expect((await run('part.extract', { mode: 'text', text: 'pin 1 VCC' })).remaining).toBe(87);
+    expect((await run('part.extract', { mode: 'text', text: 'Pin 1 VCC, Pin 2 GND, Pin 3 OUT. SOIC-8 package 3.9x4.9mm' })).remaining).toBe(87);
     expect(up.state.credits).toBe(87);
     expect(up.calls.gemini).toBe(4);
   });
@@ -168,5 +172,112 @@ describe('分销商端点服务端门禁（不扣费，但必须登录）', () =
     const res = mockRes();
     await digikeyHandler(req({ method: 'GET', query: { path: 'status' }, headers: { authorization: 'Bearer good-token' } }), res);
     expect(up.calls.consume).toBe(0);
+  });
+});
+
+describe('part.extract 判别校验与扣费顺序（P0-5 / P0-6）', () => {
+  let up;
+  beforeEach(() => {
+    process.env.GEMINI_API_KEY = 'k'; process.env.EZPLM_AUTH_BASE = 'https://auth.test/api/v1'; process.env.AI_REQUIRE_AUTH = '1';
+    up = installUpstreamMock();
+  });
+  afterEach(() => { delete process.env.GEMINI_API_KEY; delete process.env.EZPLM_AUTH_BASE; vi.unstubAllGlobals(); });
+
+  const extract = async (input, extra = {}) => {
+    const res = mockRes();
+    await aiHandler(authed({ operation: 'part.extract', operationId: UUID(), input, ...extra }), res);
+    return res;
+  };
+
+  it('input={} → 400，零扣费（此前会免费空转一次模型）', async () => {
+    const res = await extract({});
+    expect(res.statusCode).toBe(400);
+    expect(up.state.credits).toBe(100);
+    expect(up.calls.gemini).toBe(0);
+  });
+
+  it('mode=text 但没有正文 → 400', async () => {
+    expect((await extract({ mode: 'text' })).statusCode).toBe(400);
+    expect((await extract({ mode: 'text', text: 'short' })).statusCode).toBe(400);
+  });
+
+  it('mode=image 但没有图片附件 → 400', async () => {
+    expect((await extract({ mode: 'image' })).statusCode).toBe(400);
+  });
+
+  it('mode=url 必须是 https', async () => {
+    expect((await extract({ mode: 'url', url: 'http://x.com/a.pdf' })).statusCode).toBe(400);
+    expect((await extract({ mode: 'url', url: 'ftp://x.com/a.pdf' })).statusCode).toBe(400);
+  });
+
+  it('图片超限 → 413，零扣费', async () => {
+    const big = 'A'.repeat(9 * 1024 * 1024);   // ~6.75MB 解码后，超过 5MB 上限
+    const res = await extract({ mode: 'image' }, { imageBase64: big, imageMime: 'image/png' });
+    expect(res.statusCode).toBe(413);
+    expect(up.state.credits).toBe(100);
+  });
+
+  it('非法 MIME → 415；非 PDF 字节冒充 PDF → 415', async () => {
+    expect((await extract({ mode: 'image' }, { imageBase64: 'AAAA', imageMime: 'image/gif' })).statusCode).toBe(415);
+    expect((await extract({ mode: 'pdf' }, { pdfBase64: 'AAAA' })).statusCode).toBe(415);
+    expect(up.state.credits).toBe(100);
+  });
+
+  it('GEMINI_API_KEY 未配置 → 501 且零扣费（扣费必须在确认能执行之后）', async () => {
+    delete process.env.GEMINI_API_KEY;
+    const res = await extract({ mode: 'text', text: 'Pin 1 VCC, Pin 2 GND, Pin 3 OUT, SOIC-8 package' });
+    expect(res.statusCode).toBe(501);
+    expect(up.state.credits).toBe(100);
+    expect(up.calls.consume).toBe(0);
+  });
+
+  it('mode=url：服务端真的抓取页面，正文进入模型而不是只给 URL', async () => {
+    const seenPrompts = [];
+    vi.stubGlobal('fetch', async (url, init) => {
+      const u = String(url);
+      if (u === 'https://vendor.example/ch340c.html') {
+        return new Response('<html><body><h1>CH340C</h1><p>USB to serial. Pin 1 GND Pin 2 TXD Pin 3 RXD Pin 16 VCC. SOP-16 package 10x4mm</p><script>junk()</script></body></html>',
+          { status: 200, headers: { 'content-type': 'text/html' } });
+      }
+      if (u.includes('generativelanguage')) { seenPrompts.push(JSON.parse(init.body).contents[0].parts.map((p) => p.text ?? '').join('')); return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{}' }] } }] })); }
+      if (u.endsWith('/me')) return new Response(JSON.stringify({ data: { userId: 'u1', credits: 100 } }));
+      if (u.endsWith('/credits/consume')) return new Response(JSON.stringify({ remaining: 96 }));
+      return new Response('{}');
+    });
+    const res = await extract({ mode: 'url', url: 'https://vendor.example/ch340c.html' });
+    if (res.statusCode !== 200) console.log('URL-BODY', res.body);
+    expect(res.statusCode).toBe(200);
+    expect(seenPrompts.length).toBe(1);
+    expect(seenPrompts[0]).toContain('Pin 16 VCC');          // 页面正文到达了模型
+    expect(seenPrompts[0]).not.toContain('junk()');          // 脚本被剥掉
+  });
+});
+
+describe('/api/ds2kicad 外部匿名调用（P0-2）', () => {
+  it('匿名 POST → 401，零上游调用', async () => {
+    process.env.EZPLM_AUTH_BASE = 'https://auth.test/api/v1'; process.env.AI_REQUIRE_AUTH = '1';
+    process.env.DS2KICAD_URL = 'https://ds2kicad.test';
+    const up = installUpstreamMock();
+    const { default: ds2 } = await import('../ds2kicad.js');
+    const res = mockRes();
+    await ds2(req({ body: { pdfBase64: 'JVBERi0x' } }), res);
+    expect(res.statusCode).toBe(401);
+    const upstream = Object.entries(up.calls).filter(([k]) => !['me', 'consume'].includes(k)).reduce((a, [, v]) => a + v, 0);
+    expect(upstream).toBe(0);
+    delete process.env.DS2KICAD_URL; delete process.env.EZPLM_AUTH_BASE; vi.unstubAllGlobals();
+  });
+});
+
+describe('application-projects 代理已下线（P0-9）', () => {
+  it('GET /api/ezplm?path=application-projects → 501 APPLICATION_PROJECTS_NOT_CONNECTED，不打上游', async () => {
+    process.env.EZPLM_API_KEY = 'global-key';
+    const up = installUpstreamMock();
+    const { default: ezplm } = await import('../ezplm.js');
+    const res = mockRes();
+    await ezplm(req({ method: 'GET', query: { path: 'application-projects', partlibId: 'p1', mpn: 'X' } }), res);
+    expect(res.statusCode).toBe(501);
+    expect(JSON.parse(res.body).code).toBe('APPLICATION_PROJECTS_NOT_CONNECTED');
+    expect(Object.values(up.calls).reduce((a, v) => a + v, 0)).toBe(0);
+    delete process.env.EZPLM_API_KEY; vi.unstubAllGlobals();
   });
 });

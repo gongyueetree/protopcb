@@ -1,3 +1,4 @@
+import { requireAuthenticatedCapability } from './_lib/session.js';
 import { acquire, checkBodySize, deny, readJsonBody } from './_lib/guard.js';
 /**
  * api/ds2kicad.js — DS2KiCad 提取引擎代理（BFF）
@@ -41,6 +42,12 @@ function signJwt(secret) {
 
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  // 提取能力统一由 /api/ai 的 part.extract 承担（服务端计费与权限）。
+  // 本端点消耗 DS2KiCad 配额，外部匿名调用一律拒绝，在任何上游调用之前。
+  if (req.method === 'POST') {
+    const gate = await requireAuthenticatedCapability(req, 'part.custom');
+    if (!gate.ok) return res.status(gate.status).send(JSON.stringify(gate.body));
+  }
   // 配额防护：这些接口消耗自有 API 额度，需限制频率/并发/体积
   const sizeCheck = checkBodySize(req);
   if (!sizeCheck.ok) return deny(res, sizeCheck);

@@ -87,9 +87,14 @@ export function ComponentSearchPanel() {
     const q = keyword.trim();
     // ── 本组织物料（orgOnly 检索）与 网络（DigiKey/Mouser）并行拉取 ──
     if (q) {
-      providers.components.searchComponents({ keyword: q, orgOnly: true }, ctx)
-        .then((r: { items: ComponentSearchResult[] }) => { if (seq === searchSeq.current) setOrgResults(r.items ?? []); })
-        .catch(() => { if (seq === searchSeq.current) setOrgResults([]); });
+      // 本组织物料是私有数据：匿名不发请求（也没有租户可查）
+      if (ctx?.userId) {
+        providers.components.searchComponents({ keyword: q, orgOnly: true }, ctx)
+          .then((r: { items: ComponentSearchResult[] }) => { if (seq === searchSeq.current) setOrgResults(r.items ?? []); })
+          .catch(() => { if (seq === searchSeq.current) setOrgResults([]); });
+      } else {
+        setOrgResults([]);
+      }
       // 分销商实时检索用的是我们的 DigiKey/Mouser Key，未登录不发起。
       // ⚠ 这里只能跳过这一条分支，绝不能 return —— 函数后面还有 ezPLM 实时检索，
       //   提前 return 会把未登录用户的 ezPLM 搜索一起打掉（踩过一次）。
@@ -141,7 +146,8 @@ export function ComponentSearchPanel() {
     }
     if (seq !== searchSeq.current) return;
     setResults(res.items);
-  }, [keyword, category, orgOnly]);
+  // 身份与网络权限变化都要重跑：登录后本组织与分销商结果才会出现
+  }, [keyword, category, orgOnly, ctx?.userId, ctx?.organizationId, webAllowed]);
 
   // 当前 Tab 无结果时自动切到有结果的源（避免用户看到空白误以为没搜到）
   useEffect(() => {
