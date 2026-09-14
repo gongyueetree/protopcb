@@ -79,11 +79,16 @@ export function BoardCanvas2D() {
       const rect = el.getBoundingClientRect();
       const mx = e.clientX - rect.left, my = e.clientY - rect.top;
       const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      setZoom((prev) => {
-        const next = Math.min(5, Math.max(0.2, prev * delta));
-        setPan((p) => ({ x: mx - (mx - p.x) * (next / prev), y: my - (my - p.y) * (next / prev) }));
-        return next;
-      });
+      // 用 viewMemory（同步真值）一次算出 zoom 与 pan，再各自 set 一次。
+      // 此前是在 setZoom 的 updater 里嵌套 setPan：两个更新被拆成两次渲染，
+      // 中间那一帧发布了「新 zoom + 旧 pan」的视口给 3D 投影层，模型就和焊盘脱开了，
+      // 直到下一次任意渲染（比如点一下画布）才对齐。
+      const prev = viewMemory.zoom;
+      const next = Math.min(5, Math.max(0.2, prev * delta));
+      const p = viewMemory.pan;
+      const nextPan = { x: mx - (mx - p.x) * (next / prev), y: my - (my - p.y) * (next / prev) };
+      setZoom(next);
+      setPan(nextPan);
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);

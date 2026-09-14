@@ -88,3 +88,21 @@ describe('画布尺寸与设备像素比', () => {
     expect(src).toMatch(/cam\.top = p\.halfHmm;\s*cam\.bottom = -p\.halfHmm;/);
   });
 });
+
+describe('缩放时视口原子更新（回归：3D 与焊盘脱离直到下一次点击）', () => {
+  it('滚轮缩放不得使用嵌套的 setZoom→setPan（会拆成两帧发布"新 zoom + 旧 pan"）', async () => {
+    const src = await import('node:fs').then((fs) =>
+      fs.readFileSync(new URL('../src/modules/board-editor/BoardCanvas2D.tsx', import.meta.url), 'utf8'));
+    const wheel = src.slice(src.indexOf('const onWheel'), src.indexOf("addEventListener('wheel'"));
+    expect(wheel).not.toMatch(/setZoom\(\s*\(prev\)\s*=>[\s\S]*setPan\(/);
+    // 必须先从同步真值算出 zoom 与 pan，再各自 set 一次
+    expect(wheel).toMatch(/viewMemory\.zoom/);
+    expect(wheel).toMatch(/viewMemory\.pan/);
+  });
+
+  it('投影层的相机同步在尺寸变化与场景同步时也会执行', async () => {
+    const src = await import('node:fs').then((fs) =>
+      fs.readFileSync(new URL('../src/modules/board-editor/PcbProjection3DLayer.tsx', import.meta.url), 'utf8'));
+    expect((src.match(/syncCamera\(\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
+  });
+});

@@ -569,6 +569,8 @@ export default function App() {
           <PipelineBar />
           {/* Toolbar */}
           <div style={{ background: '#fff', borderBottom: '2px solid #E8F3EE', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8, rowGap: 6, flexWrap: 'wrap', minHeight: TOOLBAR_CTRL_H + 16 }}>
+            <button onClick={() => setLeftManual(!leftOpen)} title={t('折叠/展开左侧器件栏')} style={ibtn}>{leftOpen ? '◧' : '▶'}</button>
+            <span style={{ width: 1, height: 22, background: '#E8F3EE', margin: '0 2px' }} />
             <button onClick={undo} style={ibtn} title={t('撤销')} aria-label={t('撤销')}>↩</button>
             <button onClick={redo} style={ibtn} title={t('重做')} aria-label={t('重做')}>↪</button>
             <button onClick={() => { clearAll(); ProjectPersistenceService.clearByUser(); }} style={ibtn} title={t('清除')} aria-label={t('清除')} onClickCapture={(e) => {
@@ -577,7 +579,6 @@ export default function App() {
             }}>🧹</button>
             <button onClick={autoArrange} style={ibtn} title={t('自动整理') + ' — ' + t('按电气规则重新自动布局全部器件（可撤销）')} aria-label={t('自动整理')}>✨</button>
             <div style={{ width: 1, height: 18, background: '#E8F3EE', margin: '0 4px' }} />
-            <button onClick={() => setLeftManual(!leftOpen)} title={t('折叠/展开左侧器件栏')} style={ibtn}>{leftOpen ? '◧' : '▶'}</button>
             {view === '2d' && mainTab === 'pcb' && <PcbViewControls />}
             {view === '2d' && (
               <div style={{ display: 'flex', height: TOOLBAR_CTRL_H, borderRadius: 6, overflow: 'hidden', border: '1px solid #E8F3EE' }} title={tr('当前放置层（选中器件按 L 换层）')}>

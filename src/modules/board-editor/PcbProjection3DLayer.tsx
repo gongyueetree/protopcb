@@ -86,7 +86,7 @@ export function PcbProjection3DLayer({ activeLayer }: { activeLayer: 'TOP' | 'BO
       // updateStyle 必须为 true：否则 canvas 的 CSS 尺寸不设置，
       // 在 DPR=2 的屏上会以 2 倍尺寸显示，模型整体放大并向右下偏移
       renderer.setSize(w, h);
-      requestRender();
+      syncCamera();   // 尺寸变了相机必须跟着重算，否则首次挂载会停在默认 -1..1 视锥
     });
     ro.observe(host);
     sizeRef.current = { w: host.clientWidth, h: host.clientHeight };
@@ -117,12 +117,16 @@ export function PcbProjection3DLayer({ activeLayer }: { activeLayer: 'TOP' | 'BO
     });
   };
 
-  /* ---------- 相机同步：只在视口/尺寸变化时更新 ---------- */
-  useEffect(() => {
+  /* ---------- 相机同步 ---------- */
+  // 抽成函数：视口变化、容器尺寸变化、场景同步三处都调用。
+  // 只挂在 viewport 上的话，ResizeObserver 首次回调后相机仍停在默认 -1..1，
+  // 要等到下一次视口变化才对齐。
+  const syncCamera = () => {
     const cam = cameraRef.current;
     const { w, h } = sizeRef.current;
     if (!cam || !w || !h) return;
-    const p = orthoCameraParams(w, h, doc.board.widthMm, doc.board.heightMm, viewport);
+    const vp = usePcbViewStore.getState().viewport;
+    const p = orthoCameraParams(w, h, doc.board.widthMm, doc.board.heightMm, vp);
     cam.left = -p.halfWmm; cam.right = p.halfWmm;
     // up 已经取 (0,0,-1)：相机的 y 轴就是世界 -z，屏幕向下 = 板坐标 y 增大。
     // 这里再把 top/bottom 取反等于翻第二次，整张图会上下颠倒（模型飞到板外的根因之一）。
@@ -132,8 +136,9 @@ export function PcbProjection3DLayer({ activeLayer }: { activeLayer: 'TOP' | 'BO
     cam.lookAt(p.centerXmm, 0, p.centerZmm);
     cam.updateProjectionMatrix();
     requestRender();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewport, doc.board.widthMm, doc.board.heightMm, sizeRef.current.w, sizeRef.current.h]);
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { syncCamera(); }, [viewport, doc.board.widthMm, doc.board.heightMm]);
 
   /* ---------- 场景增量同步 ---------- */
   useEffect(() => {
@@ -173,7 +178,7 @@ export function PcbProjection3DLayer({ activeLayer }: { activeLayer: 'TOP' | 'BO
       scene.remove(entry.obj);
       map.delete(id);
     }
-    requestRender();
+    syncCamera();   // 顺带对齐相机（便宜，且能吸收任何漏掉的视口更新）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc.components, doc.board, libVersion, activeLayer, showComponent3D, hidden3dIds, solo3dId, mode]);
 

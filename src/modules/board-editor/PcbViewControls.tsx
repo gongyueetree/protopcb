@@ -11,10 +11,17 @@ import { tr } from '../../shared/i18n';
 import { COLORS, TOOLBAR_CTRL_H } from '../../shared/theme';
 
 
+/**
+ * 三档视图，用户只需理解"看多少东西"：
+ *   2D      只看焊盘与走线（编辑时最清楚）
+ *   2D+3D   焊盘上叠真实器件顶视图（既能编辑又能看实物关系）
+ *   实物    只看实物外观（收起工程标注）
+ * 此前旁边还有一个独立的「3D」开关，和"2D 模式"语义重叠，用户分不清 —— 已合并进这三档。
+ */
 const MODES: { id: PcbVisualMode; label: string; hint: string }[] = [
-  { id: '2d', label: '2D', hint: '纯 2D 编辑视图（不挂载 3D 图层，性能与原来一致）' },
-  { id: 'hybrid', label: '混合', hint: '焊盘/走线 + 器件 3D 顶视投影' },
-  { id: 'realistic', label: '实物投影', hint: '弱化工程标注，接近实物外观' },
+  { id: '2d', label: '2D', hint: '只看焊盘与走线，编辑最清楚' },
+  { id: 'hybrid', label: '2D+3D', hint: '焊盘上叠加器件的真实顶视图' },
+  { id: 'realistic', label: '实物', hint: '只看实物外观，收起位号与封装外框' },
 ];
 
 export function PcbViewControls() {
@@ -23,7 +30,6 @@ export function PcbViewControls() {
   const showPads = usePcbViewStore((s) => s.showPads);
   const setShowPads = usePcbViewStore((s) => s.setShowPads);
   const showComponent3D = usePcbViewStore((s) => s.showComponent3D);
-  const setShowComponent3D = usePcbViewStore((s) => s.setShowComponent3D);
   const showAll3D = usePcbViewStore((s) => s.showAll3D);
   const hideAll3D = usePcbViewStore((s) => s.hideAll3D);
   const soloComponent3D = usePcbViewStore((s) => s.soloComponent3D);
@@ -51,23 +57,17 @@ export function PcbViewControls() {
       </div>
 
       {mode !== '2d' && (
-        <>
-          <button onClick={() => setShowComponent3D(!showComponent3D)}
-            title={tr('器件 3D 总开关')}
-            style={chip(showComponent3D)}>🧊 3D</button>
-          <button onClick={() => setShowPads(!showPads)} title={tr('焊盘显示')} style={chip(showPads)}>⬚ {tr('焊盘')}</button>
-          <button onClick={() => setOpen((v) => !v)} title={tr('显示选项')} style={chip(false)}>
-            ⋯{hiddenCount || solo3dId ? ` (${solo3dId ? tr('单件') : hiddenCount})` : ''}
-          </button>
-        </>
+        <button onClick={() => setOpen((v) => !v)} title={tr('显示选项')} style={chip(false)}>
+          ⋯{hiddenCount || solo3dId || !showComponent3D || !showPads ? ` (${solo3dId ? tr('单件') : !showComponent3D ? tr('3D 已隐藏') : hiddenCount || (!showPads ? tr('焊盘已隐藏') : '')})` : ''}
+        </button>
       )}
 
       {open && (
         <div onMouseLeave={() => setOpen(false)}
           style={{ position: 'absolute', top: 34, right: 0, zIndex: 20, background: '#fff', borderRadius: 10, border: '1px solid #E8F3EE', boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: 6, width: 190 }}>
           {[
-            ['显示全部 3D', () => showAll3D()],
-            ['隐藏全部 3D', () => hideAll3D()],
+            [showPads ? '隐藏焊盘' : '显示焊盘', () => setShowPads(!showPads)],
+            [showComponent3D ? '隐藏全部 3D' : '显示全部 3D', () => (showComponent3D ? hideAll3D() : showAll3D())],
             [selectedId ? '仅显示选中器件' : '仅显示选中器件（未选中）', () => selectedId && soloComponent3D(selectedId)],
             ['取消单件模式', () => clearSolo3D()],
             ['恢复默认', () => resetViewOptions()],
