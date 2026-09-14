@@ -59,6 +59,8 @@ export interface KicadImportResult {
   footprintDefs: Record<string, PadFootprint>;
   /** 各封装名 → KiCad 官方 3D 引用（3dshapes 目录基名 + 模型基名），来自内嵌 (model) */
   modelRefs: Record<string, { lib3d: string; name3d: string }>;
+  /** 封装名 → 工程自带 3D 模型的原始路径（如 ${KIPRJMOD}/3D/evqp7-ja-01p.step） */
+  projectModelPaths: Record<string, string>;
 }
 
 /** 读取 footprint 的文本属性：v7+ (property "Reference" "U1") / v6 (fp_text reference U1 …) */
@@ -109,6 +111,8 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const skipped: string[] = [];
   const footprintDefs: Record<string, PadFootprint> = {};
   const modelRefs: Record<string, { lib3d: string; name3d: string }> = {};
+  /** 封装名 → .kicad_pcb 里写的原始 model 路径（可能含 ${KIPRJMOD} 变量） */
+  const projectModelPaths: Record<string, string> = {};
   // 顶层网络表：(net 3 +5V) / (net 1 "Net-(R20-Pad1)")
   const nets: Record<number, string> = {};
   for (const n of findAll(pcb, 'net')) {
@@ -156,6 +160,8 @@ export function parseKicadPcb(text: string): KicadImportResult {
       const mpath = mdl ? String(mdl[1] ?? '') : '';
       const mm = mpath.match(/([^/\\]+)\.3dshapes[/\\]([^/\\]+)\.(step|stp|wrl)$/i);
       if (mm) modelRefs[fpName] = { lib3d: mm[1], name3d: mm[2] };
+      // 工程自带模型（${KIPRJMOD}/3D/xxx.step 这类）：记下原始路径，zip 导入时按文件名在包内匹配
+      if (mpath && /\.(step|stp)$/i.test(mpath) && !/\.3dshapes[/\\]/i.test(mpath)) projectModelPaths[fpName] = mpath;
     }
     const at = find(fp, 'at');
     const layerRaw = String(find(fp, 'layer')?.[1] ?? 'F.Cu');
@@ -243,5 +249,5 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const widthMm = hasOutline ? Math.max(1, rawW) : Math.max(20, rawW);
   const heightMm = hasOutline ? Math.max(1, rawH) : Math.max(20, rawH);
 
-  return { nets, copperLayers, tracks, vias: viasArr, mountingHoles, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs };
+  return { nets, copperLayers, tracks, vias: viasArr, mountingHoles, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs, projectModelPaths };
 }

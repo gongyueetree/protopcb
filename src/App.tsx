@@ -36,7 +36,7 @@ import { autoKicadFootprint } from './design-core/geometry/auto-kicad-footprint'
 import { useT, useLangStore, useTranslated, tr, syncDocumentLang } from './shared/i18n';
 import { registerFootprintOverride, registerSymbolOverride, symbolOverrideFor, footprintOverrideFor } from './design-core/geometry/lib-file-registry';
 import { parseKicadSym } from './design-core/geometry/lib-file-registry';
-import type { PlacedComponent as PlacedComponentT } from './design-core/document/types';
+import type { PlacedComponent as PlacedComponentT, CircuitCanvasDocument } from './design-core/document/types';
 import { BoardCanvas2D } from './modules/board-editor/BoardCanvas2D';
 import { OverviewPanel } from './modules/report/OverviewPanel';
 import { NetInspector } from './modules/connectivity/NetInspector';
@@ -371,12 +371,12 @@ export default function App() {
     renameDocument(n.trim());
     return true;
   };
-  const importPcbText = (text: string): { comps: number; skipped: number } => {
+  const importPcbText = (text: string): { comps: number; skipped: number; projectModelPaths: Record<string, string> } => {
     const data = parseKicadPcb(text);
     // 注册 PCB 内嵌封装定义 → 导入器件焊盘精确、3D 按真实焊盘构建
     for (const [name, def] of Object.entries(data.footprintDefs)) registerFootprintOverride(name, def);
     importKicad(data);
-    return { comps: data.comps.length, skipped: data.skipped.length };
+    return { comps: data.comps.length, skipped: data.skipped.length, projectModelPaths: data.projectModelPaths };
   };
 
   /** KiCad 5 旧版 .sch：无内嵌符号定义，仅提取实例/连线/标签用于原样视图 */
@@ -412,7 +412,7 @@ export default function App() {
   };
 
   /** 从 .kicad_sch 文本提取内嵌符号并按位号挂到已导入器件（原理图区随即显示真符号） */
-  const applySchText = (text: string): { symbols: number; linked: number } => {
+  const applySchText = (text: string, fileName = 'schematic.kicad_sch', collectOnly = false): { symbols: number; linked: number; sheet: NonNullable<CircuitCanvasDocument['schematicSheet']> } => {
     const sch = parseKicadSch(text);
     let symbols = 0;
     const refKeyMap: Record<string, string> = {};
@@ -426,8 +426,7 @@ export default function App() {
       for (const [ref, lid] of Object.entries(sch.refToLibId)) if (lid === libId) refKeyMap[ref] = key;
     }
     const linked = assignSymbolsByReference(refKeyMap);
-    // 原理图原样视图数据存入文档（随设计持久化，刷新/导出 JSON 均保留）
-    setSchematicSheet({
+    const sheet: NonNullable<CircuitCanvasDocument['schematicSheet']> = {
       instances: sch.instances,
       wires: sch.wires,
       junctions: sch.junctions,
@@ -437,8 +436,12 @@ export default function App() {
       buses: sch.buses,
       busEntries: sch.busEntries,
       frame: sch.frame,
-    });
-    return { symbols, linked };
+      sheets: sch.sheets,
+      file: fileName,
+    };
+    // 单文件导入：直接作为当前页；zip 多页由调用方汇总后用 setSchematicSheets 写入
+    if (!collectOnly) setSchematicSheet(sheet);
+    return { symbols, linked, sheet };
   };
 
   const onImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -457,11 +460,39 @@ export default function App() {
         const legacySchNames = names.filter((n) => /\.sch$/i.test(n) && !/\.kicad_sch$/i.test(n));
         if (!pcbName) throw new Error(t('压缩包内未找到 .kicad_pcb 文件'));
         const r = importPcbText(strFromU8(entries[pcbName]));
-        let symTotal = 0, linkTotal = 0;
-        for (const sn of schNames) {
-          const rr = applySchText(strFromU8(entries[sn]));
-          symTotal += rr.symbols; linkTotal += rr.linked;
+        // 工程自带的 3D 模型：.kicad_pcb 里 (model "${KIPRJMOD}/3D/xxx.step") 这类引用，
+        // 包内有对应文件就按文件名匹配并注册（官方库里没有的按键、弯针连接器靠的就是它）
+        let projModels = 0;
+        if (r.projectModelPaths) {
+          const stepFiles = names.filter((n) => /\.(step|stp)$/i.test(n));
+          const base = (p: string) => p.split(/[\\/]/).pop()!.toLowerCase();
+          for (const [fpName, mpath] of Object.entries(r.projectModelPaths)) {
+            const hit = stepFiles.find((n) => base(n) === base(mpath));
+            if (!hit) continue;
+            const url = URL.createObjectURL(new Blob([entries[hit]], { type: 'application/step' }));
+            useDesignStore.getState().setStepUrlByFootprint(fpName, url);
+            projModels++;
+          }
         }
+        let symTotal = 0, linkTotal = 0;
+        // 多页层级工程：全部页面都解析，按文件名归档；根页 = 有子页引用但不被任何页引用的那张
+        const sheets: Record<string, NonNullable<CircuitCanvasDocument['schematicSheet']>> = {};
+        const referenced = new Set<string>();
+        for (const sn of schNames) {
+          const base = sn.split('/').pop()!;
+          const rr = applySchText(strFromU8(entries[sn]), base, true);
+          symTotal += rr.symbols; linkTotal += rr.linked;
+          sheets[base] = rr.sheet;
+          for (const sub of rr.sheet.sheets ?? []) referenced.add(sub.file.split('/').pop()!);
+        }
+        // 子页名字：父页的 Sheetname 属性才是人读的名字（文件名可能被多次复用，如 Scope AFE1/2 共用 scope_afe）
+        for (const sh of Object.values(sheets)) for (const sub of sh.sheets ?? []) {
+          const target = sheets[sub.file.split('/').pop()!];
+          if (target && !target.name) target.name = sub.name;
+        }
+        const rootFile = Object.keys(sheets).find((f) => !referenced.has(f) && (sheets[f].sheets?.length ?? 0) > 0)
+          ?? Object.keys(sheets).sort((a, b) => sheets[b].instances.length - sheets[a].instances.length)[0];
+        if (rootFile) { sheets[rootFile].name = sheets[rootFile].name || t('根页'); useDesignStore.getState().setSchematicSheets(sheets, rootFile); }
         // KiCad 5 旧格式：取器件最多的那张作为主图（老工程常为多页层级图）
         if (!schNames.length && legacySchNames.length) {
           const best = legacySchNames
@@ -473,7 +504,7 @@ export default function App() {
             applyLegacySch(best.txt, libName ? strFromU8(entries[libName]) : undefined);
           }
         }
-        alert(`${t('工程导入完成')}：PCB ${r.comps} ${t('个器件')}${r.skipped ? `（${r.skipped} ${t('个跳过')}）` : ''}${schNames.length ? ` · ${t('原理图')} ${schNames.length} ${t('张')}，${symTotal} ${t('个符号')}，${linkTotal} ${t('个器件已挂真符号')}` : ` · ${t('包内无原理图，符号用名字解析')}`}`);
+        alert(`${t('工程导入完成')}：PCB ${r.comps} ${t('个器件')}${r.skipped ? `（${r.skipped} ${t('个跳过')}）` : ''}${projModels ? ` · ${projModels} ${t('个工程自带 3D 模型已关联')}` : ''}${schNames.length ? ` · ${t('原理图')} ${schNames.length} ${t('张')}，${symTotal} ${t('个符号')}，${linkTotal} ${t('个器件已挂真符号')}` : ` · ${t('包内无原理图，符号用名字解析')}`}`);
       } else if (/\.kicad_pcb$/i.test(f.name)) {
         const r = importPcbText(await f.text());
         if (r.skipped) alert(`已导入 ${r.comps} 个器件；${r.skipped} 个封装缺少位置信息被跳过`);

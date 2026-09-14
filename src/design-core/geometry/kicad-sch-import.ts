@@ -34,7 +34,9 @@ export interface KicadSchResult {
   /** 图纸尺寸与标题栏 */
   frame?: { wMm: number; hMm: number; title?: string; date?: string; rev?: string; company?: string; comments?: string[] };
   junctions: [number, number][];
-  labels: { text: string; x: number; y: number; rot: number }[];
+  labels: { text: string; x: number; y: number; rot: number; kind?: 'local' | 'global' | 'hierarchical'; shape?: string }[];
+  /** 本页里的层级页框（父页视角）：点开可进入子页 */
+  sheets: { name: string; file: string; x: number; y: number; w: number; h: number; pins: { name: string; x: number; y: number; rot: number; shape?: string }[] }[];
   noConnects: [number, number][];
 }
 
@@ -56,7 +58,8 @@ export function parseKicadSch(text: string): KicadSchResult {
   const buses: [number, number][][] = [];
   const busEntries: [number, number][][] = [];
   const junctions: [number, number][] = [];
-  const labels: { text: string; x: number; y: number; rot: number }[] = [];
+  const labels: KicadSchResult['labels'] = [];
+  const sheets: KicadSchResult['sheets'] = [];
   const noConnects: [number, number][] = [];
 
   // ── 1. lib_symbols 区块内的符号定义 ──
@@ -138,8 +141,27 @@ export function parseKicadSch(text: string): KicadSchResult {
     busEntries.push([[x, y], [x + parseFloat(m[3]), y + parseFloat(m[4])]]);
   }
   for (const m of text.matchAll(/\(junction\s*\(at\s+([-\d.]+)\s+([-\d.]+)\)/g)) junctions.push([parseFloat(m[1]), parseFloat(m[2])]);
-  for (const m of text.matchAll(/\((?:global_)?label\s+"((?:[^"\\]|\\.)*)"\s*(?:\(shape[^)]*\)\s*)?\(at\s+([-\d.]+)\s+([-\d.]+)(?:\s+([-\d.]+))?\)/g)) {
-    labels.push({ text: m[1], x: parseFloat(m[2]), y: parseFloat(m[3]), rot: m[4] ? parseFloat(m[4]) : 0 });
+  // 本地标签 / 全局标签 / 层级标签都要画：层级标签就是子页与父页对接的"管脚"，
+  // 此前只抓 (global_)?label，子页里 hierarchical_label 一个都不显示
+  for (const m of text.matchAll(/\((local_|global_|hierarchical_)?label\s+"((?:[^"\\]|\\.)*)"\s*(?:\(shape\s+([a-z_]+)\)\s*)?\(at\s+([-\d.]+)\s+([-\d.]+)(?:\s+([-\d.]+))?\)/g)) {
+    const kindRaw = m[1] ?? '';
+    labels.push({
+      text: m[2], x: parseFloat(m[4]), y: parseFloat(m[5]), rot: m[6] ? parseFloat(m[6]) : 0,
+      kind: kindRaw === 'global_' ? 'global' : kindRaw === 'hierarchical_' ? 'hierarchical' : 'local',
+      shape: m[3],
+    });
+  }
+  // 层级页框：(sheet (at x y) (size w h) … (property "Sheetname" …) (property "Sheetfile" …) (pin "NAME" input (at x y rot)…))
+  for (const m of text.matchAll(/\(sheet\s*\n?\s*\(at\s+([-\d.]+)\s+([-\d.]+)\)\s*\(size\s+([-\d.]+)\s+([-\d.]+)\)/g)) {
+    const block = balancedBlock(text, m.index!);
+    if (!block) continue;
+    const name = block.match(/\(property\s+"Sheetname"\s+"((?:[^"\\]|\\.)*)"/)?.[1] ?? '';
+    const file = block.match(/\(property\s+"Sheetfile"\s+"((?:[^"\\]|\\.)*)"/)?.[1] ?? '';
+    const pins: { name: string; x: number; y: number; rot: number; shape?: string }[] = [];
+    for (const pm of block.matchAll(/\(pin\s+"((?:[^"\\]|\\.)*)"\s+([a-z_]+)\s*\(at\s+([-\d.]+)\s+([-\d.]+)(?:\s+([-\d.]+))?\)/g)) {
+      pins.push({ name: pm[1], shape: pm[2], x: parseFloat(pm[3]), y: parseFloat(pm[4]), rot: pm[5] ? parseFloat(pm[5]) : 0 });
+    }
+    sheets.push({ name, file, x: parseFloat(m[1]), y: parseFloat(m[2]), w: parseFloat(m[3]), h: parseFloat(m[4]), pins });
   }
   for (const m of text.matchAll(/\(no_connect\s*\(at\s+([-\d.]+)\s+([-\d.]+)\)/g)) noConnects.push([parseFloat(m[1]), parseFloat(m[2])]);
 
@@ -168,7 +190,7 @@ export function parseKicadSch(text: string): KicadSchResult {
     }
   }
 
-  return { libSymbols, refToLibId, instances, wires, buses, busEntries, frame, junctions, labels, noConnects };
+  return { libSymbols, refToLibId, instances, wires, buses, busEntries, frame, junctions, labels, noConnects, sheets };
 }
 
 /** 符号定义块 → 原始 mm 几何（原点保持，供原理图原样渲染做实例变换） */

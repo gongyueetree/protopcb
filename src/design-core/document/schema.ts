@@ -143,6 +143,40 @@ const reviewFindingSchema = z.object({
   category: z.enum(['completeness', 'placement', 'thermal', 'emc', 'sourcing', 'mechanical']),
 });
 
+/** 单页原理图（原样视图） */
+const SchematicSheetSchema = z.object({
+    instances: z.array(z.object({
+      ref: z.string(), libId: z.string(), value: z.string().optional(),
+      x: z.number(), y: z.number(), rot: z.number(),
+      mirror: z.string().optional(), unit: z.number().optional(),
+      mat: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional(),
+      refPos: z.object({ x: z.number(), y: z.number(), rot: z.number(), hidden: z.boolean(), sizeMm: z.number().optional(), anchor: z.enum(['start', 'middle', 'end']).optional() }).optional(),
+      valPos: z.object({ x: z.number(), y: z.number(), rot: z.number(), hidden: z.boolean(), sizeMm: z.number().optional(), anchor: z.enum(['start', 'middle', 'end']).optional() }).optional(),
+    })),
+    wires: z.array(z.array(z.tuple([z.number(), z.number()]))),
+    buses: z.array(z.array(z.tuple([z.number(), z.number()]))).optional(),
+    busEntries: z.array(z.array(z.tuple([z.number(), z.number()]))).optional(),
+    junctions: z.array(z.tuple([z.number(), z.number()])),
+    labels: z.array(z.object({ text: z.string(), x: z.number(), y: z.number(), rot: z.number(), kind: z.enum(['local', 'global', 'hierarchical']).optional(), shape: z.string().optional() })),
+    sheets: z.array(z.object({
+      name: z.string(), file: z.string(), x: z.number(), y: z.number(), w: z.number(), h: z.number(),
+      pins: z.array(z.object({ name: z.string(), x: z.number(), y: z.number(), rot: z.number(), shape: z.string().optional() })),
+    })).optional(),
+    file: z.string().optional(),
+    name: z.string().optional(),
+    noConnects: z.array(z.tuple([z.number(), z.number()])),
+    /** libId → 符号定义原文（渲染用原始几何） */
+    libSymbols: z.record(z.string()),
+    legacySymbols: z.record(z.object({
+      rects: z.array(z.object({ x1: z.number(), y1: z.number(), x2: z.number(), y2: z.number() })),
+      polys: z.array(z.array(z.object({ x: z.number(), y: z.number() }))),
+      circles: z.array(z.object({ cx: z.number(), cy: z.number(), r: z.number() })),
+      arcs: z.array(z.object({ x1: z.number(), y1: z.number(), xm: z.number(), ym: z.number(), x2: z.number(), y2: z.number() })),
+      pins: z.array(z.object({ x: z.number(), y: z.number(), ex: z.number(), ey: z.number(), number: z.string(), name: z.string() })),
+    })).optional(),
+    frame: z.object({ wMm: z.number(), hMm: z.number(), title: z.string().optional(), date: z.string().optional(), rev: z.string().optional(), company: z.string().optional(), comments: z.array(z.string()).optional() }).optional(),
+  });
+
 export const documentSchema = z.object({
   schemaVersion: z.string(),
   id: z.string(),
@@ -178,32 +212,10 @@ export const documentSchema = z.object({
     lidMm: z.number().finite().positive().max(20),
   }).optional(),
   /** KiCad 工程导入的原理图原样视图（只读渲染：实例坐标/连线/结点/标签） */
-  schematicSheet: z.object({
-    instances: z.array(z.object({
-      ref: z.string(), libId: z.string(), value: z.string().optional(),
-      x: z.number(), y: z.number(), rot: z.number(),
-      mirror: z.string().optional(), unit: z.number().optional(),
-      mat: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional(),
-      refPos: z.object({ x: z.number(), y: z.number(), rot: z.number(), hidden: z.boolean(), sizeMm: z.number().optional(), anchor: z.enum(['start', 'middle', 'end']).optional() }).optional(),
-      valPos: z.object({ x: z.number(), y: z.number(), rot: z.number(), hidden: z.boolean(), sizeMm: z.number().optional(), anchor: z.enum(['start', 'middle', 'end']).optional() }).optional(),
-    })),
-    wires: z.array(z.array(z.tuple([z.number(), z.number()]))),
-    buses: z.array(z.array(z.tuple([z.number(), z.number()]))).optional(),
-    busEntries: z.array(z.array(z.tuple([z.number(), z.number()]))).optional(),
-    junctions: z.array(z.tuple([z.number(), z.number()])),
-    labels: z.array(z.object({ text: z.string(), x: z.number(), y: z.number(), rot: z.number() })),
-    noConnects: z.array(z.tuple([z.number(), z.number()])),
-    /** libId → 符号定义原文（渲染用原始几何） */
-    libSymbols: z.record(z.string()),
-    legacySymbols: z.record(z.object({
-      rects: z.array(z.object({ x1: z.number(), y1: z.number(), x2: z.number(), y2: z.number() })),
-      polys: z.array(z.array(z.object({ x: z.number(), y: z.number() }))),
-      circles: z.array(z.object({ cx: z.number(), cy: z.number(), r: z.number() })),
-      arcs: z.array(z.object({ x1: z.number(), y1: z.number(), xm: z.number(), ym: z.number(), x2: z.number(), y2: z.number() })),
-      pins: z.array(z.object({ x: z.number(), y: z.number(), ex: z.number(), ey: z.number(), number: z.string(), name: z.string() })),
-    })).optional(),
-    frame: z.object({ wMm: z.number(), hMm: z.number(), title: z.string().optional(), date: z.string().optional(), rev: z.string().optional(), company: z.string().optional(), comments: z.array(z.string()).optional() }).optional(),
-  }).optional(),
+  schematicSheet: SchematicSheetSchema.optional(),
+  /** 多页层级工程：全部页面按文件名索引 */
+  schematicSheets: z.record(z.string(), SchematicSheetSchema).optional(),
+  rootSheetFile: z.string().optional(),
   board: boardSchema,
   components: z.array(placedComponentSchema),
   functionalBlocks: z.array(functionalBlockSchema),

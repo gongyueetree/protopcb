@@ -71,6 +71,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
         },
         searchDistributors: async (q) => {
           const out: Candidate[] = [];
+          if (!checkCap('search.web').allowed) return out;   // 未登录：不打分销商
           for (const url of [`/api/digikey?path=fuzzy&q=${encodeURIComponent(q)}`, `/api/suppliers?path=fuzzy&q=${encodeURIComponent(q)}&mpn=${encodeURIComponent(q)}`]) {
             try {
               const j = await (await fetch(url)).json();
@@ -140,8 +141,10 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
       }
     } catch { notes.push('ezPLM 查询失败'); }
 
-    // 2) 分销商补充（后端按关键词检索，未配 Key 时返回提示）
-    try {
+    // 2) 分销商补充（用平台 Key：未登录不发请求，服务端本来也会 401）
+    const webOk = checkCap('search.web').allowed;
+    if (!webOk) notes.push('登录后可查询 DigiKey / Mouser 实时库存与价格');
+    if (webOk) try {
       const qs = new URLSearchParams({ path: 'fuzzy', mpn: searchMpn, footprint: l.footprint ?? '', desc: l.description ?? '', q: query.queries[0] ?? '' });
       const r = await fetch(`/api/suppliers?${qs}`);
       const j = await r.json();
@@ -155,7 +158,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
     } catch (e) { notes.push((e as Error).message); }
 
     // 3) DigiKey 关键词检索：用户填写的型号优先，其次是构造出的检索串
-    try {
+    if (webOk) try {
       for (const kw of [searchMpn, query.queries[0]].filter(Boolean).slice(0, 2)) {
         const r = await fetch(`/api/digikey?path=fuzzy&q=${encodeURIComponent(kw as string)}`);
         const j = await r.json();
@@ -171,7 +174,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
     } catch (e) { notes.push((e as Error).message); }
 
     const ranked = rankCandidates(query, pool, cons).slice(0, 12);
-    setFuzzy({ line: l, busy: false, items: ranked, query, searchMpn, cons: cons.raw, msg: ranked.length ? undefined : (notes.join(' · ') || '未找到相近器件；可在上方修改型号后重新检索') });
+    setFuzzy({ line: l, busy: false, items: ranked, query, searchMpn, cons: cons.raw, msg: ranked.length ? (notes.length ? notes.join(' · ') : undefined) : ((notes.length ? notes.join(' · ') + '；' : '') + '未找到相近器件；可在上方修改型号后重新检索') });
   };
 
   /** 网络参考价：AI 按公开市场行情给区间。明确标注为估算，必须人工确认后才落为录入价。 */

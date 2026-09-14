@@ -40,6 +40,15 @@ async function getOcct(): Promise<OcctModule> {
   return occtPromise;
 }
 
+/**
+ * 本站相对路径与 blob:/data:（zip 导入的工程自带模型）直接取；
+ * 外部 https 走 ezPLM 文件代理（同源 + 白名单 + 大小上限）。
+ */
+const directUrl = (url: string) =>
+  (url.startsWith('/') || url.startsWith('blob:') || url.startsWith('data:'))
+    ? url
+    : `/api/ezplm?path=file&url=${encodeURIComponent(url)}`;
+
 const modelCache = new Map<string, THREE.Group>(); // key: stepUrl
 const bytesCache = new Map<string, Uint8Array>();   // 预取的文件字节（规避签名链接过期）
 const inflight = new Set<string>();
@@ -74,7 +83,7 @@ export function stepStats() {
 /** 器件上画布时预取 STEP 文件字节（签名链接约半小时过期，趁新鲜先拿字节；转换仍懒执行） */
 export function ensureStepBytes(url: string | undefined) {
   if (!url || bytesCache.has(url) || modelCache.has(url) || inflight.has(url) || failed.has(url)) return;
-  fetch(url.startsWith('/') ? url : `/api/ezplm?path=file&url=${encodeURIComponent(url)}`).then(async (r) => {
+  fetch(directUrl(url)).then(async (r) => {
     if (!r.ok) return; // 预取失败不算失败，转换时会重试并报错
     const buf = new Uint8Array(await r.arrayBuffer());
     if (buf.length > 16 && buf[0] !== 0x7b) bytesCache.set(url, buf); // 0x7b='{' 代理 JSON 错误
@@ -140,7 +149,7 @@ export function ensureStepModel(url: string | undefined, footprintName?: string)
     try {
       let buf = bytesCache.get(url);
       if (!buf) {
-        const resp = await fetch(url.startsWith('/') ? url : `/api/ezplm?path=file&url=${encodeURIComponent(url)}`);
+        const resp = await fetch(directUrl(url));
         if (!resp.ok) {
           // 透传服务端详情（如「3D 库中无匹配模型（Connector_USB.3dshapes 共 N 个）」）
           let detail = '';

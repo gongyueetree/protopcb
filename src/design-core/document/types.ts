@@ -208,6 +208,12 @@ export interface CircuitCanvasDocument {
   /** 导入工程的电气网络表（网络号 → 网络名） */
   nets?: Record<string, string>;
   /** KiCad 工程导入的原理图原样视图（只读） */
+  /**
+   * 多页层级工程：全部页面按文件名存放；schematicSheet 是当前查看的那一页。
+   * 根页由 rootSheetFile 指定（有 sheets 引用但不被任何页引用的那张）。
+   */
+  schematicSheets?: Record<string, NonNullable<CircuitCanvasDocument['schematicSheet']>>;
+  rootSheetFile?: string;
   schematicSheet?: {
     instances: {
       ref: string; libId: string; value?: string;
@@ -220,9 +226,14 @@ export interface CircuitCanvasDocument {
     buses?: [number, number][][];
     busEntries?: [number, number][][];
     junctions: [number, number][];
-    labels: { text: string; x: number; y: number; rot: number }[];
+    labels: { text: string; x: number; y: number; rot: number; kind?: 'local' | 'global' | 'hierarchical'; shape?: string }[];
     noConnects: [number, number][];
     libSymbols: Record<string, string>;
+    /** 本页的层级页框（父页视角） */
+    sheets?: { name: string; file: string; x: number; y: number; w: number; h: number; pins: { name: string; x: number; y: number; rot: number; shape?: string }[] }[];
+    /** 本页文件名与显示名（多页工程） */
+    file?: string;
+    name?: string;
     /** KiCad 5 旧库符号几何（.lib 解析结果；新格式走 libSymbols 文本） */
     legacySymbols?: Record<string, {
       rects: { x1: number; y1: number; x2: number; y2: number }[];

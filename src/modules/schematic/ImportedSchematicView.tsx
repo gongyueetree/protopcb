@@ -9,6 +9,7 @@ import { useMemo, useRef, useState } from 'react';
 import { tr } from '../../shared/i18n';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
 import { rawSymbolGeom } from '../../design-core/geometry/kicad-sch-import';
+import { useDesignStore } from '../../state/designStore';
 
 const PXMM = 6; // px per mm
 
@@ -69,6 +70,9 @@ function arcPts(p1: Pt, pm: Pt, p2: Pt): string {
 
 export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
   const sheet = doc.schematicSheet;
+  const showSheet = useDesignStore((s) => s.showSchematicSheet);
+  const sheetList = doc.schematicSheets ? Object.entries(doc.schematicSheets) : [];
+  const currentFile = sheet?.file;
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 20, y: 20 });
   const drag = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
@@ -274,12 +278,45 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
       const r = ((lb.rot % 360) + 360) % 360;
       const anchor = r === 180 ? 'end' : 'start';
       const rot = r === 90 ? -90 : r === 270 ? -90 : 0;
-      els.push(<text key={'lb' + i} x={lb.x * PXMM} y={lb.y * PXMM - 2} fontSize={8} fill="#166534" fontFamily="monospace"
+      const kind = lb.kind ?? 'local';
+      const x = lb.x * PXMM, y = lb.y * PXMM;
+      // 层级标签 = 子页对外的管脚，全局标签 = 跨页网络：用带框的画法区分本地标签
+      if (kind !== 'local') {
+        const w = lb.text.length * 5 + 12, h = 11;
+        const dir = anchor === 'end' ? -1 : 1;
+        const pts = dir > 0
+          ? `${x},${y} ${x + 5},${y - h / 2} ${x + w},${y - h / 2} ${x + w},${y + h / 2} ${x + 5},${y + h / 2}`
+          : `${x},${y} ${x - 5},${y - h / 2} ${x - w},${y - h / 2} ${x - w},${y + h / 2} ${x - 5},${y + h / 2}`;
+        els.push(<polygon key={'lbf' + i} points={pts} fill={kind === 'hierarchical' ? '#fef3c7' : '#e0f2fe'} stroke={kind === 'hierarchical' ? '#b45309' : '#0369a1'} strokeWidth={0.8}
+          transform={rot ? `rotate(${rot} ${x} ${y})` : undefined} />);
+      }
+      els.push(<text key={'lb' + i} x={x + (kind !== 'local' ? (anchor === 'end' ? -8 : 8) : 0)} y={y + (kind !== 'local' ? 3 : -2)} fontSize={8}
+        fill={kind === 'hierarchical' ? '#92400e' : kind === 'global' ? '#075985' : '#166534'} fontFamily="monospace" fontWeight={kind !== 'local' ? 700 : 400}
         textAnchor={anchor}
-        transform={rot ? `rotate(${rot} ${lb.x * PXMM} ${lb.y * PXMM})` : undefined}>{lb.text}</text>);
+        transform={rot ? `rotate(${rot} ${x} ${y})` : undefined}>{lb.text}</text>);
+    });
+    // 层级页框：父页里代表子页的方框，管脚沿边画；点击进入子页
+    (sheet.sheets ?? []).forEach((sh, i) => {
+      const x = sh.x * PXMM, y = sh.y * PXMM, w = sh.w * PXMM, h = sh.h * PXMM;
+      const file = sh.file.split('/').pop()!;
+      const openable = !!doc.schematicSheets?.[file];
+      els.push(
+        <g key={'sh' + i} onClick={() => openable && showSheet(file)} style={{ cursor: openable ? 'pointer' : 'default' }}>
+          <rect x={x} y={y} width={w} height={h} fill="#f5f3ff" stroke="#6d28d9" strokeWidth={1.2} rx={2} />
+          <text x={x + 4} y={y - 4} fontSize={9} fontWeight={700} fill="#4c1d95" fontFamily="monospace">{sh.name}</text>
+          <text x={x + 4} y={y + h + 10} fontSize={7} fill="#7c3aed" fontFamily="monospace">{file}{openable ? ' ↗' : ''}</text>
+          {sh.pins.map((p, j) => (
+            <g key={j}>
+              <circle cx={p.x * PXMM} cy={p.y * PXMM} r={2} fill="#b45309" />
+              <text x={p.x * PXMM + (p.x * PXMM < x + w / 2 ? 5 : -5)} y={p.y * PXMM + 3} fontSize={7} fill="#92400e" fontFamily="monospace"
+                textAnchor={p.x * PXMM < x + w / 2 ? 'start' : 'end'}>{p.name}</text>
+            </g>
+          ))}
+        </g>,
+      );
     });
     return els;
-  }, [sheet]);
+  }, [sheet, doc.schematicSheets, showSheet]);
 
   if (!sheet) return null;
   return (
@@ -289,6 +326,20 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
       onMouseMove={(e) => { if (drag.current) setPan({ x: drag.current.px + e.clientX - drag.current.sx, y: drag.current.py + e.clientY - drag.current.sy }); }}
       onMouseUp={() => { drag.current = null; }}
       onMouseLeave={() => { drag.current = null; }}>
+      {/* 多页工程：页签切换；根页在最前 */}
+      {sheetList.length > 1 && (
+        <div style={{ position: 'absolute', top: 8, left: 10, zIndex: 3, display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: '70%' }}>
+          {[...sheetList].sort(([a], [b]) => (a === doc.rootSheetFile ? -1 : b === doc.rootSheetFile ? 1 : 0)).map(([file, sh]) => (
+            <button key={file} onClick={() => showSheet(file)}
+              style={{ padding: '3px 9px', borderRadius: 6, fontSize: 10.5, cursor: 'pointer',
+                border: `1px solid ${file === currentFile ? '#6d28d9' : '#e2e8f0'}`,
+                background: file === currentFile ? '#6d28d9' : 'rgba(255,255,255,.9)',
+                color: file === currentFile ? '#fff' : '#475569', fontWeight: file === currentFile ? 700 : 500 }}>
+              {file === doc.rootSheetFile ? '⌂ ' : ''}{sh.name || file}
+            </button>
+          ))}
+        </div>
+      )}
       <svg width="100%" height="100%">
         <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>{content}</g>
       </svg>
