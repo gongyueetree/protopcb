@@ -245,6 +245,11 @@ type RawDoc = Record<string, unknown>;
  */
 interface Migration { from: string; to: string; up: (doc: RawDoc) => RawDoc }
 
+/**
+ * ⚠ 顺序必须按版本严格升序：migrateDocument 顺序遍历，
+ * 一旦先执行了跨度更大的那一步，版本号会被抬高，中间的迁移就被整段跳过。
+ * （实测踩过：把 3.0→3.1 放在 2.0→3.0 前面，导致 v2 文档的 track.layer 没被归一。）
+ */
 export const MIGRATIONS: Migration[] = [
   {
     // 无版本 / 早期原型：补齐必备容器字段与 metadata（缺失时给空缺省）
@@ -283,6 +288,24 @@ export const MIGRATIONS: Migration[] = [
           }))
         : doc.tracks;
       return { ...doc, tracks };
+    },
+  },
+  {
+    // 3.0 → 3.1：enabled=true 但 mountingHoles=[] 的旧文档补成真实孔位，
+    // 消除"开关为真但没有孔"的中间态（各模块曾各自推算四角，结果互不一致）
+    from: '3.0.0', to: '3.1.0',
+    up: (doc) => {
+      const board = { ...(doc.board as RawDoc ?? {}) };
+      if (board.mountingHolesEnabled === true && !(Array.isArray(board.mountingHoles) && board.mountingHoles.length)) {
+        const W = Number(board.widthMm) || 100, H = Number(board.heightMm) || 80, m = 4, d = 3.2;
+        board.mountingHoles = board.shape === 'circle' ? [] : [
+          { position: { x: m, y: m }, diameterMm: d },
+          { position: { x: W - m, y: m }, diameterMm: d },
+          { position: { x: m, y: H - m }, diameterMm: d },
+          { position: { x: W - m, y: H - m }, diameterMm: d },
+        ];
+      }
+      return { ...doc, board };
     },
   },
 ];

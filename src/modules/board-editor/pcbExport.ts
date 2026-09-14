@@ -15,7 +15,8 @@
 import { lshapeCut } from '../../design-core/collision';
 import type { CircuitCanvasDocument, PlacedComponent } from '../../design-core/document/types';
 import { padFootprintFor } from '../../design-core/geometry/footprint-pads';
-import { mountingHoleCenters, HOLE_DIAMETER_MM } from '../../design-core/collision';
+import { effectiveMountingHoles } from '../../design-core/board/mounting-holes';
+import { HOLE_DIAMETER_MM } from '../../design-core/collision';
 
 const F = (n: number) => +n.toFixed(4);
 
@@ -181,14 +182,11 @@ export function buildKicadPcb(doc: CircuitCanvasDocument): string {
   L.push(``);
   // 定位孔：导入工程带真实坐标+孔径（board.mountingHoles）时逐孔写回原孔径；
   // 只有新建板（无导入孔表）才按默认 Ø3.2mm 四角生成。
-  if (doc.board.mountingHoles?.length && doc.board.mountingHolesEnabled !== false) {
-    doc.board.mountingHoles.forEach((h, i) => {
-      L.push(holeBlock(h.position.x, h.position.y, i + 1, h.diameterMm > 0 ? h.diameterMm : HOLE_DIAMETER_MM));
-      L.push(``);
-    });
-  } else {
-    mountingHoleCenters(doc.board).forEach((c, i) => { L.push(holeBlock(c.x, c.y, i + 1)); L.push(``); });
-  }
+  // 唯一数据源：坐标与孔径都来自 effectiveMountingHoles（导入板保真、新建板取默认）
+  effectiveMountingHoles(doc.board).forEach((h, i) => {
+    L.push(holeBlock(h.position.x, h.position.y, i + 1, h.diameterMm > 0 ? h.diameterMm : HOLE_DIAMETER_MM));
+    L.push(``);
+  });
   // 器件
   for (const c of doc.components) { L.push(footprintBlock(c, doc.nets)); L.push(``); }
 

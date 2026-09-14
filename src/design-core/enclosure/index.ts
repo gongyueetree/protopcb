@@ -15,6 +15,7 @@
  */
 import type { CircuitCanvasDocument, BoardDefinition, PlacedComponent } from '../document/types';
 import { padFootprintFor } from '../geometry/footprint-pads';
+import { effectiveMountingHoles } from '../board/mounting-holes';
 
 export interface EnclosureSpec {
   /** 是否启用外壳协同（3D 视图叠加显示） */
@@ -202,7 +203,7 @@ export function checkEnclosure(doc: CircuitCanvasDocument, spec: EnclosureSpec):
   }
 
   // 6) 定位孔 → 支柱位置提示
-  const holes = doc.board.mountingHoles?.length ?? 0;
+  const holes = effectiveMountingHoles(doc.board).length;
   if (doc.board.mountingHolesEnabled && holes === 0) {
     issues.push({ level: 'info', code: 'mounting_hole', message: '已启用定位孔但文档中无具体孔位，外壳支柱位置需要在导入真实板或手工标注孔位后才能对齐。' });
   }

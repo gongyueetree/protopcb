@@ -12,6 +12,7 @@ import { COLORS } from '../../shared/theme';
 import { useDesignStore } from '../../state/designStore';
 import { DEFAULT_ENCLOSURE, checkEnclosure } from '../../design-core/enclosure';
 import { findOverlaps } from '../../design-core/collision';
+import { summarizeTrust, trustHeadline } from '../../design-core/trust';
 
 type StepState = 'done' | 'warn' | 'todo';
 
@@ -26,7 +27,7 @@ export function PipelineBar() {
     const netCount = Object.keys(doc.nets ?? {}).filter((k) => k !== '0').length;
     const enc = { ...DEFAULT_ENCLOSURE, ...(doc.enclosure ?? {}) };
     const encErr = enc.enabled ? checkEnclosure(doc, enc).filter((i) => i.level === 'error').length : -1;
-    const placeholders = doc.components.filter((c) => (c.trust?.level ?? 'PLACEHOLDER') === 'PLACEHOLDER').length;
+    const trust = summarizeTrust(doc.components);   // 唯一口径
 
     const out: { label: string; note: string; state: StepState }[] = [
       {
@@ -51,8 +52,8 @@ export function PipelineBar() {
       },
       {
         label: '选型',
-        note: !n ? tr('无器件') : placeholders ? `${placeholders} ${tr('个未验证型号')}` : tr('型号均已核对'),
-        state: !n ? 'todo' : placeholders ? 'warn' : 'done',
+        note: !n ? tr('无器件') : tr(trustHeadline(trust)),
+        state: !n ? 'todo' : trust.engineeringReady ? 'done' : 'warn',
       },
     ];
     return out;

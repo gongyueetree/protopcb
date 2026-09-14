@@ -14,6 +14,7 @@ import { tr } from '../../shared/i18n';
 import { COLORS } from '../../shared/theme';
 import { DEFAULT_ENCLOSURE, checkEnclosure } from '../../design-core/enclosure';
 import { findOverlaps } from '../../design-core/collision';
+import { summarizeTrust } from '../../design-core/trust';
 
 interface CheckItem {
   id: string;
@@ -60,19 +61,16 @@ export function ReviewPanel() {
       pass: noFp.length === 0,
       detail: noFp.length ? noFp.map((c) => c.reference).join('、') : tr('每个器件都已绑定封装'),
     });
-    const placeholder = comps.filter((c) => (c.trust?.level ?? 'PLACEHOLDER') === 'PLACEHOLDER');
+    // 唯一口径：不再自己过滤 —— 此前这里 PLACEHOLDER=0 就写"全部型号已在器件库精确匹配"，
+    // 哪怕还有 24 个 CANDIDATE，与同页的可信度分布自相矛盾
+    const trust = summarizeTrust(comps);
     out.push({
-      id: 'trust', group: tr('数据完整性'), label: tr('无未经验证的型号'),
-      pass: placeholder.length === 0,
-      detail: placeholder.length ? `${placeholder.length} ${tr('个器件仅由 AI 建议，未在器件库命中，投产前须人工核对 datasheet')}` : tr('全部型号已在器件库精确匹配'),
+      id: 'trust', group: tr('数据完整性'), label: tr('型号已核对'),
+      pass: trust.engineeringReady,
+      detail: trust.total
+        ? `${tr('已验证')} ${trust.verified} · ${tr('待人工确认')} ${trust.candidate} · ${tr('未验证')} ${trust.placeholder}`
+        : tr('无器件'),
     });
-    const candidate = comps.filter((c) => c.trust?.level === 'CANDIDATE');
-    if (candidate.length) {
-      out.push({
-        id: 'candidate', group: tr('数据完整性'), label: tr('候选型号待确认'), pass: false,
-        detail: `${candidate.length} ${tr('个器件存在相近候选型号，需人工确认后才能替换')}`,
-      });
-    }
 
     // —— 结构（几何）——
     const encSpec = { ...DEFAULT_ENCLOSURE, ...(doc.enclosure ?? {}) };

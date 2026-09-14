@@ -14,6 +14,7 @@
 import type { CircuitCanvasDocument, PlacedComponent, BoardDefinition } from '../document/types';
 import { padFootprintFor } from '../geometry/footprint-pads';
 import { componentBodyHeight } from './index';
+import { effectiveMountingHoles } from '../board/mounting-holes';
 
 export type OpeningFace = 'left' | 'right' | 'front' | 'back' | 'top';
 export type OpeningShape = 'rect' | 'circle';
@@ -118,8 +119,8 @@ export function deriveOpenings(doc: CircuitCanvasDocument, edgeTolMm = 2): Openi
 
 /** 固定方式：有定位孔用螺柱，没有则沿长边均布卡扣 */
 export function deriveMounting(board: BoardDefinition): MountingPlan {
-  const holes = board.mountingHoles ?? [];
-  if (holes.length && board.mountingHolesEnabled !== false) {
+  const holes = effectiveMountingHoles(board);
+  if (holes.length) {
     return {
       kind: 'screw-post',
       positions: holes.map((h) => ({ x: h.position.x, y: h.position.y })),

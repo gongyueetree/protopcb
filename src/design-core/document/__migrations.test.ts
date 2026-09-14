@@ -6,7 +6,20 @@ import { migrateDocument, parseDocument, MIGRATIONS } from './schema';
 import { createDocument } from './factory';
 
 describe('schema 迁移链', () => {
-  it('迁移链按版本有序且 from < to', () => {
+  it('迁移链严格升序（乱序会导致中间步骤被跳过）', () => {
+    for (let i = 1; i < MIGRATIONS.length; i++) {
+      expect(MIGRATIONS[i - 1].to).toBe(MIGRATIONS[i].from);
+    }
+  });
+
+  it('enabled=true 但无孔位的旧文档补出四角孔', () => {
+    const doc = { schemaVersion: '3.0.0', board: { widthMm: 100, heightMm: 80, shape: 'rect', mountingHolesEnabled: true } };
+    const out = migrateDocument(doc) as { board: { mountingHoles: { position: { x: number; y: number }; diameterMm: number }[] } };
+    expect(out.board.mountingHoles).toHaveLength(4);
+    expect(out.board.mountingHoles[0]).toEqual({ position: { x: 4, y: 4 }, diameterMm: 3.2 });
+  });
+
+  it('迁移链 from < to', () => {
     for (const m of MIGRATIONS) {
       expect(m.from < m.to || m.from.localeCompare(m.to, undefined, { numeric: true }) < 0).toBe(true);
     }
@@ -20,7 +33,7 @@ describe('schema 迁移链', () => {
       board: { ...createDocument({ name: 'x' }).board, mountingHoles: [{ x: 3, y: 4, d: 2.7 }] },
     };
     const out = migrateDocument(v1doc) as { schemaVersion: string; board: { mountingHoles: { position: { x: number; y: number }; diameterMm: number }[] } };
-    expect(out.schemaVersion).toBe('3.0.0');
+    expect(out.schemaVersion).toBe('3.1.0');
     expect(out.board.mountingHoles[0]).toEqual({ position: { x: 3, y: 4 }, diameterMm: 2.7 });
     // 迁移后整体过 Zod
     const parsed = parseDocument(v1doc);
@@ -47,7 +60,7 @@ describe('schema 迁移链', () => {
     expect(parsed.ok).toBe(true);
     if (parsed.ok) {
       expect(parsed.document.components).toEqual([]);
-      expect(parsed.document.schemaVersion).toBe('3.0.0');
+      expect(parsed.document.schemaVersion).toBe('3.1.0');
     }
   });
 

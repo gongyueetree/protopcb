@@ -29,6 +29,8 @@ import { safeUnzipOffThread } from './design-core/geometry/safe-unzip-worker';
 import { parseKicadMod } from './design-core/geometry/kicad-file-parser';
 import { TRUST_META } from './providers/ai-schema';
 import { diffSchemes } from './design-core/scheme-workspace';
+import { summarizeTrust, exportGate, trustLevelOf } from './design-core/trust';
+import { useAccessContext, anonymousContext } from './state/useAccessContext';
 import { autoKicadFootprint } from './design-core/geometry/auto-kicad-footprint';
 import { useT, useLangStore, useTranslated, tr, syncDocumentLang } from './shared/i18n';
 import { registerFootprintOverride, registerSymbolOverride, symbolOverrideFor, footprintOverrideFor } from './design-core/geometry/lib-file-registry';
@@ -53,6 +55,7 @@ import { exportDocument, importDocumentFromFile, autosave, exportMarkdownReport 
 import { COLORS, CATEGORY_DISPLAY } from './shared/theme';
 import type { BoardShapeKind } from './design-core/document/types';
 
+
 /** 主视图页签 —— 与渲染稿一致的信息架构：各视图同级平铺，不再用底部抽屉 */
 type MainTab = 'overview' | 'schematic' | 'pcb' | 'enclosure' | 'bom' | 'block' | 'review';
 const MAIN_TABS: { id: MainTab; label: string; icon: string }[] = [
@@ -66,7 +69,7 @@ const MAIN_TABS: { id: MainTab; label: string; icon: string }[] = [
 ];
 
 const providers = getProviders();
-const ctx = { userId: 'demo-user', organizationId: 'org-demo' };
+// 身份来自 providers.identity（demo 模式自然是 demo-user，集成模式是真实身份）
 
 const SHAPES: { id: BoardShapeKind; icon: string; name: string }[] = [
   { id: 'rect', icon: '▭', name: tr('矩形') },
@@ -83,6 +86,7 @@ export default function App() {
   const doc = useDesignStore((s) => s.doc);
   const selectedId = useDesignStore((s) => s.selectedId);
   const placementViolations = useDesignStore((s) => s.placementViolations);
+  const ctx = useAccessContext() ?? anonymousContext();
   /**
    * 窄屏自适应：两侧面板按窗口宽度收窄，很窄时直接折叠，把空间让给画布。
    * 手机/分屏上原来两侧各占 330/320px，1000px 宽的窗口只剩 350px 画布，没法用。
@@ -698,15 +702,18 @@ export default function App() {
 
             {/* 未验证器件告警：AI 建议的型号不能不加提示地流入生产文件 */}
             {(() => {
-              const unverified = doc.components.filter((x) => (x.trust?.level ?? 'PLACEHOLDER') === 'PLACEHOLDER');
-              if (!unverified.length) return null;
+              // 唯一口径：候选型号同样算未就绪 —— 此前只拦 PLACEHOLDER，
+              // 一块全是 CANDIDATE 的板会静默导出成"没有告警"的样子
+              const gate = exportGate(summarizeTrust(doc.components));
+              if (gate.engineeringReady) return null;
+              const unverified = doc.components.filter((x) => trustLevelOf(x) !== 'VERIFIED');
               return (
                 <div style={{ padding: '10px 12px', borderRadius: 10, border: '1.5px solid #fecaca', background: '#fef2f2', marginBottom: 10 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c' }}>
-                    ⚠ {unverified.length} {tr('个器件未经数据库验证')}
+                    ⚠ {tr(gate.warning ?? '')}
                   </div>
                   <div style={{ fontSize: 10.5, color: '#991b1b', marginTop: 3 }}>
-                    {tr('以下器件的型号来自 AI 建议或占位，未在 ezPLM/分销商库中核实，投产前必须人工确认：')}
+                    {tr('以下器件的型号未经器件库精确匹配核实（AI 建议、占位或近似候选），投产前必须人工确认：')}
                   </div>
                   <div style={{ fontSize: 10.5, color: '#7f1d1d', marginTop: 3, fontFamily: 'monospace' }}>
                     {unverified.slice(0, 12).map((x) => `${x.reference}(${x.mpn})`).join('  ')}
@@ -802,6 +809,7 @@ export default function App() {
 }
 
 function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => void }) {
+  const ctx = useAccessContext() ?? anonymousContext();
   const t = useT();
   const c = useDesignStore((s) => s.doc.components.find((x) => x.instanceId === iid));
   const [alts, setAlts] = useState<{ mpn: string; manufacturer: string; note: string; channel: string; footprint?: string; description?: string }[]>([]);

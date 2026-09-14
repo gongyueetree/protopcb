@@ -1,9 +1,10 @@
+import { formatMoney } from '../design-core/money';
 /**
  * shared/theme.ts
  * 共享设计令牌与显示常量。
  */
 import type { ComponentCategory } from '../design-core/document/types';
-import { currencySym } from './i18n';
+import { useLangStore } from './i18n';
 
 export const COLORS = {
   green: '#1f5c3b',
@@ -28,7 +29,14 @@ export const CATEGORY_DISPLAY: Record<ComponentCategory, { name: string; icon: s
 
 export const CATEGORY_LIST: ComponentCategory[] = ['mcu', 'power', 'passive', 'connector', 'ic', 'electromech', 'sensor', 'rf'];
 
-export function fmtMoney(amount?: number): string {
-  // 币种符号跟随界面语言（只切显示符号，不做汇率换算）
-  return amount == null ? '—' : `${currencySym()}${amount.toFixed(2)}`;
+/**
+ * @deprecated 请改用 design-core/money 的 formatMoney(money, locale)。
+ *
+ * 旧实现按界面语言切符号（中文 ¥ / 英文 $）却不换数值 —— 一条 CNY 报价切到英文
+ * 就被标成美元，是数据错误而不是本地化。这里保留调用点兼容，但**必须带币种**，
+ * 缺币种时如实显示"币种未知"，不再默认成本地货币。
+ */
+export function fmtMoney(amount?: number, currency?: string): string {
+  if (amount == null) return '—';
+  return formatMoney({ amount, currency }, useLangStore.getState().lang === 'en' ? 'en' : 'zh');
 }

@@ -14,6 +14,7 @@ import { resolveAffinity, signalFlowRank, isCore } from '../design-core/placemen
 import { solvePlacementDetailed, DEFAULT_PLACEMENT_RULES, autoPlaceAllDetailed, type PlacementViolation } from '../design-core/placement';
 import { DEFAULT_ENCLOSURE } from '../design-core/enclosure';
 import { kicadPassiveDefaults } from '../design-core/geometry/kicad-passive-defaults';
+import { materializeMountingHoles } from '../design-core/board/mounting-holes';
 import { clampComponentToBoard, findOverlaps, BOARD_MARGIN_MM } from '../design-core/collision';
 import { appConfig } from '../config';
 
@@ -355,6 +356,9 @@ export const useDesignStore = create<DesignState>()(
     toggleMountingHoles: () =>
       set((s) => {
         s.doc.board.mountingHolesEnabled = !s.doc.board.mountingHolesEnabled;
+        // 打开即落成真实孔位（坐标+孔径），避免 enabled=true 但 holes=[] 这种
+        // 让各模块各自猜的中间态
+        if (s.doc.board.mountingHolesEnabled) materializeMountingHoles(s.doc.board);
         s.doc = touchDocument(s.doc);
         s.overlaps = findOverlaps(s.doc.components);
       }),

@@ -11,14 +11,16 @@ import { useT, useTranslated, tr } from '../../shared/i18n';
 import { COLORS, fmtMoney } from '../../shared/theme';
 import type { ComponentSearchResult } from '../../providers/types';
 import type { ComponentCategory } from '../../design-core/document/types';
+import { useAccessContext, anonymousContext } from '../../state/useAccessContext';
 
 /** 空结果提示块开关：当前关闭（保留 UI 以便后续启用） */
 const SHOW_EMPTY_HINT: boolean = false;
 
 const providers = getProviders();
-const ctx = { userId: 'demo-user', organizationId: 'org-demo' };
+// 身份来自 providers.identity（demo 模式自然是 demo-user，集成模式是真实身份）
 
 export function ComponentSearchPanel() {
+  const ctx = useAccessContext() ?? anonymousContext();
   const t = useT();
   const [keyword, setKeyword] = useState('');
   const [category] = useState<ComponentCategory | null>(null);
@@ -190,7 +192,7 @@ function ResultCard({ r, expanded, onToggle, onAdd, placedN }: {
           </div>
           <div style={{ display: 'flex', gap: 6, marginTop: 3, fontSize: 11, color: '#6b7280', flexWrap: 'wrap' }}>
             <span style={{ fontFamily: 'monospace' }}>{r.defaultFootprintName}</span><span>·</span><span>{t(r.manufacturer)}</span>
-            {r.unitPrice != null && <><span>·</span><span style={{ color: '#047857', fontWeight: 700 }}>{fmtMoney(r.unitPrice.amount)}</span></>}
+            {r.unitPrice != null && <><span>·</span><span style={{ color: '#047857', fontWeight: 700 }}>{fmtMoney(r.unitPrice.amount, r.unitPrice.currency)}</span></>}
           </div>
           {r.description && <TrText text={r.description} style={{ marginTop: 2, fontSize: 10.5, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} />}
         </div>

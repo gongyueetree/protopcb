@@ -13,6 +13,7 @@ import { fetchDigikeyOffer, type DigikeyOffer } from '../../providers/digikey';
 import { fetchSupplierOffers } from '../../providers/suppliers';
 import { buildMatchQuery, rankCandidates, parseConstraints, CLASS_LABEL as PART_CLASS_LABEL, type Candidate, type ScoredCandidate } from '../../design-core/part-matching';
 import { autoMatchBom, summarizeMatches, type BomMatchResult } from './auto-match';
+import { summarizeBomPricing } from './pricing-summary';
 import { searchEzplmParts } from '../../providers/ezplm-live';
 
 export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: boolean; onToggleFullscreen?: () => void } = {}) {
@@ -235,7 +236,6 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
 
   const [editingMpn, setEditingMpn] = useState<string | null>(null);
   const manOf = (mpn: string): number | undefined => manualPrices[mpn];
-  const total = bom.reduce((sum, l) => sum + (manOf(l.mpn) ?? dkOf(l.mpn)?.unitPrice ?? netOf(l.mpn)?.price ?? l.unitPrice?.amount ?? 0) * l.quantity, 0);
 
   /** RFC 4180：含逗号/双引号/换行的字段用双引号包裹，内部双引号写成两个 */
   const csvField = (v: unknown): string => {
@@ -485,9 +485,38 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
             ))}
           </tbody>
           <tfoot><tr>
-            <td colSpan={6} style={{ padding: 10, textAlign: 'right', fontWeight: 700, borderTop: '2px solid #e2e8f0' }}>{tr('BOM 总价（录入 > 网络实时价 > 估价）')}</td>
-            <td style={{ padding: 10, textAlign: 'right', fontWeight: 700, color: '#dc2626', fontSize: 14, borderTop: '2px solid #e2e8f0' }}>{fmtMoney(total)}</td>
-            <td style={{ borderTop: '2px solid #e2e8f0' }} />
+            {/* 只有"每行都有价格且币种唯一"才允许出现总价；
+                否则报覆盖度与分项小计 —— 把缺价的行按 0 加进总价是会误导采购的 */}
+            <td colSpan={8} style={{ padding: 10, borderTop: '2px solid #e2e8f0' }}>
+              {(() => {
+                const ps = summarizeBomPricing(bom.map((l) => {
+                  const am = autoRes[l.reference];
+                  const manual = manOf(l.mpn);
+                  const price = manual != null ? { amount: manual, currency: 'CNY' }
+                    : am?.price ? { amount: am.price.amount, currency: am.price.currency }
+                    : dkOf(l.mpn)?.unitPrice != null ? { amount: dkOf(l.mpn)!.unitPrice!, currency: dkOf(l.mpn)!.currency ?? 'CNY' }
+                    : l.unitPrice ? { amount: l.unitPrice.amount, currency: l.unitPrice.currency } : undefined;
+                  return { price, kind: am?.price?.kind ?? 'quote' as const, quantity: l.quantity };
+                }));
+                const money = (by: Record<string, number>) => Object.entries(by)
+                  .map(([cur, v]) => fmtMoney(v, cur === 'UNKNOWN' ? undefined : cur)).join(' + ') || '—';
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', justifyContent: 'flex-end', fontSize: 12 }}>
+                    <span style={{ color: '#64748b' }}>
+                      {tr('报价覆盖')} <b style={{ color: ps.unknownLines ? '#b45309' : '#15803d' }}>{ps.quotedLines + ps.estimatedLines} / {ps.totalLines}</b>
+                      {ps.unknownLines ? ` · ${ps.unknownLines} ${tr('行无价格')}` : ''}
+                    </span>
+                    <span style={{ color: '#059669' }}>{tr('已报价小计')} <b>{money(ps.quotedByCurrency)}</b></span>
+                    {ps.estimatedLines > 0 && <span style={{ color: '#b45309' }}>{tr('估算小计')} <b>≈{money(ps.estimatedByCurrency)}</b></span>}
+                    {ps.canShowTotal
+                      ? <span style={{ fontWeight: 700, color: '#dc2626', fontSize: 14 }}>{tr('BOM 总价')} {fmtMoney(ps.total, ps.currency)}</span>
+                      : <span style={{ fontSize: 10.5, color: '#94a3b8' }}>
+                          {ps.complete ? tr('币种不统一，不汇总总价') : tr('仍有行未取到价格，不显示总价')}
+                        </span>}
+                  </div>
+                );
+              })()}
+            </td>
           </tr></tfoot>
         </table>
       )}

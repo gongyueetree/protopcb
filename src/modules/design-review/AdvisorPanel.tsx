@@ -14,9 +14,10 @@ import { CATEGORY_DISPLAY, COLORS } from '../../shared/theme';
 import type { PeripheralCircuitRecommendation } from '../../providers/types';
 import type { ComponentCategory, ReviewLevel } from '../../design-core/document/types';
 import { SubCircuitSection } from './SubCircuitSection';
+import { useAccessContext, anonymousContext } from '../../state/useAccessContext';
 
 const providers = getProviders();
-const ctx = { userId: 'demo-user', organizationId: 'org-demo' };
+// 身份来自 providers.identity（demo 模式自然是 demo-user，集成模式是真实身份）
 
 const LEVEL: Record<ReviewLevel, { bg: string; color: string; label: string }> = {
   high: { bg: '#fef2f2', color: '#dc2626', label: tr('高') },
@@ -63,6 +64,7 @@ function ruleSuggestions(comps: { mpn: string; category: string; family?: string
 const geminiCache = new Map<string, { name: string; reason: string }[]>();
 
 export function AdvisorPanel() {
+  const ctx = useAccessContext() ?? anonymousContext();
   const doc = useDesignStore((s) => s.doc);
   const addComponent = useDesignStore((s) => s.addComponent);
   const [subs, setSubs] = useState<Record<string, PeripheralCircuitRecommendation[]>>({});

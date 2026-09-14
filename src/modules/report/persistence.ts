@@ -8,6 +8,7 @@ import type { CircuitCanvasDocument } from '../../design-core/document/types';
 // 自动保存已统一到 ProjectPersistenceService（唯一键 'cc_doc_autosave'）；
 // 旧 'cc:autosave' 键由服务在 load() 时一次性迁移。
 import { ProjectPersistenceService } from '../../design-core/document/persistence-service';
+import { describeMountingHoles } from '../../design-core/board/mounting-holes';
 
 export function exportDocument(doc: CircuitCanvasDocument) {
   const a = document.createElement('a');
@@ -113,7 +114,7 @@ export async function exportMarkdownReport(doc: CircuitCanvasDocument) {
   // 五、PCB 布局图
   L.push('## 五、PCB 布局图');
   L.push('');
-  L.push(`板框 ${doc.board.widthMm}×${doc.board.heightMm}mm · ${doc.board.shape} · ${doc.board.mountingHolesEnabled ? '含四角定位孔 Ø3.2mm' : '无定位孔'}`);
+  L.push(`板框 ${doc.board.widthMm}×${doc.board.heightMm}mm · ${doc.board.shape} · ${describeMountingHoles(doc.board)}`);
   L.push('');
   L.push(svgToMdImage(buildPcbLayoutSvg(doc), 'PCB布局图'));
   L.push('');

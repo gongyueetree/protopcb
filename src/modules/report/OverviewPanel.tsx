@@ -8,6 +8,7 @@ import { tr } from '../../shared/i18n';
 import { COLORS } from '../../shared/theme';
 import { TRUST_META } from '../../providers/ai-schema';
 import { heightEnvelope } from '../../design-core/enclosure';
+import { summarizeTrust, trustLevelOf } from '../../design-core/trust';
 
 const card: React.CSSProperties = { background: '#fff', borderRadius: 12, border: '1px solid #E8F3EE', padding: 14 };
 const h: React.CSSProperties = { fontSize: 12.5, fontWeight: 700, color: COLORS.green, marginBottom: 8 };
@@ -23,8 +24,9 @@ export function OverviewPanel() {
     .map((c) => ({ cat: c, list: doc.components.filter((x) => x.category === c) }))
     .filter((g) => g.list.length);
 
+  const trust = summarizeTrust(doc.components);     // 唯一口径
   const trustCount = (lv: 'VERIFIED' | 'CANDIDATE' | 'PLACEHOLDER') =>
-    doc.components.filter((c) => (c.trust?.level ?? 'PLACEHOLDER') === lv).length;
+    lv === 'VERIFIED' ? trust.verified : lv === 'CANDIDATE' ? trust.candidate : trust.placeholder;
 
   const netCount = Object.keys(doc.nets ?? {}).filter((k) => k !== '0').length;
 
@@ -93,7 +95,7 @@ export function OverviewPanel() {
             <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 5 }}>{tr(CAT_NAME[g.cat] ?? g.cat)}（{g.list.length}）</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {g.list.map((c) => {
-                const m = TRUST_META[c.trust?.level ?? 'PLACEHOLDER'];
+                const m = TRUST_META[trustLevelOf(c)];
                 return (
                   <div key={c.instanceId} onClick={() => select(c.instanceId)} title={c.display?.description ?? ''}
                     style={{ padding: '5px 9px', borderRadius: 7, border: `1px solid ${m.color}33`, background: m.bg, cursor: 'pointer', fontSize: 11 }}>

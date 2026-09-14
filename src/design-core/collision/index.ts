@@ -5,6 +5,7 @@
 import type { PlacedComponent, BoardDefinition } from '../document/types';
 import { footprintCourtyardRect, rectsOverlap, clampRectInside, type Rect } from '../geometry';
 import { padFootprintFor } from '../geometry/footprint-pads';
+import { effectiveMountingHoles } from '../board/mounting-holes';
 
 export const DEFAULT_GAP_MM = 3;
 export const BOARD_MARGIN_MM = 2;
@@ -27,16 +28,8 @@ export function lshapeCut(board: BoardDefinition): { cutW: number; cutH: number 
 }
 
 export function mountingHoleCenters(board: BoardDefinition): { x: number; y: number }[] {
-  // 导入工程带来的真实孔位优先（此前一律按板四角推算，与原设计不符）
-  if (board.mountingHoles?.length) return board.mountingHoles.map((h) => ({ x: h.position.x, y: h.position.y }));
-  if (!board.mountingHolesEnabled || board.shape === 'circle') return [];
-  const m = HOLE_MARGIN_MM, W = board.widthMm, H = board.heightMm;
-  if (board.shape === 'lshape') {
-    // 缺口被切除 → 右下孔放到缺口上沿以内
-    const { cutH } = lshapeCut(board);
-    return [{ x: m, y: m }, { x: W - m, y: m }, { x: m, y: H - m }, { x: W - m, y: H - cutH - m }];
-  }
-  return [{ x: m, y: m }, { x: W - m, y: m }, { x: m, y: H - m }, { x: W - m, y: H - m }];
+  // 唯一数据源：不再自己按四角推算（那会与导入工程的真实孔位打架）
+  return effectiveMountingHoles(board).map((h) => ({ x: h.position.x, y: h.position.y }));
 }
 
 /** 取器件的 courtyard 矩形（mm，板坐标系）。 */
