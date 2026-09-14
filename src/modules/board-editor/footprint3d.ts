@@ -5,7 +5,7 @@
  * 单位 mm，与设计内核一致。
  */
 import * as THREE from 'three';
-import { padFootprintFor } from '../../design-core/geometry/footprint-pads';
+import { padFootprintFor, type PadFootprint } from '../../design-core/geometry/footprint-pads';
 import { componentBodyHeight } from '../../design-core/enclosure';
 import { stepModelFor, ensureStepModel, bodyColorForFootprint } from './step-loader';
 import type { PlacedComponent } from '../../design-core/document/types';
@@ -143,6 +143,31 @@ function makeHeader(cols: number, rows: number): THREE.Group {
 }
 
 
+/**
+ * 按真实焊盘建排针/排母：塑料基座覆盖焊盘外接框（含卧式封装的本体偏移），
+ * 每个焊盘位置竖一根针。这样 3D 与 2D 焊盘永远对齐，不依赖封装名的命名习惯。
+ */
+function makeHeaderFromPads(fp: PadFootprint): THREE.Group {
+  const g = new THREE.Group();
+  const xs = fp.pads.map((p) => p.x), ys = fp.pads.map((p) => p.y);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const padW = Math.max(...fp.pads.map((p) => p.w));
+  const padH = Math.max(...fp.pads.map((p) => p.h));
+  // 基座尺寸取焊盘阵列外沿再各放 0.6mm（2.54 排针的塑料基座正好略大于焊盘间距）
+  const baseW = (x1 - x0) + padW + 0.6;
+  const baseD = (y1 - y0) + padH + 0.6;
+  const base = new THREE.Mesh(new THREE.BoxGeometry(baseW, 2.5, baseD), MAT.blackBody);
+  base.position.set((x0 + x1) / 2, 2.5 / 2 + 0.05, (y0 + y1) / 2);
+  g.add(base);
+  for (const p of fp.pads) {
+    const pin = new THREE.Mesh(new THREE.BoxGeometry(0.64, 6, 0.64), MAT.gold);
+    pin.position.set(p.x, 3, p.y);
+    g.add(pin);
+  }
+  return g;
+}
+
 /** 从 2D 焊盘数据构建通用 3D 模型 —— 引脚位于每个焊盘的真实位置，与 2D 布局严格一致。
  *  SMD 矩形焊盘 → 金属引脚片；圆形小盘(<1.2mm) → 焊球(WLCSP/BGA)；圆形大盘 → 通孔引脚。 */
 /** 封装族基色 → 材质（按色值缓存，避免每个器件都新建材质） */
@@ -248,11 +273,16 @@ export function buildComponent3D(comp: PlacedComponent): THREE.Group {
     if (/^D_/.test(K)) return makeChipComponent(cs[0], cs[1], cs[2], MAT.darkBody, MAT.tin);
     if (/^FUSE_/.test(K)) return makeChipComponent(cs[0], cs[1], cs[2], MAT.capBrown, MAT.tin);
   }
-  // 2.54mm 排针/排母：按名字里的 1xNN / 2xNN 建真实排数（原来固定 2x5，与实际不符）
+  // 2.54mm 排针/排母
   const hdr = K.match(/PINHEADER_(\d)X(\d{1,2})|PINSOCKET_(\d)X(\d{1,2})/);
   if (hdr) {
-    const rows = Number(hdr[1] ?? hdr[3] ?? 1);
-    const cols = Number(hdr[2] ?? hdr[4] ?? 2);
+    // 优先按**真实焊盘**建模：名字里的 1x12 只说明有几排几位，
+    // 说不清排布方向（KiCad 的 1x12 焊盘是沿 Y 排成一列），也说不清卧式封装的本体偏移。
+    // 此前把两个数字当成 rows/cols 直接用，模型整体转了 90°，看起来就是"3D 错位"。
+    const hdrPads = padFootprintFor(fp);
+    if (hdrPads && hdrPads.pads.length >= 2) return makeHeaderFromPads(hdrPads);
+    const cols = Number(hdr[1] ?? hdr[3] ?? 1);   // 第一个数 = 排数（X 方向）
+    const rows = Number(hdr[2] ?? hdr[4] ?? 2);   // 第二个数 = 每排位数（Y 方向）
     return makeHeader(cols, rows);
   }
   if (/^USB_C_/.test(K)) return makeUsbC();
