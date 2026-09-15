@@ -36,6 +36,8 @@ export function BoardView3D() {
   const setZOffset = useDesignStore((s) => s.setZOffset);
   const selComp = doc.components.find((c) => c.instanceId === selectedId);
   const libVersion = useLibFileStore((s) => s.version);
+  // 位号总开关一变，板面贴图要重画
+  const hideAllRefDes = useDesignStore((s) => s.hideAllRefDes);
   const mountRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<{
     renderer?: THREE.WebGLRenderer; scene?: THREE.Scene; camera?: THREE.PerspectiveCamera;
@@ -144,7 +146,7 @@ export function BoardView3D() {
     const st = stateRef.current;
     if (!st.boardGroup) return;
     rebuildBoard(st.boardGroup, doc);
-  }, [doc.board.widthMm, doc.board.heightMm, doc.board.shape, doc.board.mountingHolesEnabled, doc.components, doc.enclosure, libVersion]);
+  }, [doc.board.widthMm, doc.board.heightMm, doc.board.shape, doc.board.mountingHolesEnabled, doc.components, doc.enclosure, libVersion, hideAllRefDes]);
 
   return (
     <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
@@ -213,8 +215,9 @@ function rebuildBoard(group: THREE.Group, doc: CircuitCanvasDocument) {
   // PCB 板（厚 1.6mm）
   const boardThk = 1.6;
   // 板面贴图：焊盘/走线/丝印画进 CanvasTexture（纯绿挤出体是 3D 观感最大的缺口）
-  const texTop = buildBoardTexture(doc, 'top');
-  const texBot = buildBoardTexture(doc, 'bottom');
+  const showRefDes = !useDesignStore.getState().hideAllRefDes;
+  const texTop = buildBoardTexture(doc, 'top', { showRefDes });
+  const texBot = buildBoardTexture(doc, 'bottom', { showRefDes });
   const faceMat = (tex: THREE.CanvasTexture | null) => (tex
     ? new THREE.MeshStandardMaterial({ map: tex, roughness: 0.62, metalness: 0.12 })
     : MAT.pcbGreen);

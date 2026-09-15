@@ -46,7 +46,12 @@ function padsOf(c: PlacedComponent): { x: number; y: number; w: number; h: numbe
  * 生成板面贴图。side='top' 画顶层铜箔+丝印，'bottom' 画底层。
  * 返回 null 表示板尺寸异常，调用方回退到纯色材质。
  */
-export function buildBoardTexture(doc: CircuitCanvasDocument, side: 'top' | 'bottom'): THREE.CanvasTexture | null {
+/**
+ * @param opts.showRefDes 位号总开关（与 2D 画布共用同一个 store 状态）。
+ *   此前贴图只看每个器件自己的 refDesDisplay.hidden，全局开关根本没传进来，
+ *   2D 关了位号、3D 板面上照样一片位号。
+ */
+export function buildBoardTexture(doc: CircuitCanvasDocument, side: 'top' | 'bottom', opts: { showRefDes?: boolean } = {}): THREE.CanvasTexture | null {
   const W = doc.board.widthMm, H = doc.board.heightMm;
   if (!(W > 0) || !(H > 0)) return null;
 
@@ -117,11 +122,12 @@ export function buildBoardTexture(doc: CircuitCanvasDocument, side: 'top' | 'bot
     }
   }
 
-  // ── 丝印位号 ──
+  // ── 丝印位号（受总开关控制）──
   g.fillStyle = C.silk;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   for (const c of doc.components) {
+    if (opts.showRefDes === false) break;
     if (c.placement.side !== sideKey) continue;
     if (c.refDesDisplay?.hidden) continue;
     const fp = padFootprintFor(c.footprint.name);
