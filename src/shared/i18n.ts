@@ -714,6 +714,8 @@ const DICT: Record<string, string> = {
   '个工程自带 3D 模型已关联': 'project-bundled 3D models linked',
   '根页': 'Root sheet',
   '登录后可查询 DigiKey / Mouser 实时库存与价格': 'Sign in to query DigiKey / Mouser live stock and pricing',
+  '工程自带 3D 模型已随会话失效 · 重新导入 zip 可恢复 · 参数化预览': 'Project-bundled 3D model expired with the session · re-import the zip to restore · parametric preview',
+  '工程自带 STEP 模型 ✓': 'Project-bundled STEP ✓',
   '包内无原理图，符号用名字解析': 'No schematic in package; symbols resolved by name',
   '区间': 'range',
   '单价': 'Unit price',

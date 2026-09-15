@@ -122,7 +122,10 @@ export function Component3DPreview({ c }: { c: PlacedComponent }) {
   }, [c.instanceId, c.footprint.name, version]);
 
   const st = stepStatusFor(c.display?.stepUrl);
-  const label = st === 'ready' ? [tr('ezPLM 真实 STEP 模型 ✓'), '#166534', '#dcfce7']
+  const isProjectModel = !!c.display?.stepUrl?.startsWith('blob:');
+  const label = c.display?.sessionModelLost && !c.display?.stepUrl
+    ? [tr('工程自带 3D 模型已随会话失效 · 重新导入 zip 可恢复 · 参数化预览'), '#854d0e', '#fef9c3']
+    : st === 'ready' ? [tr(isProjectModel ? '工程自带 STEP 模型 ✓' : 'ezPLM 真实 STEP 模型 ✓'), '#166534', '#dcfce7']
     : st === 'loading' ? [tr('STEP 转换中…（首次需下载 3D 引擎）· 暂为参数化'), '#854d0e', '#fef9c3']
     : st === 'failed' && /无匹配模型|no step model/.test(stepFailReasonFor(c.display?.stepUrl) ?? '')
       ? [tr('官方 3D 库未收录该封装 · 参数化预览'), '#64748b', '#f1f5f9']

@@ -98,3 +98,22 @@ describe('工程自带 3D 模型路径', () => {
     }
   });
 });
+
+describe('会话内模型地址的存档处理', () => {
+  it('恢复存档时清掉 blob: 地址并标记 sessionModelLost（不让每次刷新都报失败）', async () => {
+    const { stripSessionOnlyUrls } = await import('../src/design-core/document/persistence-service');
+    const { createDocument } = await import('../src/design-core/document/factory');
+    const { searchResultToPlaced } = await import('../src/design-core/document/services');
+    const doc = createDocument({ name: 'x' });
+    const c = searchResultToPlaced({ componentId: 'k', mpn: 'SW', manufacturer: '-', category: 'electromech', defaultFootprintName: 'SW_SPST_EVQP7C', family: 'SW', pins: 2 } as never, 'SW1');
+    c.display = { ...(c.display ?? {}), stepUrl: 'blob:https://proto.tindie.com/abc' };
+    const keep = searchResultToPlaced({ componentId: 'k2', mpn: 'R', manufacturer: '-', category: 'passive', defaultFootprintName: 'R_0402_1005Metric', family: 'R', pins: 2 } as never, 'R1');
+    keep.display = { ...(keep.display ?? {}), stepUrl: '/api/kicadlib?path=step&lib=Resistor_SMD&name=R_0402_1005Metric' };
+    doc.components.push(c, keep);
+    const { doc: out, stripped } = stripSessionOnlyUrls(doc);
+    expect(stripped).toBe(1);
+    expect(out.components[0].display?.stepUrl).toBeUndefined();
+    expect(out.components[0].display?.sessionModelLost).toBe(true);
+    expect(out.components[1].display?.stepUrl).toMatch(/^\/api\/kicadlib/);   // 官方库地址保留
+  });
+});

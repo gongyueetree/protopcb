@@ -260,6 +260,9 @@ export function ensureStepModel(url: string | undefined, footprintName?: string)
     } catch (e) {
       failed.add(url);
       lastError = String(e instanceof Error ? e.message : e).slice(0, 160);
+      // blob: 是 zip 导入时在本次会话里生成的地址：刷新/重开页面后必然失效。
+      // 这不是模型坏了，是需要重新导入 zip —— 提示要说到点上，别让用户去怀疑文件。
+      if (url.startsWith('blob:')) lastError = '工程自带模型的会话地址已失效（刷新后需重新导入 zip 才能恢复）';
       failReason.set(url, lastError);
       failAt.set(url, Date.now());
       console.warn('[step] STEP 模型加载失败，使用参数化模型:', url.slice(0, 80), lastError);

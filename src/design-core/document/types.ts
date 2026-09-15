@@ -113,6 +113,8 @@ export interface PlacedComponent {
     datasheetUrl?: string;
     imageUrl?: string;
     stepUrl?: string;
+    /** 工程自带 3D 模型曾以会话地址挂载，刷新后已失效；重新导入 zip 可恢复 */
+    sessionModelLost?: boolean;
     /** 辅件归属的核心器件位号（自动布局锚定用） */
     anchorRef?: string;
     /** 焊盘号 → 网络号（导入工程带来，导出时写回） */

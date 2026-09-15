@@ -64,6 +64,7 @@ const placedComponentSchema = z.object({
       datasheetUrl: z.string().optional(),
       imageUrl: z.string().optional(),
       stepUrl: z.string().optional(),
+      sessionModelLost: z.boolean().optional(),
       anchorRef: z.string().optional(),
       padNets: z.record(z.number()).optional(),
       zOffsetMm: z.number().optional(),

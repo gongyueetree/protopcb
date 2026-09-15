@@ -37,6 +37,25 @@ function lsDel(k: string): void {
  * 设了外壳参数但还没放器件的工程，刷新后会被当成空白丢弃。
  * 判据必须覆盖用户可能做过的**任何**改动。
  */
+/**
+ * zip 导入时挂上的工程自带 3D 模型用的是 blob: 地址，只在那次会话有效。
+ * 存档恢复时把它们清掉：留着只会让每个器件先报一次"加载失败"，
+ * 用户要恢复这些模型需要重新导入 zip（页面会提示）。
+ */
+export function stripSessionOnlyUrls(doc: CircuitCanvasDocument): { doc: CircuitCanvasDocument; stripped: number } {
+  let stripped = 0;
+  const components = doc.components.map((c) => {
+    if (c.display?.stepUrl?.startsWith('blob:')) {
+      stripped++;
+      const { stepUrl: _drop, ...rest } = c.display;
+      void _drop;
+      return { ...c, display: { ...rest, sessionModelLost: true } };
+    }
+    return c;
+  });
+  return { doc: stripped ? { ...doc, components } : doc, stripped };
+}
+
 export function docHasContent(doc: CircuitCanvasDocument): boolean {
   if (doc.components.length) return true;
   if ((doc.tracks?.length ?? 0) > 0 || (doc.vias?.length ?? 0) > 0) return true;
@@ -97,7 +116,7 @@ export const ProjectPersistenceService = {
       try {
         const envelope = JSON.parse(raw) as { doc?: unknown; at?: string };
         const r = parseDocument(envelope.doc ?? envelope);   // 兼容裸文档格式
-        if (r.ok) return { doc: r.document, at: envelope.at ?? null };
+        if (r.ok) return { doc: stripSessionOnlyUrls(r.document).doc, at: envelope.at ?? null };
         // 结构校验失败 → 备份后放弃本次恢复（数据保留，不静默删除）
         lsSet(CORRUPT_BACKUP_KEY, raw);
         lsDel(KEY);
