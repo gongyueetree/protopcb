@@ -699,13 +699,17 @@ export const useDesignStore = create<DesignState>()(
         const labels: Record<string, string> = { mcu: '主控', power: '电源', passive: '无源', connector: '接口', ic: '外设IC' };
         const colors: Record<string, string> = { mcu: '#1a6b3c', power: '#b45309', passive: '#4b5563', connector: '#6d28d9', ic: '#0e7490' };
         const prev = s.doc.functionalBlocks;
-        // 用户手动添加的块（非 blk_<类别> 命名）原样保留
-        const customBlocks = prev.filter((b) => !/^blk_(mcu|power|connector|ic|passive)$/.test(b.id));
+        // 只保留**用户手动添加**的块：带 generated 标记的（按类别 / 按连接关系）都属于自动生成，
+        // 重新生成时一律替换。兼容旧文档：没有标记时回退到旧的 id 规则。
+        const customBlocks = prev.filter((b) => (b.generated
+          ? false
+          : !/^blk_(mcu|power|connector|ic|passive)$/.test(b.id)));
         let i = 0;
         const autoBlocks = Array.from(byCat.entries()).map(([cat, comps]) => {
           const old = prev.find((b) => b.id === `blk_${cat}`);
           const b = {
             id: `blk_${cat}`,
+            generated: 'category' as const,
             label: old?.label ?? (labels[cat] ?? cat),
             sublabel: comps.map((c) => c.reference).join(' '),
             shape: old?.shape ?? ('rounded' as const),

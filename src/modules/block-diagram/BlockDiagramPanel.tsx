@@ -30,6 +30,31 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
   const [archBusy, setArchBusy] = useState(false);
   const { guard, gateNotice } = useAiGate();
   const [archMsg, setArchMsg] = useState('');
+
+  // 键盘操作：Delete/Backspace 删除选中的块或连线，Esc 退出连线模式（测评报告）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      if (e.key === 'Escape') { setConnecting(null); setSel(null); return; }
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      const cur = sel;
+      if (!cur) return;
+      e.preventDefault();
+      if (cur.type === 'node') {
+        const st = useDesignStore.getState();
+        st.setFunctionalBlocks(st.doc.functionalBlocks.filter((b) => b.id !== cur.id));
+        // 连到它的线一并删除，避免留下悬空箭头
+        st.setConnections(st.doc.connections.filter((c) => c.fromId !== cur.id && c.toId !== cur.id));
+      } else {
+        const st = useDesignStore.getState();
+        st.setConnections(st.doc.connections.filter((c) => c.id !== cur.id));
+      }
+      setSel(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sel]);
   /** 按真实网表生成：核心器件成块、共享网络成连线 —— 比按类别聚合信息量高得多 */
   const genFromNets = () => {
     const doc = useDesignStore.getState().doc;
@@ -37,8 +62,12 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
     if (!nb.length) { setArchMsg(tr('画布上没有核心器件')); return; }
     const pos = layoutNetBlocks(nb);
     const colors: Record<string, string> = { mcu: '#1a6b3c', power: '#b45309', interface: '#6d28d9', ic: '#0e7490', clock: '#0369a1', other: '#4b5563' };
+    // 标记为"按连接关系自动生成"：另一种生成方式会替换掉它，而不是叠加。
+    // 此前靠 id 形如 blk_<类别> 来判断"是不是自动块"，网表块不匹配就被当成用户自定义块保留，
+    // 于是两种生成方式的框图重叠在画布上。
     setBlocks(nb.map((b) => ({
       id: b.id,
+      generated: 'netlist' as const,
       label: b.label,
       sublabel: `${b.sublabel}${b.componentIds.length > 1 ? ` +${b.componentIds.length - 1}` : ''}`,
       shape: 'rounded' as const,
@@ -176,7 +205,9 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
       if (connecting !== id && !conns.some((c) => c.fromId === connecting && c.toId === id)) {
         setConns([...conns, { id: `c_${Date.now()}`, fromId: connecting, toId: id, label: 'NET', style: 'single' }]);
       }
-      setConnecting(null);
+      // 连完一条继续留在连线模式（回到"选起点"状态），Esc 或再点工具按钮退出。
+      // 此前这里 setConnecting(null)，每连一条都得重新点一次按钮。
+      setConnecting('__pick__');
       return;
     }
     const n = blocks.find((b) => b.id === id);
@@ -240,7 +271,7 @@ export function BlockDiagramPanel({ isFullscreen, onToggleFullscreen }: { isFull
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 14, fontWeight: 700 }}>{tr('📊 系统框图')}</span>
         <button onClick={addNode} style={tb}>+ {tr('模块')}</button>
-        <button onClick={() => setConnecting(connecting ? null : '__pick__')} style={{ ...tb, ...(connecting ? { background: '#f0fdf4', color: '#16a34a', borderColor: '#22c55e' } : {}) }}>{connecting ? '✕ ' + tr('取消连线') : '+ ' + tr('连线')}</button>
+        <button onClick={() => setConnecting(connecting ? null : '__pick__')} title={tr('连线模式：依次点两个块即可连一条；连完继续保持，Esc 退出。选中块或连线后按 Delete 删除。')} style={{ ...tb, ...(connecting ? { background: '#f0fdf4', color: '#16a34a', borderColor: '#22c55e' } : {}) }}>{connecting ? '✕ ' + tr('退出连线（Esc）') : '+ ' + tr('连线')}</button>
         <button onClick={del} disabled={!sel} style={{ ...tb, opacity: sel ? 1 : 0.5 }}>{tr('🗑 删除')}</button>
         <button onClick={genFromNets} style={{ ...tb, borderColor: '#1f5c3b', color: '#1f5c3b', fontWeight: 700 }}
           title={tr('每颗核心器件一个功能块，块间连线来自真实网表（需已导入 KiCad 工程）')}>

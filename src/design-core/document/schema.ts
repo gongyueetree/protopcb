@@ -116,6 +116,8 @@ export const connectionSchema = z.object({
 });
 
 export const functionalBlockSchema = z.object({
+  /** 由生成器产出（按类别 / 按连接关系）；用户手动添加的块没有这个标记，重新生成时保留 */
+  generated: z.enum(['category', 'netlist']).optional(),
   id: z.string(),
   label: z.string(),
   sublabel: z.string().optional(),

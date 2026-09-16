@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getProviders } from '../../providers/factory';
 import { searchSupplierParts, supplierPartToResult } from '../../application/parts';
 import { searchEzplmParts, ezplmLiveAvailable } from '../../application/parts';
-import { useDesignStore } from '../../state/designStore';
+
 import { useT, useTranslated, tr } from '../../shared/i18n';
 import { COLORS, fmtMoney } from '../../shared/theme';
 import { filterAndRank, looksLikeMpn } from '../../design-core/part-match-policy';
@@ -16,6 +16,8 @@ import { useLangStore } from '../../shared/i18n';
 import type { ComponentSearchResult } from '../../providers/types';
 import type { ComponentCategory } from '../../design-core/document/types';
 import { useAccessContext, anonymousContext } from '../../state/useAccessContext';
+import { parseGenericPartQuery } from '../../design-core/semantics/generic-part-query';
+import { useDesignStore } from '../../state/designStore';
 
 /** 空结果提示块开关：当前关闭（保留 UI 以便后续启用） */
 const SHOW_EMPTY_HINT: boolean = false;
@@ -65,6 +67,22 @@ export function ComponentSearchPanel() {
   ].filter(Boolean) as ('org' | 'ezplm' | 'net')[]);
   const results = srcTab === 'org' ? orgResults : srcTab === 'ezplm' ? ezplmResults : dedupedNet;
   const lang = useLangStore((st) => st.lang) === 'en' ? 'en' as const : 'zh' as const;
+  /** 通用无源件查询（Cap / 100nF / 10k 0402）：库里搜不到，但我们能直接给一个标准件 */
+  const generic = useMemo(() => parseGenericPartQuery(keyword), [keyword]);
+  const addGeneric = (g: NonNullable<typeof generic>) => {
+    useDesignStore.getState().addComponent({
+      componentId: `generic_${g.kind}_${g.value ?? 'x'}_${g.size ?? 'def'}`,
+      mpn: g.value ?? g.kind,
+      manufacturer: '—',
+      category: 'passive',
+      defaultFootprintName: g.footprint,
+      family: g.kind,
+      description: tr('通用值器件'),
+      pins: 2,
+      source: 'KICAD',
+      symbolFromMpn: g.symbol,
+    } as never);
+  };
   const setResults = setEzplmResults;   // 兼容既有赋值路径（ezPLM 主源）
   const [expanded, setExpanded] = useState<string | null>(null);
   const addComponent = useDesignStore((s) => s.addComponent);
@@ -187,6 +205,24 @@ export function ComponentSearchPanel() {
               🔑 {tr('网络检索')}
             </a>
           )}
+        </div>
+      )}
+      {/* 通用无源件：Cap / 100nF / 10k 0402 这类查询在库里搜不到（它们是值不是型号），
+          直接给一个 KiCad 官方符号+封装的通用件，并如实标注"通用值器件" */}
+      {generic && (
+        <div style={{ marginBottom: 8, padding: 10, borderRadius: 10, border: '1px solid #bbf7d0', background: '#f0fdf4' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: '#166534', fontFamily: 'monospace' }}>{generic.label}</div>
+              <div style={{ fontSize: 10, color: '#4d7c0f', marginTop: 2 }}>
+                {tr('通用值器件')} · {generic.symbol} · {tr('无需型号验证；后续可用「按参数选型」换成具体型号')}
+              </div>
+            </div>
+            <button onClick={() => addGeneric(generic)}
+              style={{ padding: '5px 12px', borderRadius: 7, border: 'none', background: COLORS.green, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+              + {tr('放到画布')}
+            </button>
+          </div>
         </div>
       )}
       <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>{t('找到')} {results.length} {t('个结果')}</div>
