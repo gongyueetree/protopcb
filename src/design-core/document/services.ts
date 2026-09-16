@@ -168,7 +168,7 @@ export function runDesignReview(doc: CircuitCanvasDocument): ReviewFinding[] {
   if (has('mcu') && !has('passive')) push('high', 'completeness', 'MCU 缺少去耦电容网络');
   if (has('connector')) push('mid', 'emc', '对外接口建议增加 ESD 保护');
 
-  const overlaps = findOverlaps(doc.components);
+  const overlaps = findOverlaps(doc.components, undefined, doc.board);
   if (overlaps.size > 0) push('high', 'placement', `存在 ${overlaps.size} 个器件重叠`, '需调整布局');
 
   const areaCm2 = (doc.board.widthMm * doc.board.heightMm) / 100;

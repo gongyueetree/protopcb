@@ -35,7 +35,7 @@ export function ReviewPanel() {
     const comps = doc.components;
 
     // —— 布局（几何，可完全判定）——
-    const overlaps = findOverlaps(comps);
+    const overlaps = findOverlaps(comps, undefined, doc.board);
     out.push({
       id: 'overlap', group: tr('布局'), label: tr('器件无重叠'),
       pass: overlaps.size === 0,

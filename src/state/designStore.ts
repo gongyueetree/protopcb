@@ -15,7 +15,7 @@ import { solvePlacementDetailed, DEFAULT_PLACEMENT_RULES, autoPlaceAllDetailed, 
 import { DEFAULT_ENCLOSURE } from '../design-core/enclosure';
 import { kicadPassiveDefaults } from '../design-core/geometry/kicad-passive-defaults';
 import { materializeMountingHoles } from '../design-core/board/mounting-holes';
-import { clampComponentToBoard, findOverlaps, BOARD_MARGIN_MM } from '../design-core/collision';
+import { clampComponentToBoard, findOverlaps, resolveDropPosition, BOARD_MARGIN_MM } from '../design-core/collision';
 import { appConfig } from '../config';
 
 const HISTORY_LIMIT = 60;
@@ -153,7 +153,7 @@ export const useDesignStore = create<DesignState>()(
         if (!out.success) s.placementViolations[placed.instanceId] = out.violations;
         s.doc.components.push(placed);
         s.doc = touchDocument(refreshDerived(s.doc));
-        s.overlaps = findOverlaps(s.doc.components);
+        s.overlaps = findOverlaps(s.doc.components, undefined, s.doc.board);
       }),
 
     removeComponents: (ids) =>
@@ -165,7 +165,7 @@ export const useDesignStore = create<DesignState>()(
         s.multiSel = [];
         if (s.selectedId && kill.has(s.selectedId)) s.selectedId = null;
         s.doc = touchDocument(refreshDerived(s.doc));
-        s.overlaps = findOverlaps(s.doc.components);
+        s.overlaps = findOverlaps(s.doc.components, undefined, s.doc.board);
       }),
 
     setMultiSel: (ids) => set((s) => { s.multiSel = ids; }),
@@ -188,7 +188,7 @@ export const useDesignStore = create<DesignState>()(
         s.doc.components = arr.placed;
         s.placementViolations = arr.violations;   // 空对象 = 全部合法
         s.doc = touchDocument(s.doc);
-        s.overlaps = findOverlaps(s.doc.components);
+        s.overlaps = findOverlaps(s.doc.components, undefined, s.doc.board);
       }),
 
     removeComponent: (id) =>
@@ -200,7 +200,7 @@ export const useDesignStore = create<DesignState>()(
         s.doc.components = s.doc.components.filter((c) => c.instanceId !== id && !satRefs.has(c.instanceId));
         s.doc = touchDocument(refreshDerived(s.doc));
         s.selectedId = s.selectedId === id ? null : s.selectedId;
-        s.overlaps = findOverlaps(s.doc.components);
+        s.overlaps = findOverlaps(s.doc.components, undefined, s.doc.board);
       }),
 
     placeSubCircuit: (coreInstanceId, items) => {
@@ -279,7 +279,7 @@ export const useDesignStore = create<DesignState>()(
           moved++;
         }
         s.doc = touchDocument(refreshDerived(s.doc));
-        s.overlaps = findOverlaps(s.doc.components);
+        s.overlaps = findOverlaps(s.doc.components, undefined, s.doc.board);
       });
       return { moved, violations };
     },
@@ -312,12 +312,18 @@ export const useDesignStore = create<DesignState>()(
             sat.placement.yMm = cl.y;
           }
         }
-        // 允许自由移动（密集板上处处违反间距会导致完全拖不动）；重叠以红色高亮提示而非阻止
-        c.placement.xMm = clamped.x;
-        c.placement.yMm = clamped.y;
+        // 落点求解：孔位一律避开（机械约束），器件间先轻推、推不开才带重叠落下（标红提示）。
+        // 不硬拦器件重叠 —— 导入的密集板处处 0.3mm 间距，硬拦会完全拖不动。
+        const drop = resolveDropPosition(
+          { ...c, placement: { ...c.placement, xMm: clamped.x, yMm: clamped.y } },
+          clamped.x, clamped.y, s.doc.components, s.doc.board,
+        );
+        if (drop.rejected) return;      // 孔位冲突且附近无处可放：放弃本次移动
+        c.placement.xMm = drop.x;
+        c.placement.yMm = drop.y;
         // 用户手动挪过 = 已知情处理该器件的自动放置违规
         if (s.placementViolations[id]) delete s.placementViolations[id];
-        s.overlaps = findOverlaps(s.doc.components);
+        s.overlaps = findOverlaps(s.doc.components, undefined, s.doc.board);
       }),
 
     rotateComponent: (id) =>
@@ -330,7 +336,7 @@ export const useDesignStore = create<DesignState>()(
         c.placement.xMm = clamped.x;
         c.placement.yMm = clamped.y;
         s.doc = touchDocument(s.doc);
-        s.overlaps = findOverlaps(s.doc.components);
+        s.overlaps = findOverlaps(s.doc.components, undefined, s.doc.board);
       }),
 
     setBoardSize: (w, h) =>
@@ -361,7 +367,7 @@ export const useDesignStore = create<DesignState>()(
         // 让各模块各自猜的中间态
         if (s.doc.board.mountingHolesEnabled) materializeMountingHoles(s.doc.board);
         s.doc = touchDocument(s.doc);
-        s.overlaps = findOverlaps(s.doc.components);
+        s.overlaps = findOverlaps(s.doc.components, undefined, s.doc.board);
       }),
 
     setActiveLayer: (layer) => set((s) => { s.activeLayer = layer; }),
@@ -375,7 +381,7 @@ export const useDesignStore = create<DesignState>()(
         // 换层 = 沿 Y 轴翻面：旋转取镜像（保持管脚排列正确）
         c.placement.rotation = (360 - c.placement.rotation) % 360;
         s.doc = touchDocument(s.doc);
-        s.overlaps = findOverlaps(s.doc.components);
+        s.overlaps = findOverlaps(s.doc.components, undefined, s.doc.board);
       }),
 
     moveRefDes: (id, dx, dy) =>
@@ -590,7 +596,7 @@ export const useDesignStore = create<DesignState>()(
         s.doc.components = schemeOut.placed;
         s.placementViolations = schemeOut.violations;
         s.doc = touchDocument(refreshDerived(s.doc));
-        s.overlaps = findOverlaps(s.doc.components);
+        s.overlaps = findOverlaps(s.doc.components, undefined, s.doc.board);
       }),
 
     importKicad: (data) =>
@@ -644,7 +650,7 @@ export const useDesignStore = create<DesignState>()(
         s.doc = touchDocument(refreshDerived(s.doc));
         // 导入后同步重叠状态：此前漏了这一句，store 里一直是导入前的旧值，
         // 而流程条/审查页各自现算，两处对不上
-        s.overlaps = findOverlaps(s.doc.components);
+        s.overlaps = findOverlaps(s.doc.components, undefined, s.doc.board);
       }),
 
     loadDocument: (doc) =>
@@ -653,7 +659,7 @@ export const useDesignStore = create<DesignState>()(
         s.doc = refreshDerived(doc);
         s.selectedId = null;
         s.multiSel = [];
-        s.overlaps = findOverlaps(doc.components);
+        s.overlaps = findOverlaps(doc.components, undefined, doc.board);
       }),
 
     undo: () =>
@@ -662,7 +668,7 @@ export const useDesignStore = create<DesignState>()(
         if (!prev) return;
         s.future.push(JSON.parse(JSON.stringify(s.doc)));
         s.doc = prev;
-        s.overlaps = findOverlaps(prev.components);
+        s.overlaps = findOverlaps(prev.components, undefined, prev.board);
         s.selectedId = null;
       }),
 
@@ -672,10 +678,10 @@ export const useDesignStore = create<DesignState>()(
         if (!next) return;
         s.past.push(JSON.parse(JSON.stringify(s.doc)));
         s.doc = next;
-        s.overlaps = findOverlaps(next.components);
+        s.overlaps = findOverlaps(next.components, undefined, next.board);
       }),
 
-    recompute: () => set((s) => { s.doc = refreshDerived(s.doc); s.overlaps = findOverlaps(s.doc.components); }),
+    recompute: () => set((s) => { s.doc = refreshDerived(s.doc); s.overlaps = findOverlaps(s.doc.components, undefined, s.doc.board); }),
 
     setFunctionalBlocks: (blocks) => set((s) => { s.doc.functionalBlocks = blocks; }),
     setConnections: (conns) => set((s) => { s.doc.connections = conns; }),

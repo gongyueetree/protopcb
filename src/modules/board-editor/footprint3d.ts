@@ -107,7 +107,10 @@ function makeUsbC(): THREE.Group {
   // 于是 USB-C 在板上立成一根 7mm 高的柱子。场景 y 已经朝上，这里不需要任何旋转。
   const shellGeo = new THREE.ExtrudeGeometry(shellShape, { depth: shellD, bevelEnabled: false });
   const shell = new THREE.Mesh(shellGeo, MAT.metalCan);
-  // 本体在 z 向以封装原点居中；底面抬到板面之上 0.05mm
+  // 本体在 z 向以封装原点居中（焊盘也以原点居中），底面抬到板面之上 0.05mm。
+  // ⚠ 挤出方向是 +z，所以起点要放在 -shellD/2，壳体才占据 [-D/2, +D/2]。
+  //   此前写成 -shellD（壳体落在 [-D, 0]），而舌片/内衬按 +D/2 摆 —— 壳体和开口各朝一边，
+  //   看上去就是整个连接器转了 180°。
   shell.position.set(0, shellH / 2 + 0.05, -shellD / 2);
   g.add(shell);
   const zFront = shellD / 2;                       // 插口朝向（+z 为板外）

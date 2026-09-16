@@ -22,7 +22,7 @@ export function PipelineBar() {
 
   const steps = useMemo(() => {
     const n = doc.components.length;
-    const overlaps = findOverlaps(doc.components);
+    const overlaps = findOverlaps(doc.components, undefined, doc.board);
     const vio = Object.keys(placementViolations).length;
     const netCount = Object.keys(doc.nets ?? {}).filter((k) => k !== '0').length;
     const enc = { ...DEFAULT_ENCLOSURE, ...(doc.enclosure ?? {}) };
