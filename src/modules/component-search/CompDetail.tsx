@@ -131,7 +131,9 @@ export function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: stri
             <span style={{ fontSize: 10, color: '#94a3b8' }}>{tr('跳转 ↗')}</span>
           </a>
         ) : (
-          <div style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>DigiKey：{dkOffer === null ? tr('查询中… / 未配置') : tr('未收录该型号')}</div>
+          <div style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>
+            DigiKey：{!webAllowed ? tr('登录后可查询') : dkOffer === null ? tr('查询中…') : tr('未收录该型号')}
+          </div>
         )}
         {/* Mouser/Arrow/element14：配置了 Key → 实时数据；未配置 → 演示数据占位 */}
         {['Mouser', 'Arrow', 'element14', 'Iceasy', 'OURIC'].map((vendor) => {
@@ -151,11 +153,24 @@ export function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: stri
           if (real?.configured && !real.found) {
             return <div key={vendor} style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>{vendor}：{real.error ? tr('查询失败') : tr('未收录该型号')}</div>;
           }
-          // Iceasy / OURIC 是真实对接渠道：未配凭据就如实说"未配置"，不用哈希编一个演示价
+          // Iceasy / OURIC 是真实对接渠道：不编演示价。但要分清三种情况 ——
+          // 未登录（根本没发请求）/ 服务端说没配凭据 / 配了但这颗料查不到。
+          // 此前一律显示"未配置凭据"，把 401 误报成配置问题（实际 Key 是配好的）。
           if (vendor === 'Iceasy' || vendor === 'OURIC') {
             return (
               <div key={vendor} style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>
-                {vendor}：{tr('未配置凭据')}（{vendor === 'Iceasy' ? 'ICEASY_ACCOUNT + ICEASY_PASSWORD' : 'OURIC_API_KEY + OURIC_API_SECRET'}）
+                {vendor}：{!webAllowed
+                  ? tr('登录后可查询')
+                  : real
+                    ? (real.error ? tr('查询失败') : tr('未收录该型号'))
+                    : `${tr('未配置凭据')}（${vendor === 'Iceasy' ? 'ICEASY_ACCOUNT + ICEASY_PASSWORD' : 'OURIC_API_KEY + OURIC_API_SECRET'}）`}
+              </div>
+            );
+          }
+          if (!webAllowed) {
+            return (
+              <div key={vendor} style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>
+                {vendor}：{tr('登录后可查询')}
               </div>
             );
           }

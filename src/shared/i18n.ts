@@ -730,6 +730,7 @@ const DICT: Record<string, string> = {
   '连线模式：依次点两个块即可连一条；连完继续保持，Esc 退出。选中块或连线后按 Delete 删除。': 'Wiring mode: click two blocks to connect; stays on after each link, Esc to exit. Select a block or link and press Delete to remove.',
   '通用值器件': 'Generic value part',
   '无需型号验证；后续可用「按参数选型」换成具体型号': 'No MPN verification needed; swap for a specific part later via parametric selection',
+  '登录后可查询': 'Sign in to query',
   '包内无原理图，符号用名字解析': 'No schematic in package; symbols resolved by name',
   '区间': 'range',
   '单价': 'Unit price',
