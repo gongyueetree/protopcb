@@ -1045,6 +1045,12 @@ export function syncDocumentLang(lang: Lang) {
     : '硬件原型工坊 · Tindie Proto';
 }
 
+// 模块加载即同步一次（早于 React 挂载）：替代原 index.html 的内联脚本 ——
+// 那段被 CSP script-src 'self' 拦下，且读的是已迁移掉的旧键 cc_lang
+if (typeof document !== 'undefined') {
+  try { syncDocumentLang(useLangStore.getState().lang); } catch { /* SSR/测试环境无 document */ }
+}
+
 /** 固定文案翻译：zh 模式原样返回；en 模式查词典，未命中返回原文 */
 export function useT() {
   const lang = useLangStore((s) => s.lang);

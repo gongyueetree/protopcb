@@ -119,3 +119,18 @@ describe('增量重建（§17）', () => {
     expect(changed).toBe(1);
   });
 });
+
+describe('库版本通知不得回环（回归：订阅回调里再 bump 会无限递归）', () => {
+  it('bumpLibRegistry 触发一次通知后终止，store 版本与 Domain 一致', async () => {
+    const reg = await import('../../src/design-core/geometry/lib-file-registry');
+    const { useLibFileStore } = await import('../../src/state/libFileStore');
+    let notified = 0;
+    const off = reg.subscribeLibRegistry(() => { notified++; });
+    const before = reg.libRegistryVersion();
+    reg.bumpLibRegistry();
+    off();
+    expect(reg.libRegistryVersion()).toBe(before + 1);   // 只递增一次
+    expect(notified).toBe(1);                              // 只通知一次
+    expect(useLibFileStore.getState().version).toBe(before + 1);
+  });
+});
