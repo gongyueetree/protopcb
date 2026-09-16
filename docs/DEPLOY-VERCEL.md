@@ -59,7 +59,7 @@ vercel --prod
 ### 后端怎么部署？三选一
 
 **选项 1：后端单独部署在别处**
-把 `server/`（Express）部署到 Railway / Render / 自己的服务器，
+（`server/` Express 骨架已删除；如需自托管，把 `api/` 的 handler 用任意 Node HTTP 框架挂载即可，
 拿到公网地址后填进 `VITE_API_BASE_URL`。注意后端要开 CORS（已内置）。
 
 **选项 2：integrated 模式直接对接 ezPLM**

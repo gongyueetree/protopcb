@@ -3,6 +3,7 @@
  * Provider 层接口契约。页面只依赖这些接口，不感知数据来自 Mock 还是 ezPLM。
  */
 import type { ComponentCategory, Money } from '../../design-core/document/types';
+import type { PartCandidate } from '../../design-core/document/candidate';
 import type { FootprintGeometry } from '../../design-core/geometry/types';
 
 /* ---------- 通用 ---------- */
@@ -28,46 +29,14 @@ export interface ComponentSearchQuery {
   pageSize?: number;
 }
 
-export interface OrganizationMaterialInfo {
-  organizationId: string;
-  materialId: string;
-  internalPartNumber?: string;
-  approved: boolean;
-  stockQuantity?: number;
-  preferred: boolean;
-  lastPurchasePrice?: Money;
-  projectUsageCount?: number;
-}
+import type { OrganizationMaterialInfo } from '../../design-core/document/candidate';
+export type { OrganizationMaterialInfo };
 
-export interface ComponentSearchResult {
-  componentId: string;
-  mpn: string;
-  manufacturer: string;
-  category: ComponentCategory;
-  defaultFootprintName: string;
-  family: string;
-  description: string;
-  unitPrice?: Money;
-  pins: number;
-  attributes?: Record<string, string>;
-  org?: OrganizationMaterialInfo; // 命中组织物料时附带
-  /** 器件图片 URL（ezPLM 元器件库提供；缺省时前端用封装缩略图兜底） */
-  imageUrl?: string;
-  /** 官网产品页链接 */
-  productUrl?: string;
-  /** Datasheet PDF 链接 */
-  datasheetUrl?: string;
-  /** 3D 模型（STEP）文件链接（若接口提供） */
-  stepUrl?: string;
-  /** .kicad_mod 封装文件链接（运行时解析出逐点精确焊盘） */
-  footprintFileUrl?: string;
-  /** .kicad_sym 符号文件链接（运行时解析出真实引脚名符号） */
-  symbolFileUrl?: string;
-  /** 器件分类（接口原始分类文本） */
-  classification?: string;
-  /** 核心参数（约10项，键值对） */
-  coreParams?: Record<string, string>;
-}
+/**
+ * 检索结果的形状由 Domain 定义（design-core/document/candidate.ts）。
+ * 这里只是别名：Provider 依赖 Domain，而不是反过来。
+ */
+export type ComponentSearchResult = PartCandidate;
 
 /** 供应商报价（DigiKey/Mouser/Iceasy 等，来自 ezPLM 供应链 API） */
 export interface SupplierOffer {

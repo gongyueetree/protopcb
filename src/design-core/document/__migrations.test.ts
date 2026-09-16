@@ -33,7 +33,7 @@ describe('schema 迁移链', () => {
       board: { ...createDocument({ name: 'x' }).board, mountingHoles: [{ x: 3, y: 4, d: 2.7 }] },
     };
     const out = migrateDocument(v1doc) as { schemaVersion: string; board: { mountingHoles: { position: { x: number; y: number }; diameterMm: number }[] } };
-    expect(out.schemaVersion).toBe('3.1.0');
+    expect(out.schemaVersion).toBe('3.2.0');
     expect(out.board.mountingHoles[0]).toEqual({ position: { x: 3, y: 4 }, diameterMm: 2.7 });
     // 迁移后整体过 Zod
     const parsed = parseDocument(v1doc);
@@ -60,7 +60,7 @@ describe('schema 迁移链', () => {
     expect(parsed.ok).toBe(true);
     if (parsed.ok) {
       expect(parsed.document.components).toEqual([]);
-      expect(parsed.document.schemaVersion).toBe('3.1.0');
+      expect(parsed.document.schemaVersion).toBe('3.2.0');
     }
   });
 
@@ -69,5 +69,27 @@ describe('schema 迁移链', () => {
     const snapshot = JSON.stringify(input);
     migrateDocument(input);
     expect(JSON.stringify(input)).toBe(snapshot);
+  });
+});
+
+describe('3.1 → 3.2：当前页不再复制进文档', () => {
+  it('只有旧的 schematicSheet 单页 → 折成 schematicSheets + rootSheetFile', () => {
+    const doc = { schemaVersion: '3.1.0', board: { widthMm: 100, heightMm: 80, shape: 'rect' },
+      schematicSheet: { file: 'main.kicad_sch', instances: [], wires: [], junctions: [], labels: [], noConnects: [], libSymbols: {} } };
+    const out = migrateDocument(doc) as { schematicSheet?: unknown; schematicSheets?: Record<string, unknown>; rootSheetFile?: string; schemaVersion: string };
+    expect(out.schematicSheet).toBeUndefined();
+    expect(Object.keys(out.schematicSheets ?? {})).toEqual(['main.kicad_sch']);
+    expect(out.rootSheetFile).toBe('main.kicad_sch');
+    expect(out.schemaVersion).toBe('3.2.0');
+  });
+  it('两者都有时以 schematicSheets 为准，只删复制的那份', () => {
+    const doc = { schemaVersion: '3.1.0', board: { widthMm: 100, heightMm: 80, shape: 'rect' },
+      rootSheetFile: 'root.kicad_sch',
+      schematicSheets: { 'root.kicad_sch': { instances: [], wires: [], junctions: [], labels: [], noConnects: [], libSymbols: {} }, 'sub.kicad_sch': { instances: [], wires: [], junctions: [], labels: [], noConnects: [], libSymbols: {} } },
+      schematicSheet: { file: 'sub.kicad_sch', instances: [], wires: [], junctions: [], labels: [], noConnects: [], libSymbols: {} } };
+    const out = migrateDocument(doc) as { schematicSheet?: unknown; schematicSheets?: Record<string, unknown>; rootSheetFile?: string };
+    expect(out.schematicSheet).toBeUndefined();
+    expect(Object.keys(out.schematicSheets ?? {}).sort()).toEqual(['root.kicad_sch', 'sub.kicad_sch']);
+    expect(out.rootSheetFile).toBe('root.kicad_sch');
   });
 });

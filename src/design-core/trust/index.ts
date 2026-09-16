@@ -11,7 +11,8 @@
  */
 import type { PlacedComponent } from '../document/types';
 
-export type TrustLevel = 'VERIFIED' | 'CANDIDATE' | 'PLACEHOLDER';
+import type { TrustLevel } from '../document/types';
+export type { TrustLevel };
 
 export interface TrustSummary {
   total: number;

@@ -13,7 +13,7 @@ import { applyComponent3DTransform } from './component-3d-transform';
 import { buildBoardTexture } from './board-texture';
 import { mountingHoleCenters, HOLE_DIAMETER_MM, lshapeCut } from '../../design-core/collision';
 import { lshapeRoundedSegments } from '../../design-core/geometry/board-outline';
-import { useLibFileStore } from '../../design-core/geometry/lib-file-registry';
+import { useLibFileStore } from '../../state/libFileStore';
 import { stepStats } from './step-loader';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
 import { DEFAULT_ENCLOSURE, heightEnvelope, computeEnclosureDims, PCB_THICKNESS_MM } from '../../design-core/enclosure';
@@ -146,7 +146,30 @@ export function BoardView3D() {
     const st = stateRef.current;
     if (!st.boardGroup) return;
     rebuildBoard(st.boardGroup, doc);
-  }, [doc.board.widthMm, doc.board.heightMm, doc.board.shape, doc.board.mountingHolesEnabled, doc.components, doc.enclosure, libVersion, hideAllRefDes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.board.widthMm, doc.board.heightMm, doc.board.shape, doc.board.mountingHolesEnabled, doc.components, doc.enclosure, libVersion]);
+
+  // 位号开关只影响板面丝印：只重画贴图并换到板 mesh 上，不重建全部器件 3D
+  //（此前这个开关也在整板重建的依赖里，切一下位号要重新 clone 几十个 STEP）
+  useEffect(() => {
+    const st = stateRef.current;
+    const board = st.boardGroup?.getObjectByName('board') as THREE.Mesh | undefined;
+    if (!board) return;
+    const showRefDes = !hideAllRefDes;
+    const mats = Array.isArray(board.material) ? board.material : [board.material];
+    const swap = (mat: THREE.Material, tex: THREE.CanvasTexture | null) => {
+      const m = mat as THREE.MeshStandardMaterial;
+      if (!m.map) return;
+      m.map.dispose();
+      m.map = tex;
+      m.needsUpdate = true;
+    };
+    // 贴图材质是有 map 的那两个（顶/底），顺序与创建时一致：先顶后底
+    const withMap = mats.filter((m) => !!(m as THREE.MeshStandardMaterial).map);
+    if (withMap[0]) swap(withMap[0], buildBoardTexture(doc, 'top', { showRefDes }));
+    if (withMap[1]) swap(withMap[1], buildBoardTexture(doc, 'bottom', { showRefDes }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hideAllRefDes]);
 
   return (
     <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
@@ -209,7 +232,7 @@ const vbtn: React.CSSProperties = { padding: '6px 12px', borderRadius: 8, border
 
 function rebuildBoard(group: THREE.Group, doc: CircuitCanvasDocument) {
   // clear
-  while (group.children.length) { const c = group.children[0]; group.remove(c); disposeObj(c); }
+  while (group.children.length) { const c = group.children[0]; group.remove(c); disposeViewOwned(c); }
 
   const W = doc.board.widthMm, H = doc.board.heightMm;
   // PCB 板（厚 1.6mm）
@@ -289,6 +312,7 @@ function rebuildBoard(group: THREE.Group, doc: CircuitCanvasDocument) {
     boardMesh = new THREE.Mesh(geo, [faceMat(texTop), edgeMat, faceMat(texBot)]);
     boardMesh.position.y = 0;
   }
+  boardMesh.name = 'board';
   group.add(boardMesh);
 
   // 定位孔：矩形/圆角/L 形板已由 Shape.holes 真正挖穿，无需额外几何（此前的孔壁环高出板面，看起来像凸台）
@@ -330,8 +354,15 @@ function roundedRectShape(s: THREE.Shape, w: number, h: number, r: number) {
   s.quadraticCurveTo(x, y, x + r, y);
 }
 
-function disposeObj(obj: THREE.Object3D) {
+/**
+ * 只释放**视图自有**的资源。
+ * STEP 缓存的 geometry/material 带 userData.sharedResource 标记（step-loader 打的），
+ * 视图拿到的是 clone、仍共享它们 —— dispose 会把缓存弄坏，跳过。
+ * 参数化模型的 geometry 是每次 buildComponent3D 新建的，属于本视图，照常释放。
+ */
+export function disposeViewOwned(obj: THREE.Object3D) {
   obj.traverse((o: THREE.Object3D) => {
+    if (o.userData?.sharedResource) return;
     const m = o as THREE.Mesh;
     if (m.geometry) m.geometry.dispose();
     // 板面贴图是每次重建新生成的 CanvasTexture，不释放会持续占用显存；

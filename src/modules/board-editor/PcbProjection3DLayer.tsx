@@ -14,7 +14,7 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useDesignStore } from '../../state/designStore';
 import { usePcbViewStore } from '../../state/pcbViewStore';
-import { useLibFileStore } from '../../design-core/geometry/lib-file-registry';
+import { useLibFileStore } from '../../state/libFileStore';
 import { buildComponent3D } from './footprint3d';
 import { stepStatusFor } from './step-loader';
 import { cloneMaterialsForView } from './material-isolation';

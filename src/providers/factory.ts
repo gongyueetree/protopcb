@@ -64,13 +64,16 @@ function makeAi(): AiModelProvider {
 
 let registry: ProviderRegistry | null = null;
 
-/** 鉴权令牌持有者。integrated 模式下由宿主(ezPLM SSO/OIDC票据)注入。 */
-let authTokenGetter: (() => string | null) = () => {
-  try { return localStorage.getItem('cc:token'); } catch { return null; }
-};
+/**
+ * HostAuthAdapter：integrated 模式下宿主（ezPLM 页面 / SSO 票据）注入 Bearer 令牌的**唯一**入口。
+ * 默认不注入：请求靠同源 Cookie（proto_session / ezplm_session）鉴权。
+ * 此前默认从 localStorage 读一个来源不明的令牌 —— 任何脚本写进去都会被当成身份，已删除。
+ */
+export interface HostAuthAdapter { getToken: () => string | null }
+let hostAuth: HostAuthAdapter | null = null;
 
-export function setAuthTokenGetter(fn: () => string | null) {
-  authTokenGetter = fn;
+export function setHostAuthAdapter(adapter: HostAuthAdapter | null) {
+  hostAuth = adapter;
   registry = null; // 强制重建，使新令牌生效
 }
 
@@ -78,7 +81,7 @@ function makeHttp(): HttpClient {
   return new HttpClient({
     baseUrl: appConfig.apiBaseUrl ?? '/api',
     getAuthHeaders: (): Record<string, string> => {
-      const t = authTokenGetter();
+      const t = hostAuth?.getToken() ?? null;
       return t ? { Authorization: `Bearer ${t}` } : {};
     },
     timeoutMs: 15000,

@@ -10,6 +10,7 @@ import { useState, useEffect } from 'react';
 import { useDesignStore } from '../../state/designStore';
 import { COLORS } from '../../shared/theme';
 import type { ComponentSearchResult } from '../../providers/types';
+import { kicadLibrary } from '../../application/library';
 
 
 export function FootprintLibraryPanel() {
@@ -22,7 +23,7 @@ export function FootprintLibraryPanel() {
     if (q.length < 2) return;
     setXbusy(true); setXsearched(true);
     try {
-      const j = await fetch(`/api/kicadlib?path=fpsearch&q=${encodeURIComponent(q)}`).then((r) => r.json());
+      const j = await kicadLibrary.searchFootprints(q);
       setXhits(Array.isArray(j.hits) ? j.hits : []);
     } catch { setXhits([]); }
     setXbusy(false);
@@ -44,7 +45,7 @@ export function FootprintLibraryPanel() {
     if (klLibs.length) return;
     setKlBusy('libs'); setKlErr('');
     try {
-      const j = await fetch('/api/kicadlib?path=libs').then((r) => r.json());
+      const j = await kicadLibrary.listFootprintLibs();
       if (j.libs) setKlLibs(j.libs); else setKlErr(j.error ?? tr('加载失败'));
     } catch { setKlErr(tr('网络错误，无法访问 KiCad 官方库')); }
     setKlBusy('');
@@ -54,7 +55,7 @@ export function FootprintLibraryPanel() {
     if (!lib) return;
     setKlBusy('items'); setKlErr('');
     try {
-      const j = await fetch(`/api/kicadlib?path=list&lib=${encodeURIComponent(lib)}`).then((r) => r.json());
+      const j = await kicadLibrary.listFootprints(lib);
       if (j.items) setKlItems(j.items); else setKlErr(j.error ?? tr('加载失败'));
     } catch { setKlErr(tr('网络错误，无法访问 KiCad 官方库')); }
     setKlBusy('');
@@ -63,7 +64,7 @@ export function FootprintLibraryPanel() {
     const useLib = libOverride ?? klLib;
     setKlBusy('add'); setKlErr('');
     try {
-      const text = await fetch(`/api/kicadlib?path=mod&lib=${encodeURIComponent(useLib)}&name=${encodeURIComponent(name)}`).then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.text(); });
+      const text = await kicadLibrary.fetchFootprint(useLib, name).then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.text(); });
       const fp = parseKicadMod(text);
       if (!fp || !fp.pads.length) throw new Error(tr('封装解析失败'));
       registerFootprintOverride(name, fp); // 精确焊盘注册 → 2D/3D/导出全链路生效
@@ -82,13 +83,13 @@ export function FootprintLibraryPanel() {
       // 与 KiCad 库中的真实符号对不上。这里按封装名尝试匹配符号并注册。
       const symKey = name;   // symbolFor 以 c.mpn 为键，这里 mpn 即封装名
       try {
-        const sr = await fetch(`/api/kicadlib?path=symsearch&q=${encodeURIComponent(name)}&limit=1`);
+        const sr = await kicadLibrary.searchSymbols(name, 1).then((j) => ({ ok: true, json: async () => j }));
         if (sr.ok) {
           const hits = (await sr.json())?.hits ?? [];
           const top = hits[0];
           // 仅接受名字完全一致的符号，避免"看起来像"的错误符号混进设计
           if (top && String(top.name).toUpperCase() === name.toUpperCase()) {
-            const st = await fetch(`/api/kicadlib?path=sym&lib=${encodeURIComponent(top.lib)}&name=${encodeURIComponent(top.name)}`);
+            const st = await kicadLibrary.fetchSymbol(top.lib, top.name);
             if (st.ok) {
               const ps = parseKicadSym(await st.text());
               if (ps && ps.pins.length) registerSymbolOverride(symKey, ps);

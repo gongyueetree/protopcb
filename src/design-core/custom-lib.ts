@@ -4,20 +4,17 @@
  * 存 localStorage；符号注册为覆盖（真实管脚名），封装经合成 KiCad 名走既有解析器
  * （2D 焊盘 / 3D / 导出全链路自动生效）。
  */
-import type { ComponentSearchResult } from '../providers/types';
+import type { PartCandidate as ComponentSearchResult } from './document/candidate';
 import type { ComponentCategory } from './document/types';
 import { registerSymbolOverride, registerFootprintOverride } from './geometry/lib-file-registry';
 import { padFootprintFor, type PadFootprint } from './geometry/footprint-pads';
 
-export const KICAD_PIN_TYPES = [
-  'input', 'output', 'bidirectional', 'tri_state', 'passive', 'free',
-  'unspecified', 'power_in', 'power_out', 'open_collector', 'open_emitter', 'no_connect',
-] as const;
-export type KicadPinType = (typeof KICAD_PIN_TYPES)[number];
+// 引脚类型枚举与基础类型在 custom-types.ts（叶子模块，同源 contracts/custom-part-enums.json）
+export { KICAD_PIN_TYPES } from './custom-types';
+export type { KicadPinType } from './custom-types';
 
-export type PinSide = 'left' | 'right' | 'top' | 'bottom';
-export interface CustomPin { num: string; name: string; type: KicadPinType; desc?: string; side?: PinSide }
-export interface ManualPad { num: string; x: number; y: number; w: number; h: number; round?: boolean }
+export type { PinSide, CustomPin, ManualPad } from './custom-types';
+import type { PinSide, CustomPin, ManualPad } from './custom-types';
 
 /**
  * 封装族中央 enum —— UI 下拉、Zod 校验、AI 提取 Prompt 全部从这里取值。
@@ -62,7 +59,7 @@ export interface CustomPart {
   createdAt: number;
 }
 
-const LS_KEY = 'cc_custom_parts';
+const LS_KEY = KEYS.customParts;
 /** 环境安全的存取（node/SSR 下无 localStorage 时退化为内存） */
 const mem: Record<string, string> = {};
 const store = {
@@ -107,6 +104,7 @@ export function defaultSide(p: CustomPin): PinSide {
  */
 export { buildCustomSymbol } from './custom-symbol';
 import { buildCustomSymbol as buildSym } from './custom-symbol';
+import { KEYS } from '../shared/storage';
 
 /** 定制封装：焊盘阵列（按合成名解析）+ 独立模块轮廓 + 焊盘偏移
  *  焊盘可能只占模块的一部分（如带屏蔽罩的模组），故轮廓与焊盘范围解耦 */

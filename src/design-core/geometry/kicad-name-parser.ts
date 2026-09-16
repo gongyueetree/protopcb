@@ -13,7 +13,7 @@
  * 焊盘尺寸按 IPC 风格近似（预布局精度足够；正式制造用 KiCad 打开导出的
  * .kicad_pcb 后可替换为库中精确封装）。
  */
-import type { PadFootprint, Pad } from './footprint-pads';
+import type { PadFootprint, Pad } from './pad-types';
 
 const num = (s: string | undefined) => (s ? parseFloat(s) : undefined);
 

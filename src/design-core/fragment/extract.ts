@@ -17,7 +17,8 @@
  * 边界端口：net 同时连接 fragment 内/外 → FragmentPort（这是拼接点）。
  */
 import type { CircuitCanvasDocument, PlacedComponent } from '../document/types';
-import type { CircuitFragment, FragmentComponent, FragmentNet, FragmentPort } from '../../providers/reference-design/schema';
+import type { CircuitFragment, FragmentComponent, FragmentNet, FragmentPort } from './schema';
+import { classifyNet as classifyNetSemantic, toCoarseKind } from '../semantics/net';
 
 export interface FragmentExtractionPolicy {
   /** 遍历深度：1=仅 anchor 直连；2=再扩一跳（默认 1） */
@@ -37,14 +38,9 @@ export const DEFAULT_EXTRACTION_POLICY: FragmentExtractionPolicy = {
   excludeCategories: ['connector'],
 };
 
-/** 网络语义分类（名称启发；不确定归 SIGNAL，绝不猜成电源） */
+/** 网络语义分类：委托统一的 NetSemanticClassifier（design-core/semantics/net），这里只降为 fragment 的 4 类 */
 export function classifyNet(name: string): FragmentNet['kind'] {
-  const n = name.toUpperCase();
-  if (/^(GND|AGND|DGND|PGND|GNDA|GNDD|VSS)/.test(n)) return 'GROUND';
-  // VIN/VOUT 刻意不列入：稳压器上是电源轨，但 DAC/ADC/运放上是模拟信号——歧义名不猜成电源
-  if (/^(\+?\d+V\d*|VCC|VDD|VBAT|VBUS|AVDD|DVDD|\+3V3|\+5V|\+12V|3V3|5V)/.test(n)) return 'POWER';
-  if (/(CLK|XTAL|OSC|MCLK|SCLK(?!.*DATA))/.test(n) && !/SCL$/.test(n)) return 'CLOCK';
-  return 'SIGNAL';
+  return toCoarseKind(classifyNetSemantic({ name }));
 }
 
 /** 器件在 fragment 中的角色（可解释启发；LLM 语义分类留作后续增强） */
@@ -111,9 +107,15 @@ export function extractCircuitFragment(input: ExtractInput): ExtractOutcome {
     return fanout <= policy.fanoutLimit;                                            // 高扇出 = 系统总线
   };
 
-  // BFS：按 depth 扩张器件集合
+  // BFS：按 depth 扩张器件集合。
+  // ⚠ 同时显式记录**实际被遍历的网络**（traversedNets）：fragment 的 nets/ports 只能基于它们。
+  //   此前是"纳入器件后把它全部 padNets 都算进来"——一颗因 SPI 被带入的 MCU，
+  //   它的 USB_DP 也成了 DDS fragment 的端口，这是错的。
   const inFragment = new Map<string, FragmentComponent['role']>();
   inFragment.set(anchor.reference, 'ANCHOR');
+  const traversedNets = new Set<number>();
+  // 锚点自己的全部网络都是 fragment 的一部分（它是被分析的对象）
+  for (const n of anchorNets) traversedNets.add(n);
   let frontier = [anchor.reference];
   for (let d = 0; d < policy.depth; d++) {
     const next: string[] = [];
@@ -149,7 +151,16 @@ export function extractCircuitFragment(input: ExtractInput): ExtractOutcome {
             }
           }
           inFragment.set(pin.ref, classifyRole(other, kindOf(netId)));
+          traversedNets.add(netId);        // 这条边真的走了
           next.push(pin.ref);
+          // 被带入的**无源件**本身就是一条边（电容/电阻/晶振两端），它另一端的网络随之纳入
+          //（去耦到 GND、滤波到 VOUT_FILT）。任何有源器件 —— 包括本地 LDO —— 只算真正走过的网络：
+          // LDO 的输入轨、MCU 的 USB 接口都不是 DDS fragment 的接口。
+          if (other.category === 'passive') {
+            for (const n2 of Object.values(other.display?.padNets ?? {})) {
+              if (Number.isFinite(n2) && n2 > 0) traversedNets.add(n2);
+            }
+          }
         }
       }
     }
@@ -160,12 +171,8 @@ export function extractCircuitFragment(input: ExtractInput): ExtractOutcome {
   // fragment 涉及的 nets + 边界端口
   const nets: FragmentNet[] = [];
   const ports: FragmentPort[] = [];
-  const touched = new Set<number>();
-  for (const ref of inFragment.keys()) {
-    for (const netId of Object.values(compByRef.get(ref)!.display?.padNets ?? {})) {
-      if (Number.isFinite(netId) && netId > 0) touched.add(netId);
-    }
-  }
+  // 只基于实际遍历过的网络；不再把纳入器件的全部 padNets 都当成 fragment 网络
+  const touched = traversedNets;
   for (const netId of [...touched].sort((a, b) => a - b)) {
     const name = String(netNames[String(netId)] ?? `net${netId}`);
     const kind = kindOf(netId);

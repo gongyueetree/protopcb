@@ -8,7 +8,7 @@ import { AiAdvisorItemSchema, validateAi } from '../../providers/ai-schema';
 import { useEffect, useState } from 'react';
 import { useDesignStore } from '../../state/designStore';
 import { getProviders } from '../../providers/factory';
-import { geminiAvailable } from '../../providers/gemini';
+import { aiAvailable as geminiAvailable } from '../../application/ai';
 import { aiRequest, extractJson } from '../../providers/ai-client';
 import { recommendLayers } from '../../design-core/document/services';
 import { CATEGORY_DISPLAY, COLORS } from '../../shared/theme';

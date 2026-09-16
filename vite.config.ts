@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { execSync } from 'node:child_process';
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -9,6 +10,8 @@ function gitShortSha(): string {
 }
 
 export default defineConfig({
+  // vitest：排除 Playwright 的 e2e/ 目录（它们用 @playwright/test 的 test()，不是 vitest）
+  test: { exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**'] },
   // 解压 Worker 内部动态 import fflate 会触发 code-splitting，Worker 输出必须用 ES 格式
   worker: { format: 'es' },
   define: {

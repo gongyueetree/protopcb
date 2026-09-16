@@ -11,22 +11,12 @@
  * 候选**永远需要用户确认**才会写回设计 —— 不自动替换（沿用 AI trust 的同一条原则）。
  */
 
+import { classifyPart } from './semantics/part';
+
+/** 选型用的粗粒度类别（统一分类器的子集） */
 export type PartClass = 'resistor' | 'capacitor' | 'inductor' | 'diode' | 'led' | 'transistor'
   | 'ic' | 'connector' | 'crystal' | 'switch' | 'fuse' | 'testpoint' | 'mounting' | 'unknown';
 
-const REF_CLASS: [RegExp, PartClass][] = [
-  [/^R[0-9]/i, 'resistor'], [/^RN[0-9]/i, 'resistor'],
-  [/^C[0-9]/i, 'capacitor'], [/^L[0-9]/i, 'inductor'], [/^FB[0-9]/i, 'inductor'],
-  [/^(D|ZD)[0-9]/i, 'diode'], [/^(LED|DS)[0-9]/i, 'led'],
-  [/^(Q|T)[0-9]/i, 'transistor'],
-  [/^(U|IC)[0-9]/i, 'ic'],
-  [/^(J|P|CN|CON)[0-9]/i, 'connector'],
-  [/^(Y|X|XTAL)[0-9]/i, 'crystal'],
-  [/^(SW|S|K)[0-9]/i, 'switch'],
-  [/^(F|FU)[0-9]/i, 'fuse'],
-  [/^TP[0-9]/i, 'testpoint'],
-  [/^(H|MH|MK)[0-9]/i, 'mounting'],
-];
 
 export const CLASS_LABEL: Record<PartClass, string> = {
   resistor: '电阻', capacitor: '电容', inductor: '电感/磁珠', diode: '二极管', led: 'LED',
@@ -34,12 +24,12 @@ export const CLASS_LABEL: Record<PartClass, string> = {
   switch: '开关/按键', fuse: '保险丝', testpoint: '测试点', mounting: '安装件', unknown: '未分类',
 };
 
-/** 位号 → 器件类别（LED 优先于 L，判定顺序已处理） */
+/** 位号 → 器件类别：委托统一的 PartSemanticClassifier，把 ferrite/module 等折到本模块的粗类 */
 export function classFromReference(reference: string): PartClass {
-  const ref = String(reference ?? '').trim().toUpperCase();
-  if (/^LED[0-9]/.test(ref)) return 'led';
-  for (const [re, cls] of REF_CLASS) if (re.test(ref)) return cls;
-  return 'unknown';
+  const c = classifyPart({ reference }).class;
+  if (c === 'ferrite') return 'inductor';
+  if (c === 'buzzer' || c === 'relay' || c === 'battery' || c === 'module') return 'unknown';
+  return c;
 }
 
 export interface FootprintHints {

@@ -5,7 +5,7 @@
  */
 import { useMemo } from 'react';
 import { useDesignStore } from '../../state/designStore';
-import { useLibFileStore } from '../../design-core/geometry/lib-file-registry';
+import { useLibFileStore } from '../../state/libFileStore';
 import { tr } from '../../shared/i18n';
 import { COLORS } from '../../shared/theme';
 import {

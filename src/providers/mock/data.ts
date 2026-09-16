@@ -3,7 +3,7 @@
  * 演示数据 —— 迁移自 legacy App.jsx，补全封装几何(courtyard)。
  * 正式版本由 EzplmComponentDataProvider 替换，结构保持一致。
  */
-import type { FootprintGeometry } from '../../design-core/geometry/types';
+import { fallbackFootprintGeometry } from '../../design-core/geometry/fallback-geometry';
 import type {
   ComponentSearchResult,
   FootprintOption,
@@ -13,24 +13,10 @@ import type {
 import type { ComponentCategory } from '../../design-core/document/types';
 
 /** 常用封装几何库（mm） */
-export const FOOTPRINT_GEOMETRY: Record<string, FootprintGeometry> = {
-  '0402': { footprintId: '0402', bodyWidthMm: 1.0, bodyHeightMm: 0.5, courtyardWidthMm: 1.5, courtyardHeightMm: 0.9, padCount: 2, rotationStep: 90, anchor: { x: 0, y: 0 } },
-  '0603': { footprintId: '0603', bodyWidthMm: 1.6, bodyHeightMm: 0.8, courtyardWidthMm: 2.2, courtyardHeightMm: 1.3, padCount: 2, rotationStep: 90, anchor: { x: 0, y: 0 } },
-  'SOT-223': { footprintId: 'SOT-223', bodyWidthMm: 6.5, bodyHeightMm: 3.5, courtyardWidthMm: 8.0, courtyardHeightMm: 4.5, assemblyHeightMm: 1.8, padCount: 4, rotationStep: 90, anchor: { x: 0, y: 0 } },
-  'SOIC-8': { footprintId: 'SOIC-8', bodyWidthMm: 4.9, bodyHeightMm: 3.9, courtyardWidthMm: 6.0, courtyardHeightMm: 5.0, assemblyHeightMm: 1.75, padCount: 8, rotationStep: 90, anchor: { x: 0, y: 0 } },
-  'SOP-16': { footprintId: 'SOP-16', bodyWidthMm: 10.0, bodyHeightMm: 4.0, courtyardWidthMm: 11.0, courtyardHeightMm: 6.4, padCount: 16, rotationStep: 90, anchor: { x: 0, y: 0 } },
-  'LQFP-48': { footprintId: 'LQFP-48', bodyWidthMm: 7.0, bodyHeightMm: 7.0, courtyardWidthMm: 9.2, courtyardHeightMm: 9.2, assemblyHeightMm: 1.6, padCount: 48, rotationStep: 90, anchor: { x: 0, y: 0 } },
-  'LQFP-100': { footprintId: 'LQFP-100', bodyWidthMm: 14.0, bodyHeightMm: 14.0, courtyardWidthMm: 16.2, courtyardHeightMm: 16.2, assemblyHeightMm: 1.6, padCount: 100, rotationStep: 90, anchor: { x: 0, y: 0 } },
-  'Module-44': { footprintId: 'Module-44', bodyWidthMm: 18.0, bodyHeightMm: 25.5, courtyardWidthMm: 19.0, courtyardHeightMm: 26.5, assemblyHeightMm: 3.1, padCount: 44, rotationStep: 90, anchor: { x: 0, y: 0 } },
-  'USB-C-16P': { footprintId: 'USB-C-16P', bodyWidthMm: 9.0, bodyHeightMm: 7.3, courtyardWidthMm: 10.5, courtyardHeightMm: 8.5, assemblyHeightMm: 3.2, padCount: 16, rotationStep: 90, anchor: { x: 0, y: 0 } },
-  'THT-2.54mm': { footprintId: 'THT-2.54mm', bodyWidthMm: 5.08, bodyHeightMm: 12.7, courtyardWidthMm: 6.0, courtyardHeightMm: 13.7, padCount: 10, rotationStep: 90, anchor: { x: 0, y: 0 } },
-  'TSOT-23-8': { footprintId: 'TSOT-23-8', bodyWidthMm: 2.9, bodyHeightMm: 2.8, courtyardWidthMm: 4.2, courtyardHeightMm: 3.6, padCount: 8, rotationStep: 90, anchor: { x: 0, y: 0 } },
-  '4018': { footprintId: '4018', bodyWidthMm: 4.0, bodyHeightMm: 4.0, courtyardWidthMm: 4.6, courtyardHeightMm: 4.6, assemblyHeightMm: 2.1, padCount: 2, rotationStep: 90, anchor: { x: 0, y: 0 } },
-};
 
-function geom(name: string): FootprintGeometry {
-  return FOOTPRINT_GEOMETRY[name] ?? FOOTPRINT_GEOMETRY['SOIC-8'];
-}
+// 通用封装几何已移到 Domain（design-core/geometry/fallback-geometry）：
+// 它不是"演示数据"，是所有来源的兜底几何，Domain 不能为了它反向依赖 mock
+const geom = fallbackFootprintGeometry;
 
 export interface MockComponent extends ComponentSearchResult {
   isOrg: boolean;
@@ -106,9 +92,7 @@ export const LEGACY_PARTS: MockComponent[] = [
 ];
 
 /** 把 mpn 映射到封装几何 */
-export function geometryFor(footprintName: string): FootprintGeometry {
-  return geom(footprintName);
-}
+export { fallbackFootprintGeometry as geometryFor };
 
 /* 封装库（分类浏览） */
 export const FOOTPRINT_LIBRARY: FootprintOption[] = [

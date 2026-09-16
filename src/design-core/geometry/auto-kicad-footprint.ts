@@ -5,7 +5,8 @@
  * 尽力而为的异步过程：失败静默回退名字解析参数化，不阻塞放置。
  */
 import { parseKicadMod } from './kicad-file-parser';
-import { registerFootprintOverride, footprintOverrideFor, useLibFileStore } from './lib-file-registry';
+import { registerFootprintOverride, footprintOverrideFor } from './lib-file-registry';
+import { bumpLibRegistry } from './lib-file-registry';
 
 /** 封装名前缀 → KiCad 官方库候选（按命中概率排序） */
 const LIB_GUESS: [RegExp, string[]][] = [
@@ -48,7 +49,7 @@ export async function autoKicadFootprint(footprintName: string): Promise<string 
         const fp = parseKicadMod(text);
         if (fp && fp.pads.length) {
           registerFootprintOverride(footprintName, fp);
-          useLibFileStore.getState().bump();
+          bumpLibRegistry();
         }
       }
       // (model) 权威 3D 引用 → stepUrl

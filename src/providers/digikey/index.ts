@@ -63,3 +63,10 @@ export function formatDkPrice(o: DigikeyOffer): string {
   const sym = o.currency === 'CNY' ? '¥' : o.currency === 'USD' ? '$' : (o.currency ?? '') + ' ';
   return `${sym}${o.unitPrice < 1 ? o.unitPrice.toFixed(4) : o.unitPrice.toFixed(2)}`;
 }
+
+/** DigiKey 关键词检索（供 BOM 关联用） */
+export async function searchDigikeyFuzzy(keyword: string): Promise<{ items: import('../suppliers').SupplierFuzzyItem[]; message?: string }> {
+  const r = await fetch(`/api/digikey?path=fuzzy&q=${encodeURIComponent(keyword)}`, { credentials: 'include' });
+  const j = await r.json().catch(() => ({}));
+  return { items: Array.isArray(j.items) ? j.items : [], message: j.message ? String(j.message) : undefined };
+}

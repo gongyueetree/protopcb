@@ -22,7 +22,7 @@ async function tfetch(url, init = {}) {
  *   MOUSER_API_KEY                      — Mouser Search API
  *   ARROW_LOGIN + ARROW_API_KEY         — Arrow ItemService（两个都要）
  *   ELEMENT14_API_KEY                   — element14/Farnell Product Search
- *   B1B_API_KEY                         — 百芯（国产渠道，预留：配置后自动启用）
+ *   B1B_API_KEY                         — 百芯（NOT_CONNECTED：无真实 API contract，配置了也不会调用）
  *   ICEASY_ACCOUNT + ICEASY_PASSWORD    — Iceasy 接口账号/密码（两个都要；按 2026-09-11 对接文档实现）
  *   ICEASY_PRODUCT_DETAIL_URL           — 可选，默认 https://www.iceasy.com/api/ezplm/product/list
  *   OURIC_API_KEY + OURIC_API_SECRET    — OURIC 开放 API 双密钥（两个都要；按 v1.0 对接文档实现）
@@ -40,17 +40,14 @@ const num = (v) => { const n = parseFloat(String(v ?? '').replace(/[^0-9.]/g, ''
 /* ---------- 国产渠道 ----------
  * 中电港（CECPORT）已更名为 Iceasy，真实对接见下方 queryIceasy（有官方文档与固定校验样例）。
  * 原先那段基于猜测端点 api.cecport.com 的骨架已删除 —— 猜的端点连不通，留着只会误导。
- * 百芯（B1B）仍是待商务开通的预留骨架。 */
-async function queryB1b(key, mpn) {
-  // TODO(接入时校准)：百芯 API 端点与鉴权方式
-  const r = await tfetch(`https://api.b1b.com/open/search?q=${encodeURIComponent(mpn)}`, {
-    headers: { 'X-API-KEY': key },
-  });
-  if (!r.ok) throw new Error(`b1b ${r.status}`);
-  const j = await r.json();
-  const p = (j?.data ?? j?.items ?? [])[0];
-  if (!p) return { found: false };
-  return { found: true, price: num(p.price), currency: 'CNY', stock: num(p.stock), url: p.url };
+ * 百芯（B1B）无真实 contract，见 queryB1b —— 明确 NOT_CONNECTED，不猜端点。 */
+/**
+ * 百芯（B1B）：尚无真实 API contract（端点/鉴权/响应结构都未拿到）。
+ * 不在生产路径上猜 URL —— 猜的端点连不通，还会把"查询失败"误报成渠道故障。
+ * 拿到官方文档后再实现；在此之前明确返回 NOT_CONNECTED。
+ */
+async function queryB1b() {
+  return { found: false, notConnected: true, reason: 'B1B_API_CONTRACT_NOT_AVAILABLE' };
 }
 
 /* ---------- Iceasy（真实对接：iceasy-api-integration.md 2026-09-11）---------- */
@@ -174,7 +171,7 @@ export default async function handler(req, res) {
   const ouricSecret = t(process.env.OURIC_API_SECRET);
 
   if (path === 'status') {
-    return res.status(200).send(JSON.stringify({ mouser: !!mouserKey, arrow: !!(arrowLogin && arrowKey), element14: !!e14Key, b1b: !!b1bKey, iceasy: !!(iceasyAcc && iceasyPwd), ouric: !!(ouricKey && ouricSecret) }));
+    return res.status(200).send(JSON.stringify({ mouser: !!mouserKey, arrow: !!(arrowLogin && arrowKey), element14: !!e14Key, b1b: false /* NOT_CONNECTED：无 contract */, iceasy: !!(iceasyAcc && iceasyPwd), ouric: !!(ouricKey && ouricSecret) }));
   }
 
   // ── 账户门禁（不扣 Credit）：除 status 外都消耗平台的分销商 Key，匿名一律 401，

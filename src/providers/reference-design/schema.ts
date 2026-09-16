@@ -1,5 +1,4 @@
 /**
- * providers/reference-design/schema.ts
  * Reference Design Intelligence —— 统一数据模型（方案 §四/五/十三）。
  *
  * 核心区分：
@@ -9,34 +8,14 @@
  * 所有跨网络数据进入前必须过 Zod（safeParseReferenceDesign / safeParseApplicationProjects）。
  */
 import { z } from 'zod';
+import { REFERENCE_DESIGN_SOURCE_TYPES, VERIFICATION_LEVELS, EvidenceSchema } from '../../design-core/fragment/schema';
+import type { ReferenceDesignSourceType, VerificationLevel, Evidence } from '../../design-core/fragment/schema';
 
-export const REFERENCE_DESIGN_SOURCE_TYPES = [
-  'USER_PROJECT', 'ORGANIZATION_PROJECT', 'EZPLM_PROJECT',
-  'VENDOR_REFERENCE', 'EVALUATION_BOARD', 'MODULE',
-  'KICAD_PROJECT', 'ALTIUM_PROJECT', 'PDF_SCHEMATIC', 'DATASHEET_APPLICATION',
-  'GITHUB', 'TINDIE', 'SEEED', 'HACKSTER', 'HACKADAY', 'OTHER_PUBLIC',
-] as const;
-export type ReferenceDesignSourceType = (typeof REFERENCE_DESIGN_SOURCE_TYPES)[number];
 
 /** 私有来源（Application Projects）——权限上绝不能进入公共参考库 */
 export const PRIVATE_SOURCE_TYPES: readonly ReferenceDesignSourceType[] = ['USER_PROJECT', 'ORGANIZATION_PROJECT', 'EZPLM_PROJECT'];
 
-export const VERIFICATION_LEVELS = [
-  'PRODUCTION_VERIFIED', 'PROTOTYPE_VERIFIED', 'SIMULATION_VERIFIED',
-  'VENDOR_REFERENCE', 'EXTRACTED', 'AI_GENERATED',
-] as const;
-export type VerificationLevel = (typeof VERIFICATION_LEVELS)[number];
 
-export const EvidenceSchema = z.object({
-  kind: z.string().min(1).max(40),                 // 'schematic' | 'pcb' | 'bom' | 'pdf-region' | 'api' …
-  sourceFile: z.string().max(300).optional(),
-  page: z.number().int().positive().optional(),
-  boundingBox: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).optional(),
-  sourceText: z.string().max(500).optional(),
-  detail: z.string().max(300).optional(),
-  confidence: z.number().min(0).max(1).optional(),
-});
-export type Evidence = z.infer<typeof EvidenceSchema>;
 
 export const AvailableAssetsSchema = z.object({
   schematic: z.boolean(),
@@ -81,52 +60,15 @@ export type ReferenceDesign = z.infer<typeof ReferenceDesignSchema>;
 
 export const NO_ASSETS: AvailableAssets = { schematic: false, pcb: false, bom: false, pdf: false, step: false, simulation: false, placement: false };
 
-/* ---------------- CircuitFragment（方案 §十三）---------------- */
+// 参考设计词汇表（来源类型 / 验证等级 / 证据）与 CircuitFragment 都定义在 Domain
+export { REFERENCE_DESIGN_SOURCE_TYPES, VERIFICATION_LEVELS, EvidenceSchema };
+export type { ReferenceDesignSourceType, VerificationLevel, Evidence };
 
-export const FragmentComponentSchema = z.object({
-  instanceId: z.string().min(1),
-  reference: z.string().min(1).max(24),
-  mpn: z.string().max(64),
-  category: z.string().max(24),
-  footprint: z.string().max(120).optional(),
-  /** 提取分类：为什么被纳入 fragment */
-  role: z.enum(['ANCHOR', 'DECOUPLING', 'POWER_LOCAL', 'CLOCK', 'FEEDBACK', 'FILTER', 'SUPPORTING', 'CONNECTED_PASSIVE']),
-});
-export type FragmentComponent = z.infer<typeof FragmentComponentSchema>;
-
-export const FragmentNetSchema = z.object({
-  netId: z.number().int(),
-  name: z.string().max(120),
-  kind: z.enum(['SIGNAL', 'POWER', 'GROUND', 'CLOCK']),
-  /** net 上属于 fragment 的连接点（reference.pad） */
-  pins: z.array(z.string().max(40)).max(200),
-});
-export type FragmentNet = z.infer<typeof FragmentNetSchema>;
-
-/** fragment 边界端口：net 同时连接 fragment 内外 → 对外接口 */
-export const FragmentPortSchema = z.object({
-  netId: z.number().int(),
-  name: z.string().max(120),
-  kind: z.enum(['SIGNAL', 'POWER', 'GROUND', 'CLOCK']),
-  /** fragment 外部还挂着的位号（说明这是拼接点） */
-  externalRefs: z.array(z.string().max(24)).max(60),
-});
-export type FragmentPort = z.infer<typeof FragmentPortSchema>;
-
-export const CircuitFragmentSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1).max(120),
-  anchorComponent: z.object({ mpn: z.string().max(64), reference: z.string().max(24).optional() }),
-  sourceDesignId: z.string().max(120),
-  sourceProjectId: z.string().max(120).optional(),
-  sourceType: z.enum(REFERENCE_DESIGN_SOURCE_TYPES),
-  components: z.array(FragmentComponentSchema).min(1).max(200),
-  nets: z.array(FragmentNetSchema).max(300),
-  ports: z.array(FragmentPortSchema).max(100),
-  trust: z.object({ level: z.enum(VERIFICATION_LEVELS), confidence: z.number().min(0).max(1) }),
-  evidence: z.array(EvidenceSchema).max(50),
-});
-export type CircuitFragment = z.infer<typeof CircuitFragmentSchema>;
+/* ---------------- CircuitFragment：定义在 Domain（design-core/fragment/schema），这里只转出 ---------------- */
+export {
+  FragmentComponentSchema, FragmentNetSchema, FragmentPortSchema, CircuitFragmentSchema,
+} from '../../design-core/fragment/schema';
+export type { FragmentComponent, FragmentNet, FragmentPort, CircuitFragment } from '../../design-core/fragment/schema';
 
 /* ---------------- 解析入口 ---------------- */
 

@@ -1,0 +1,14 @@
+{
+  "$comment": "AI 操作与 Credit 单价的唯一来源。服务端 api/_lib/ai-operations.js 与前端 design-core/entitlements 都从这里读；两边不得再各写一份。",
+  "operations": {
+    "scheme.generate":      { "cost": 5, "desc": "AI 生成方案" },
+    "scheme.revise":        { "cost": 3, "desc": "方案多轮修改" },
+    "subcircuit.recommend": { "cost": 2, "desc": "子电路推荐" },
+    "advisor.analyze":      { "cost": 2, "desc": "AI 顾问分析" },
+    "block.analyze":        { "cost": 2, "desc": "框图架构分析" },
+    "part.extract":         { "cost": 4, "desc": "从资料提取器件（文本/图片/PDF/URL）" },
+    "bom.estimate":         { "cost": 1, "desc": "BOM 单行 AI 估价" },
+    "symbol.generate":      { "cost": 3, "desc": "符号生成" }
+  },
+  "welcomeCredits": 100
+}

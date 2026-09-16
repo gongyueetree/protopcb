@@ -8,7 +8,7 @@
  * - 任一环节失败 → 静默回退参数化模型（不影响使用）
  */
 import * as THREE from 'three';
-import { useLibFileStore } from '../../design-core/geometry/lib-file-registry';
+import { bumpLibRegistry } from '../../design-core/geometry/lib-file-registry';
 
 type OcctModule = {
   ReadStepFile: (content: Uint8Array, params: null) => {
@@ -129,7 +129,29 @@ export function bodyColorForFootprint(name = ''): number {
 export function stepModelFor(url: string | undefined): THREE.Group | undefined {
   if (!url) return undefined;
   const g = modelCache.get(url);
-  return g ? (g.clone() as THREE.Group) : undefined;
+  if (!g) return undefined;
+  const c = g.clone() as THREE.Group;
+  // clone() 会复制 userData 的引用，但保险起见显式打标：视图不得 dispose 这些资源
+  c.traverse((o) => { o.userData.sharedResource = true; });
+  return c;
+}
+
+/** 释放某个 URL 的缓存模型（blob 撤销时调用；真正 dispose 缓存自有的资源） */
+export function evictStepModel(url: string): void {
+  const g = modelCache.get(url);
+  if (g) {
+    g.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.geometry) m.geometry.dispose();
+      const mats = Array.isArray(m.material) ? m.material : m.material ? [m.material] : [];
+      for (const mt of mats) mt.dispose();
+    });
+    modelCache.delete(url);
+  }
+  bytesCache.delete(url);
+  failed.delete(url);
+  failReason.delete(url);
+  failAt.delete(url);
 }
 
 /** url → 封装名，用于 STEP 无原色时按器件族着色 */
@@ -144,7 +166,7 @@ export function ensureStepModel(url: string | undefined, footprintName?: string)
     failed.delete(url); failReason.delete(url); failAt.delete(url); // 到期重试
   }
   inflight.add(url);
-  useLibFileStore.getState().bump(); // 让「转换中」状态可见
+  bumpLibRegistry(); // 让「转换中」状态可见
   (async () => {
     try {
       let buf = bytesCache.get(url);
@@ -255,8 +277,12 @@ export function ensureStepModel(url: string | undefined, footprintName?: string)
       // 其余情况保持模型自身原点：贴片件 min.y≈0，通孔件引脚合理地穿到板下
       const wrapper = new THREE.Group();
       wrapper.add(group);
+      // 资源所有权：这些 geometry/material 属于 STEP 缓存，视图拿到的是 clone（仍共享它们）。
+      // 标记后，任何视图的 dispose 都必须跳过 —— 否则一个视图卸载会把缓存里的模型弄坏，
+      // 下次重建同一颗料时只剩空壳。
+      wrapper.traverse((o) => { o.userData.sharedResource = true; });
       modelCache.set(url, wrapper);
-      useLibFileStore.getState().bump();
+      bumpLibRegistry();
     } catch (e) {
       failed.add(url);
       lastError = String(e instanceof Error ? e.message : e).slice(0, 160);
@@ -266,7 +292,7 @@ export function ensureStepModel(url: string | undefined, footprintName?: string)
       failReason.set(url, lastError);
       failAt.set(url, Date.now());
       console.warn('[step] STEP 模型加载失败，使用参数化模型:', url.slice(0, 80), lastError);
-      useLibFileStore.getState().bump(); // 失败状态也要驱动 UI 更新
+      bumpLibRegistry(); // 失败状态也要驱动 UI 更新
     } finally {
       inflight.delete(url);
     }

@@ -4,9 +4,9 @@
  * 解析后注册为「精确覆盖」：padFootprintFor / symbolFor 优先取覆盖数据；
  * version 递增驱动画布/3D/详情等订阅方重渲染。拉取中或失败自动回退名字解析。
  */
-import { create } from 'zustand';
-import type { PadFootprint } from './footprint-pads';
+import type { PadFootprint } from './pad-types';
 import { parseKicadMod, parseSExpr, type SExpr } from './kicad-file-parser';
+import { keyOf } from '../../shared/storage';
 
 /* ---------- 覆盖存储（模块级，同步读取） ---------- */
 const footprintOverrides = new Map<string, PadFootprint>(); // key: 封装名
@@ -36,22 +36,27 @@ export function symbolUnitsOverrideFor(mpn: string): ParsedSymbol[] | undefined 
 /** 定制器件库等外部来源注册符号/封装覆盖 */
 export function registerSymbolOverride(mpn: string, ps: ParsedSymbol) {
   symbolOverrides.set(mpn, ps);
-  useLibFileStore.getState().bump();
+  bumpLibRegistry();
 }
 export function registerFootprintOverride(name: string, fp: PadFootprint) {
   footprintOverrides.set(name, fp);
-  useLibFileStore.getState().bump();
+  bumpLibRegistry();
 }
 
-/* ---------- 拉取状态与版本 ---------- */
-interface LibFileState {
-  version: number;
-  bump: () => void;
+/* ---------- 版本通知（框架无关的观察者；React hook 在 state/libFileStore） ---------- */
+// Domain 不依赖 zustand/React：这里只维护一个自增版本号与订阅者列表，
+// UI 侧的 useLibFileStore 订阅它。注册表被任何来源（官方库 / 工程内嵌 / 自建）更新时 bump。
+let libVersion = 0;
+const listeners = new Set<() => void>();
+export const libRegistryVersion = () => libVersion;
+export function bumpLibRegistry(): void {
+  libVersion += 1;
+  for (const fn of listeners) fn();
 }
-export const useLibFileStore = create<LibFileState>((set) => ({
-  version: 0,
-  bump: () => set((s) => ({ version: s.version + 1 })),
-}));
+export function subscribeLibRegistry(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
+}
 
 const inflight = new Set<string>();
 const failed = new Set<string>();
@@ -93,7 +98,7 @@ export function ensureFootprintFile(fpName: string, url: string | undefined) {
     const parsed = text ? parseKicadMod(text) : null;
     if (parsed) {
       footprintOverrides.set(fpName, parsed);
-      useLibFileStore.getState().bump();
+      bumpLibRegistry();
     } else {
       failed.add(url);
       console.warn('[libfile] 封装文件解析失败，回退名字解析:', fpName, url);
@@ -300,7 +305,7 @@ export function ensureSymbolFile(mpn: string, url: string | undefined) {
     if (parsed) {
       symbolOverrides.set(mpn, parsed);
       if (parsed.units && parsed.units.length > 1) symbolUnitsOverrides.set(mpn, parsed.units);
-      useLibFileStore.getState().bump();
+      bumpLibRegistry();
     } else {
       failed.add(url);
       console.warn('[libfile] 符号文件解析失败，回退内置符号:', mpn, url);
@@ -318,14 +323,14 @@ export function kicadSymbolStatus(key: string | undefined): string | undefined {
 }
 function setKsymStatus(key: string, st: string) {
   ksymStatus.set(key, st);
-  useLibFileStore.getState().bump();
+  bumpLibRegistry();
 }
 export function ensureKicadSymbol(key: string | undefined): void {
   if (!key || symbolOverrideFor(key) || ksymInflight.has(key)) return;
   // KICADSCH:*（工程 zip 内嵌符号）只有 localStorage 一个复原源
   if (key.startsWith('KICADSCH:')) {
     try {
-      const cached = localStorage.getItem('cc_ksym_' + key);
+      const cached = localStorage.getItem(keyOf.ksym(key));
       if (cached) {
         const ps = parseKicadSym(cached);
         if (ps && ps.pins.length) registerSymbolOverride(key, ps);
@@ -340,7 +345,7 @@ export function ensureKicadSymbol(key: string | undefined): void {
   if (!lib || !name) return;
   ksymInflight.add(key);
   setKsymStatus(key, '符号自动恢复中…');
-  const cacheK = 'cc_ksym_' + key;
+  const cacheK = keyOf.ksym(key);
   const apply = (text: string): boolean => {
     const ps = parseKicadSym(text);
     if (ps && ps.pins.length) { registerSymbolOverride(key, ps); setKsymStatus(key, '✓'); return true; }
@@ -394,7 +399,7 @@ export function ensureKicadSymbolByMpn(mpn: string | undefined): void {
   if (!target) return;
 
   kmpnInflight.add(key);
-  const cacheK = 'cc_ksym_mpn_' + key;
+  const cacheK = keyOf.ksymMpn(key);
   const apply = (text: string): boolean => {
     const ps = parseKicadSym(text);
     if (ps && ps.pins.length) { registerSymbolOverride(key, ps); return true; }

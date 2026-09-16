@@ -7,18 +7,19 @@ import { useDesignStore } from '../../state/designStore';
 import { fmtMoney, COLORS } from '../../shared/theme';
 import { useEffect, useRef, useState } from 'react';
 import type { BomLine } from '../../design-core/document/types';
-import { geminiAvailable } from '../../providers/gemini';
+import { aiAvailable as geminiAvailable } from '../../application/ai';
 import { aiRequest, extractJson } from '../../providers/ai-client';
 import { isPriceable, whyNotPriceable, classifyByRefDes, pricingPriority, CLASS_LABEL } from './part-class';
-import { fetchDigikeyOffer, type DigikeyOffer } from '../../providers/digikey';
-import { fetchSupplierOffers } from '../../providers/suppliers';
+import { fetchDigikeyOffer, type DigikeyOffer, searchSupplierFuzzy, searchDigikeyFuzzy } from '../../application/pricing';
+import { fetchSupplierOffers } from '../../application/pricing';
 import { buildMatchQuery, rankCandidates, parseConstraints, CLASS_LABEL as PART_CLASS_LABEL, type Candidate, type ScoredCandidate } from '../../design-core/part-matching';
 import { autoMatchBom, summarizeMatches, type BomMatchResult } from './auto-match';
 import { summarizeBomPricing } from './pricing-summary';
-import { searchEzplmParts } from '../../providers/ezplm-live';
+import { searchEzplmParts } from '../../application/parts';
 import { useEntitlementStore } from '../../state/entitlementStore';
 import { AiGateNotice } from '../account/AccountBar';
 import type { DenyReason } from '../../design-core/entitlements';
+import { keyOf } from '../../shared/storage';
 
 export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: boolean; onToggleFullscreen?: () => void } = {}) {
   const bom = useDesignStore((s) => s.doc.bom);
@@ -72,10 +73,11 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
         searchDistributors: async (q) => {
           const out: Candidate[] = [];
           if (!checkCap('search.web').allowed) return out;   // 未登录：不打分销商
-          for (const url of [`/api/digikey?path=fuzzy&q=${encodeURIComponent(q)}`, `/api/suppliers?path=fuzzy&q=${encodeURIComponent(q)}&mpn=${encodeURIComponent(q)}`]) {
+          // 先 DigiKey，再多分销商聚合；任一家命中即止（省配额）
+          for (const run of [() => searchDigikeyFuzzy(q), () => searchSupplierFuzzy({ mpn: q, q })]) {
             try {
-              const j = await (await fetch(url)).json();
-              for (const it of (Array.isArray(j.items) ? j.items : [])) {
+              const j = await run();
+              for (const it of j.items) {
                 out.push({ mpn: it.mpn, manufacturer: it.manufacturer, description: it.description,
                   source: 'distributor', vendor: it.vendor, price: it.price, currency: it.currency, stock: it.stock, url: it.url });
               }
@@ -145,10 +147,8 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
     const webOk = checkCap('search.web').allowed;
     if (!webOk) notes.push('登录后可查询 DigiKey / Mouser 实时库存与价格');
     if (webOk) try {
-      const qs = new URLSearchParams({ path: 'fuzzy', mpn: searchMpn, footprint: l.footprint ?? '', desc: l.description ?? '', q: query.queries[0] ?? '' });
-      const r = await fetch(`/api/suppliers?${qs}`);
-      const j = await r.json();
-      for (const it of (Array.isArray(j.items) ? j.items : [])) {
+      const j = await searchSupplierFuzzy({ mpn: searchMpn, footprint: l.footprint, desc: l.description, q: query.queries[0] });
+      for (const it of j.items) {
         pool.push({
           mpn: it.mpn, manufacturer: it.manufacturer, description: it.description, source: 'distributor',
           vendor: it.vendor, price: it.price, currency: it.currency, stock: it.stock, url: it.url,
@@ -160,9 +160,8 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
     // 3) DigiKey 关键词检索：用户填写的型号优先，其次是构造出的检索串
     if (webOk) try {
       for (const kw of [searchMpn, query.queries[0]].filter(Boolean).slice(0, 2)) {
-        const r = await fetch(`/api/digikey?path=fuzzy&q=${encodeURIComponent(kw as string)}`);
-        const j = await r.json();
-        for (const it of (Array.isArray(j.items) ? j.items : [])) {
+        const j = await searchDigikeyFuzzy(kw as string);
+        for (const it of j.items) {
           pool.push({
             mpn: it.mpn, manufacturer: it.manufacturer, description: it.description, source: 'distributor',
             vendor: 'DigiKey', price: it.price, currency: it.currency, stock: it.stock, url: it.url,
@@ -226,10 +225,10 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
   /** 手工录入价（优先级最高，来源显示「录入」；localStorage 持久化，切 Tab/刷新不丢） */
   const docId = useDesignStore((st) => st.doc.id);
   const [manualPrices, setManualPrices] = useState<Record<string, number>>(() => {
-    try { return JSON.parse(localStorage.getItem('cc_manual_price_' + docId) ?? '{}'); } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem(keyOf.manualPrice(docId)) ?? '{}'); } catch { return {}; }
   });
   useEffect(() => {
-    try { localStorage.setItem('cc_manual_price_' + docId, JSON.stringify(manualPrices)); } catch { /* 空间不足忽略 */ }
+    try { localStorage.setItem(keyOf.manualPrice(docId), JSON.stringify(manualPrices)); } catch { /* 空间不足忽略 */ }
   }, [manualPrices, docId]);
   const setComponentMpn = useDesignStore((s) => s.setComponentMpn);
   /**

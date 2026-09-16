@@ -9,7 +9,7 @@ import { tr, curLang } from '../../shared/i18n';
 import { buildCustomSymbol, symbolSideSummary } from '../../design-core/custom-symbol';
 import { useMemo, useState , useEffect} from 'react';
 import { COLORS } from '../../shared/theme';
-import { geminiAvailable } from '../../providers/gemini';
+import { aiAvailable as geminiAvailable } from '../../application/ai';
 import { aiRequest, extractJson } from '../../providers/ai-client';
 import { parseExtraction } from '../../design-core/custom-part-extract-contract';
 import {
@@ -21,6 +21,7 @@ import type { ComponentCategory } from '../../design-core/document/types';
 import { useAiGate } from '../account/useAiGate';
 import { AiGateNotice } from '../account/AccountBar';
 import type { DenyReason } from '../../design-core/entitlements';
+import { ds2kicad } from '../../application/library';
 
 const FAMILIES: [CustomPkg['family'], string][] = [
   ['dual', tr('双列贴片 (SOP/TSSOP)')], ['quad', tr('四边鸥翼 (QFP)')], ['qfn', tr('四边无脚 (QFN)')], ['header', tr('单排针 (2.54)')], ['chip', tr('两端贴片 (阻容)')],
@@ -192,7 +193,7 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
       // 优先 ds2kicad 引擎（确定性 PDF 解析 + 按需 AI）：适用于 PDF 上传与 PDF 链接
       let usedEngine = tr('内置 Gemini');
       if (payload.fileBase64 || payload.url) {
-        const st = await fetch('/api/ds2kicad').then((r) => r.json()).catch(() => ({ configured: false }));
+        const st = await ds2kicad.status();
         if (!st.configured) {
           setAiMsg(tr('⚠ 未配置 DS2KICAD_URL（提取引擎），本次使用内置 Gemini——PDF 提取精度建议配置 ds2kicad'));
         }
@@ -201,7 +202,7 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
           const body = payload.fileBase64
             ? { pdfBase64: payload.fileBase64, fileName: `${mpn || 'part'}.pdf` }
             : { pdfUrl: payload.url };
-          const r = await fetch('/api/ds2kicad', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+          const r = await ds2kicad.extract(body);
           if (r.ok) { applyDs2kicad(await r.json()); setAiBusy(false); return; }
           const err = await r.json().catch(() => ({}));
           setAiMsg(`ds2kicad 提取失败（${(err as { error?: string }).error ?? r.status}），回退内置 Gemini…`);
@@ -253,10 +254,7 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
       let engine = '';
       // 首选 ds2kicad（确定性解析 + 溯源）；不可用/失败则自动回落 Gemini 直读
       try {
-        const r = await fetch('/api/ds2kicad', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pdfBase64: b64, fileName: f.name }),
-        });
+        const r = await ds2kicad.extract({ pdfBase64: b64, fileName: f.name });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(String(j?.error ?? `HTTP ${r.status}`));
         applyDs2kicad(j);

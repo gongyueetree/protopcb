@@ -13,67 +13,67 @@ import type {
 } from '../types';
 import type { ComponentCategory } from '../../design-core/document/types';
 import { HttpClient } from '../http/client';
-import type {
-  EzplmMeDto, EzplmComponentDto, EzplmPagedDto, EzplmFootprintDto,
-  EzplmAlternativeDto, EzplmOrgMaterialDto, EzplmPeripheralCircuitDto,
-} from './contracts';
-import {
-  mapComponent, mapFootprint, mapAlternative, mapOrgMaterial, mapPeripheralCircuit, fallbackFootprint,
-} from './mappers';
+import { searchEzplmParts, isEzplmPart } from './live';
+import type { EzplmMeDto, EzplmPeripheralCircuitDto } from './contracts';
+import { mapPeripheralCircuit, fallbackFootprint } from './mappers';
 
 export class EzplmComponentDataProvider implements ComponentDataProvider {
   constructor(private http: HttpClient) {}
 
+  /**
+   * 系统库检索：委托真实的 /api/ezplm 客户端（live.ts）。
+   * 本组织物料（orgOnly）需要 ezPLM 的组织级端点 —— 尚未提供，明确返回空并标 NOT_CONNECTED，
+   * 不再去打从未存在的 /v1/components/search。
+   */
   async searchComponents(query: ComponentSearchQuery, _ctx: AccessContext): Promise<Paginated<ComponentSearchResult>> {
-    const dto = await this.http.get<EzplmPagedDto<EzplmComponentDto>>('/v1/components/search', {
-      keyword: query.keyword,
-      category: query.category,
-      orgOnly: query.orgOnly,
-      page: query.page ?? 1,
-      pageSize: query.pageSize ?? 30,
-    });
-    return { items: dto.items.map(mapComponent), total: dto.total, page: dto.page, pageSize: dto.page_size };
+    const pageSize = query.pageSize ?? 30;
+    if (query.orgOnly) {
+      return { items: [], total: 0, page: 1, pageSize, notConnected: 'ORGANIZATION_MATERIALS_NOT_CONNECTED' } as Paginated<ComponentSearchResult> & { notConnected: string };
+    }
+    const r = await searchEzplmParts(query.keyword ?? '', pageSize);
+    const items = query.category ? r.items.filter((i) => i.category === query.category) : r.items;
+    return { items, total: items.length, page: 1, pageSize };
   }
 
+  /** 单件详情：真实接口没有 by-id 端点；用型号做一次精确检索代替 */
   async getComponentDetail(componentId: string): Promise<ComponentSearchResult | null> {
-    try {
-      const dto = await this.http.get<EzplmComponentDto>(`/v1/components/${encodeURIComponent(componentId)}`);
-      return mapComponent(dto);
-    } catch {
-      return null;
-    }
+    if (!isEzplmPart(componentId)) return null;
+    const mpn = componentId.replace(/^ez_/, '');
+    const r = await searchEzplmParts(mpn, 5).catch(() => ({ available: false, items: [] as ComponentSearchResult[] }));
+    return r.items.find((i) => i.componentId === componentId) ?? r.items[0] ?? null;
   }
 
-  async getFootprintOptions(componentId: string): Promise<FootprintOption[]> {
-    const dtos = await this.http.get<EzplmFootprintDto[]>(`/v1/components/${encodeURIComponent(componentId)}/footprints`);
-    if (!dtos || dtos.length === 0) return [];
-    return dtos.map(mapFootprint);
+  /**
+   * 以下四个能力 ezPLM 开放接口尚未提供（API-Key 手册只有 parts / reference-designs 两个只读端点）。
+   * 此前指向从未存在的 /v1/components/{id}/... 路径，请求必然 404 再被吞成空数组 ——
+   * 现在不发请求，直接返回空并把 NOT_CONNECTED 原因挂在 provider 上，UI 可如实展示。
+   */
+  readonly notConnected = {
+    footprintOptions: 'FOOTPRINT_OPTIONS_NOT_CONNECTED',
+    supplierOffers: 'EZPLM_SUPPLIER_OFFERS_NOT_CONNECTED',
+    alternatives: 'ALTERNATIVES_NOT_CONNECTED',
+    organizationContext: 'ORGANIZATION_MATERIALS_NOT_CONNECTED',
+  } as const;
+
+  async getFootprintOptions(): Promise<FootprintOption[]> {
+    return [];
   }
 
-  async getSupplierOffers(componentId: string) {
-    const dtos = await this.http.get<{ vendor: string; price?: { amount: number; currency: string }; stock?: number; url: string }[]>(`/v1/components/${encodeURIComponent(componentId)}/suppliers`);
-    return dtos ?? [];
+  async getSupplierOffers() {
+    return [] as { vendor: string; price?: { amount: number; currency: string }; stock?: number; url: string }[];
   }
 
-  async getAlternatives(componentId: string): Promise<ComponentAlternative[]> {
-    const dtos = await this.http.get<EzplmAlternativeDto[]>(`/v1/components/${encodeURIComponent(componentId)}/alternatives`);
-    return (dtos ?? []).map(mapAlternative);
+  async getAlternatives(): Promise<ComponentAlternative[]> {
+    return [];
   }
 
-  async getOrganizationContext(componentId: string, organizationId: string): Promise<OrganizationMaterialInfo | null> {
-    try {
-      const dto = await this.http.get<EzplmOrgMaterialDto>(
-        `/v1/organizations/${encodeURIComponent(organizationId)}/materials/${encodeURIComponent(componentId)}`
-      );
-      return mapOrgMaterial(dto) ?? null;
-    } catch {
-      return null;
-    }
+  async getOrganizationContext(): Promise<OrganizationMaterialInfo | null> {
+    return null;
   }
 
-  async listFootprints(category?: string): Promise<FootprintOption[]> {
-    const dtos = await this.http.get<EzplmFootprintDto[]>('/v1/footprints', { category });
-    return (dtos ?? []).map(mapFootprint);
+  /** /v1/footprints 同样不存在；封装列表由 KiCad 官方库（application/library）提供 */
+  async listFootprints(): Promise<FootprintOption[]> {
+    return [];
   }
 
   /** 详情若缺几何，用此方法补一个兜底封装（供放置引擎使用）。 */
@@ -109,18 +109,23 @@ export class EzplmIdentityProvider implements IdentityProvider {
   }
 }
 
+/** 云端设计存储尚未接通时抛出的错误：UI 据此显示"未接通"，不做假成功 */
+export class CloudProjectNotConnectedError extends Error {
+  readonly code = 'CLOUD_PROJECT_API_NOT_CONNECTED';
+  constructor() { super('云端设计存储（Cloud Project API）尚未接通，设计只保存在本浏览器'); this.name = 'CloudProjectNotConnectedError'; }
+}
+
+/**
+ * ezPLM 云端项目存储 —— **NOT_CONNECTED**。
+ * /v1/projects/{id}/design 是设想中的契约，后端未提供。此前 load 会把 404 吞成 null、
+ * save 会抛一个"HTTP 404"，UI 无法区分"没有存档"和"没有后端"。现在明确抛 NOT_CONNECTED。
+ */
 export class EzplmProjectProvider implements ProjectProvider {
-  constructor(private http: HttpClient) {}
-  async saveDesignDocument(projectId: string, docJson: string): Promise<{ ref: string }> {
-    const res = await this.http.put<{ ref: string }>(`/v1/projects/${encodeURIComponent(projectId)}/design`, JSON.parse(docJson));
-    return res;
+  constructor(private http: HttpClient) { void this.http; }
+  async saveDesignDocument(): Promise<{ ref: string }> {
+    throw new CloudProjectNotConnectedError();
   }
-  async loadDesignDocument(projectId: string): Promise<string | null> {
-    try {
-      const doc = await this.http.get<unknown>(`/v1/projects/${encodeURIComponent(projectId)}/design`);
-      return doc ? JSON.stringify(doc) : null;
-    } catch {
-      return null;
-    }
+  async loadDesignDocument(): Promise<string | null> {
+    throw new CloudProjectNotConnectedError();
   }
 }

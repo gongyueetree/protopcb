@@ -4,12 +4,14 @@
  * 保证导入/加载的文档结构正确，旧版本可迁移。
  */
 import { z } from 'zod';
-import { SCHEMA_VERSION } from './types';
-import type { CircuitCanvasDocument } from './types';
+import { RUN_MODES, COMPONENT_CATEGORIES, COMPONENT_SOURCES, TRUST_LEVELS, BOARD_SIDES, BOARD_SHAPES, CONNECTION_STYLES, CONNECTION_DIRS, REVIEW_LEVELS, REVIEW_CATEGORIES, LABEL_KINDS, TEXT_ANCHORS, VIA_TYPES } from './enums';
+import { SCHEMA_VERSION } from './enums';
+// CircuitCanvasDocument 由本文件的 documentSchema 推导，这里直接用 z.infer，避免与 types.ts 互相 import
+type CircuitCanvasDocument = z.infer<typeof documentSchema>;
 
-const pointSchema = z.object({ x: z.number(), y: z.number() });
+export const pointSchema = z.object({ x: z.number(), y: z.number() });
 
-const footprintGeometrySchema = z.object({
+export const footprintGeometrySchema = z.object({
   footprintId: z.string(),
   bodyWidthMm: z.number().positive(),
   bodyHeightMm: z.number().positive(),
@@ -21,14 +23,14 @@ const footprintGeometrySchema = z.object({
   anchor: pointSchema,
 });
 
-const moneySchema = z.object({ amount: z.number(), currency: z.string() });
+export const moneySchema = z.object({ amount: z.number(), currency: z.string() });
 
-const placedComponentSchema = z.object({
+export const placedComponentSchema = z.object({
   instanceId: z.string(),
   componentId: z.string(),
   mpn: z.string(),
   reference: z.string(),
-  category: z.enum(['mcu', 'power', 'passive', 'connector', 'ic', 'electromech', 'sensor', 'rf']),
+  category: z.enum(COMPONENT_CATEGORIES),
   manufacturer: z.string(),
   footprint: z.object({
     footprintId: z.string(),
@@ -40,16 +42,16 @@ const placedComponentSchema = z.object({
     xMm: z.number(),
     yMm: z.number(),
     rotation: z.number(),
-    side: z.enum(['TOP', 'BOTTOM']),
+    side: z.enum(BOARD_SIDES),
     locked: z.boolean(),
   }),
   functionalBlockId: z.string().optional(),
   quantity: z.number().int().positive(),
   unitPrice: moneySchema.optional(),
-  source: z.enum(['EZPLM', 'LOCAL', 'CUSTOM', 'MOCK']),
+  source: z.enum(COMPONENT_SOURCES),
   refDesDisplay: z.object({ dx: z.number(), dy: z.number(), rotation: z.number(), hidden: z.boolean() }).optional(),
   trust: z.object({
-    level: z.enum(['VERIFIED', 'CANDIDATE', 'PLACEHOLDER']),
+    level: z.enum(TRUST_LEVELS),
     evidence: z.string(),
     verifiedAt: z.string().optional(),
     source: z.string().optional(),
@@ -77,11 +79,11 @@ const placedComponentSchema = z.object({
     .optional(),
 });
 
-const boardSchema = z.object({
+export const boardSchema = z.object({
   id: z.string(),
   widthMm: z.number().positive(),
   heightMm: z.number().positive(),
-  shape: z.enum(['rect', 'rounded', 'circle', 'lshape', 'polygon']),
+  shape: z.enum(BOARD_SHAPES),
   outline: z.array(pointSchema).optional(),
   mountingHoles: z.array(z.object({ position: pointSchema, diameterMm: z.number() })),
   keepoutZones: z.array(z.object({ id: z.string(), label: z.string(), polygon: z.array(pointSchema) })),
@@ -89,7 +91,7 @@ const boardSchema = z.object({
     z.object({
       id: z.string(),
       label: z.string(),
-      category: z.enum(['mcu', 'power', 'passive', 'connector', 'ic', 'electromech', 'sensor', 'rf']).optional(),
+      category: z.enum(COMPONENT_CATEGORIES).optional(),
       normRect: z.tuple([z.number(), z.number(), z.number(), z.number()]),
     })
   ),
@@ -100,20 +102,20 @@ const boardSchema = z.object({
   cornerRadiusMm: z.number().optional(),
 });
 
-const connectionSchema = z.object({
+export const connectionSchema = z.object({
   id: z.string(),
   fromId: z.string(),
   toId: z.string(),
   label: z.string(),
-  style: z.enum(['single', 'double', 'back', 'none', 'bus']),
-  dir: z.enum(['forward', 'back', 'both', 'none']).optional(),
+  style: z.enum(CONNECTION_STYLES),
+  dir: z.enum(CONNECTION_DIRS).optional(),
   color: z.string().optional(),
   labelDx: z.number().optional(),
   labelDy: z.number().optional(),
   labelRot: z.number().optional(),
 });
 
-const functionalBlockSchema = z.object({
+export const functionalBlockSchema = z.object({
   id: z.string(),
   label: z.string(),
   sublabel: z.string().optional(),
@@ -126,7 +128,7 @@ const functionalBlockSchema = z.object({
   componentIds: z.array(z.string()).optional(),
 });
 
-const bomLineSchema = z.object({
+export const bomLineSchema = z.object({
   reference: z.string(),
   mpn: z.string(),
   manufacturer: z.string(),
@@ -136,29 +138,29 @@ const bomLineSchema = z.object({
   description: z.string().optional(),
 });
 
-const reviewFindingSchema = z.object({
+export const reviewFindingSchema = z.object({
   id: z.string(),
-  level: z.enum(['high', 'mid', 'low', 'info']),
+  level: z.enum(REVIEW_LEVELS),
   title: z.string(),
   detail: z.string().optional(),
-  category: z.enum(['completeness', 'placement', 'thermal', 'emc', 'sourcing', 'mechanical']),
+  category: z.enum(REVIEW_CATEGORIES),
 });
 
 /** 单页原理图（原样视图） */
-const SchematicSheetSchema = z.object({
+export const SchematicSheetSchema = z.object({
     instances: z.array(z.object({
       ref: z.string(), libId: z.string(), value: z.string().optional(),
       x: z.number(), y: z.number(), rot: z.number(),
       mirror: z.string().optional(), unit: z.number().optional(),
       mat: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional(),
-      refPos: z.object({ x: z.number(), y: z.number(), rot: z.number(), hidden: z.boolean(), sizeMm: z.number().optional(), anchor: z.enum(['start', 'middle', 'end']).optional() }).optional(),
-      valPos: z.object({ x: z.number(), y: z.number(), rot: z.number(), hidden: z.boolean(), sizeMm: z.number().optional(), anchor: z.enum(['start', 'middle', 'end']).optional() }).optional(),
+      refPos: z.object({ x: z.number(), y: z.number(), rot: z.number(), hidden: z.boolean(), sizeMm: z.number().optional(), anchor: z.enum(TEXT_ANCHORS).optional() }).optional(),
+      valPos: z.object({ x: z.number(), y: z.number(), rot: z.number(), hidden: z.boolean(), sizeMm: z.number().optional(), anchor: z.enum(TEXT_ANCHORS).optional() }).optional(),
     })),
     wires: z.array(z.array(z.tuple([z.number(), z.number()]))),
     buses: z.array(z.array(z.tuple([z.number(), z.number()]))).optional(),
     busEntries: z.array(z.array(z.tuple([z.number(), z.number()]))).optional(),
     junctions: z.array(z.tuple([z.number(), z.number()])),
-    labels: z.array(z.object({ text: z.string(), x: z.number(), y: z.number(), rot: z.number(), kind: z.enum(['local', 'global', 'hierarchical']).optional(), shape: z.string().optional() })),
+    labels: z.array(z.object({ text: z.string(), x: z.number(), y: z.number(), rot: z.number(), kind: z.enum(LABEL_KINDS).optional(), shape: z.string().optional() })),
     sheets: z.array(z.object({
       name: z.string(), file: z.string(), x: z.number(), y: z.number(), w: z.number(), h: z.number(),
       pins: z.array(z.object({ name: z.string(), x: z.number(), y: z.number(), rot: z.number(), shape: z.string().optional() })),
@@ -187,7 +189,7 @@ export const documentSchema = z.object({
     organizationId: z.string().optional(),
     workspaceId: z.string().optional(),
     projectId: z.string().optional(),
-    source: z.enum(['demo', 'standalone', 'integrated']),
+    source: z.enum(RUN_MODES),
   }),
   designIntent: z.object({ requirement: z.string(), rationale: z.string(), generatedAt: z.string() }).optional(),
   /** 导入工程的电气网络表（网络号 → 网络名），导出 PCB 时写回 */
@@ -199,7 +201,7 @@ export const documentSchema = z.object({
     drill: z.number().positive().optional(),
     net: z.number().int().optional(),
     layers: z.tuple([z.string(), z.string()]).optional(),
-    viaType: z.enum(['blind', 'micro']).optional(),
+    viaType: z.enum(VIA_TYPES).optional(),
   })).optional(),
   /** 导入工程的铜层栈（KiCad 层名，按栈顺序） */
   copperLayers: z.array(z.string()).optional(),
@@ -212,9 +214,7 @@ export const documentSchema = z.object({
     bottomClearanceMm: z.number().finite().min(0).max(60),
     lidMm: z.number().finite().positive().max(20),
   }).optional(),
-  /** KiCad 工程导入的原理图原样视图（只读渲染：实例坐标/连线/结点/标签） */
-  schematicSheet: SchematicSheetSchema.optional(),
-  /** 多页层级工程：全部页面按文件名索引 */
+  /** KiCad 工程导入的原理图原样视图：全部页面按文件名索引；当前页是 UI 状态，不在文档里 */
   schematicSheets: z.record(z.string(), SchematicSheetSchema).optional(),
   rootSheetFile: z.string().optional(),
   board: boardSchema,
@@ -319,6 +319,23 @@ export const MIGRATIONS: Migration[] = [
         ];
       }
       return { ...doc, board };
+    },
+  },
+  {
+    // 3.1 → 3.2：文档里不再复制"当前页"（schematicSheet）。旧文档若只有单页对象，
+    // 折成 schematicSheets[file] + rootSheetFile；若两者都有，以 schematicSheets 为准。
+    from: '3.1.0', to: '3.2.0',
+    up: (doc) => {
+      const d = { ...doc } as RawDoc;
+      const single = d.schematicSheet as RawDoc | undefined;
+      const sheets = (d.schematicSheets as Record<string, RawDoc> | undefined) ?? undefined;
+      if (single && !(sheets && Object.keys(sheets).length)) {
+        const file = String(single.file ?? d.rootSheetFile ?? 'schematic.kicad_sch');
+        d.schematicSheets = { [file]: { ...single, file } };
+        d.rootSheetFile = file;
+      }
+      delete d.schematicSheet;
+      return d;
     },
   },
 ];

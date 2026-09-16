@@ -8,7 +8,7 @@
  * 输出：功能块（含成员位号）+ 块间连接（含信号名与方向）。
  */
 import { aiRequest, extractJson } from '../../providers/ai-client';
-import { geminiAvailable } from '../../providers/gemini';
+import { aiAvailable as geminiAvailable } from '../../application/ai';
 import { curLang } from '../../shared/i18n';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
 

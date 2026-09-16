@@ -29,7 +29,7 @@ export function PipelineBar() {
     const encErr = enc.enabled ? checkEnclosure(doc, enc).filter((i) => i.level === 'error').length : -1;
     const trust = summarizeTrust(doc.components);   // 唯一口径
 
-    const out: { label: string; note: string; state: StepState }[] = [
+    const out: { label: string; note: string; state: StepState; testId?: string }[] = [
       {
         label: '方案',
         note: n ? `${n} ${tr('个器件')}` : tr('未生成'),
@@ -52,6 +52,7 @@ export function PipelineBar() {
       },
       {
         label: '选型',
+        testId: 'pipeline-sourcing',
         note: !n ? tr('无器件') : tr(trustHeadline(trust)),
         state: !n ? 'todo' : trust.engineeringReady ? 'done' : 'warn',
       },
@@ -71,7 +72,7 @@ export function PipelineBar() {
       {steps.map((s, i) => {
         const c = CLR[s.state];
         return (
-          <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div key={s.label} data-testid={s.testId} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <div title={`${tr(s.label)}：${s.note}`}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 7, background: c.bg, border: `1px solid ${c.bd}`, whiteSpace: 'nowrap' }}>
               <span style={{ width: 14, height: 14, borderRadius: 7, background: c.fg, color: '#fff', fontSize: 9, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{ICON[s.state]}</span>

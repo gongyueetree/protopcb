@@ -5,37 +5,23 @@
  */
 import { nanoid } from 'nanoid';
 import type {
+  ComponentSource,
   CircuitCanvasDocument, PlacedComponent, BomLine, ReviewFinding, ComponentCategory,
 } from './types';
-import type { ComponentSearchResult } from '../../providers/types';
-import { geometryFor } from '../../providers/mock/data';
+import type { PartCandidate } from './candidate';
+import { fallbackFootprintGeometry as geometryFor } from '../geometry/fallback-geometry';
 import { padFootprintFor } from '../geometry/footprint-pads';
 import { findOverlaps } from '../collision';
+import { classifyPart } from '../semantics/part';
 
 /** 类别兜底前缀（KiCad 习惯） */
 const REF_PREFIX: Record<ComponentCategory, string> = { mcu: 'U', power: 'U', passive: 'R', connector: 'J', ic: 'U', electromech: 'SW', sensor: 'U', rf: 'U' };
 
-/** 关键词级位号前缀（KiCad 默认习惯）：型号/封装/描述综合判定，类别只兜底 */
+/** 位号前缀：委托统一的 PartSemanticClassifier（型号/封装/描述优先，抽象类别兜底） */
 export function refPrefixFor(r: { category: ComponentCategory; mpn?: string; defaultFootprintName?: string; description?: string }): string {
-  const hay = `${r.mpn ?? ''} ${r.defaultFootprintName ?? ''} ${r.description ?? ''}`;
-  const rules: [RegExp, string][] = [
-    [/(^|\s)(R_|RES)|电阻|(?:\d+(?:\.\d+)?[KkMm]?)(?:Ω|ohm)/i, 'R'],
-    [/(^|\s)FB_|铁氧体|FERRITE/i, 'FB'],
-    [/(^|\s)(L_|IND)|电感|INDUCTOR/i, 'L'],
-    [/(^|\s)(C_|CP_|CAP)|电容|MLCC|[0-9](uF|nF|pF)/i, 'C'],
-    [/LED|发光/i, 'D'],
-    [/(^|\s)(D_|SOD|1N\d)|DIODE|二极管|肖特基|SCHOTTKY|TVS|整流/i, 'D'],
-    [/(^|\s)Q_|MOSFET|NPN|PNP|三极管|晶体管|TRANSISTOR|(^|\s)(BSS|IRF|AO\d)/i, 'Q'],
-    [/CRYSTAL|XTAL|晶振|OSC(?!ILLOSCOPE)|谐振/i, 'Y'],
-    [/(^|\s)SW_|SWITCH|BUTTON|按键|开关|轻触/i, 'SW'],
-    [/FUSE|保险丝/i, 'F'],
-    [/BUZZER|蜂鸣/i, 'BZ'],
-    [/RELAY|继电器/i, 'K'],
-    [/电池|BATTERY|BT_/i, 'BT'],
-    [/CONN|PinHeader|PinSocket|USB|插座|端子|排针|排母|连接器|TERMINAL|JST|XH-|PH-/i, 'J'],
-  ];
-  for (const [re, p2] of rules) if (re.test(hay)) return p2;
-  return REF_PREFIX[r.category] ?? 'U';
+  const sem = classifyPart({ mpn: r.mpn, footprint: r.defaultFootprintName, description: r.description, category: r.category });
+  // 抽象类别兜底时沿用原表（passive→R、electromech→SW 等）
+  return sem.evidence === 'category' || sem.evidence === 'none' ? (REF_PREFIX[r.category] ?? 'U') : sem.defaultRefPrefix;
 }
 
 /** 为器件生成下一个位号（前缀按 KiCad 习惯：R/C/L/D/Q/U/J/Y/SW…）。 */
@@ -50,9 +36,40 @@ export function nextReference(r: { category: ComponentCategory; mpn?: string; de
 
 /** 搜索结果 → 已放置器件（位置暂置 0，由放置引擎求解）。 */
 /** 依据器件来源判定可信等级（数据事实 vs 模型猜测） */
-function trustForResult(r: ComponentSearchResult): PlacedComponent['trust'] {
+/**
+ * 由候选**显式携带的 source** 推断来源；缺失时才按 componentId 前缀做 legacy 推断。
+ * 生产数据不得因为"不属于 ezPLM"就被写成 MOCK —— MOCK 只给演示数据。
+ */
+export function sourceForCandidate(r: PartCandidate): ComponentSource {
+  if (r.source) return r.source;
+  const id = r.componentId ?? '';
+  if (r.org) return 'ORGANIZATION';
+  if (id.startsWith('ez_')) return 'EZPLM';
+  if (id.startsWith('sup_dk_') || id.startsWith('dk_')) return 'DIGIKEY';
+  if (id.startsWith('sup_mouser_') || id.startsWith('mouser_')) return 'MOUSER';
+  if (id.startsWith('sup_')) return 'SUPPLIER';
+  if (id.startsWith('kicadlib_') || id.startsWith('kicad_')) return 'KICAD';
+  if (id.startsWith('custom_') || id.startsWith('fp_')) return 'CUSTOM';
+  if (id.startsWith('sub_') || id.startsWith('ai_')) return 'AI';
+  if (id.startsWith('mock_')) return 'MOCK';
+  // 来源不明：是"未知来源的真实候选"，不是演示数据
+  return 'IMPORTED_PROJECT';
+}
+
+function trustForResult(r: PartCandidate): PlacedComponent['trust'] {
   const id = r.componentId ?? '';
   const now = new Date().toISOString();
+  const src = sourceForCandidate(r);
+  // 显式 source 优先于前缀推断
+  if (src === 'EZPLM' || src === 'ORGANIZATION') {
+    return { level: 'VERIFIED', evidence: 'ezPLM 库内器件', verifiedAt: now, source: 'ezPLM' };
+  }
+  if (src === 'DIGIKEY' || src === 'MOUSER' || src === 'SUPPLIER') {
+    return { level: 'VERIFIED', evidence: '分销商 API 精确匹配', verifiedAt: now, source: '分销商' };
+  }
+  if (src === 'KICAD') return { level: 'CANDIDATE', evidence: 'KiCad 官方封装，型号需自行指定', source: 'KiCad 库' };
+  if (src === 'AI') return { level: 'PLACEHOLDER', evidence: 'AI 建议的通用件，未经数据库验证', source: 'AI' };
+  if (src === 'CUSTOM') return { level: 'CANDIDATE', evidence: '自建器件，参数由用户提供', source: '自建' };
   if (id.startsWith('ez_') || r.org) {
     return { level: 'VERIFIED', evidence: 'ezPLM 库内器件', verifiedAt: now, source: 'ezPLM' };
   }
@@ -71,7 +88,7 @@ function trustForResult(r: ComponentSearchResult): PlacedComponent['trust'] {
   return { level: 'PLACEHOLDER', evidence: '来源未知，需人工核对 datasheet' };
 }
 
-export function searchResultToPlaced(r: ComponentSearchResult, reference: string): PlacedComponent {
+export function searchResultToPlaced(r: PartCandidate, reference: string): PlacedComponent {
   const fpName = r.defaultFootprintName;
   // KiCad 名解析命中 → 用真实焊盘范围推导几何（本体 + courtyard），碰撞/避让随之精确
   const fp = padFootprintFor(fpName);
@@ -91,7 +108,7 @@ export function searchResultToPlaced(r: ComponentSearchResult, reference: string
     placement: { xMm: 0, yMm: 0, rotation: 0, side: 'TOP', locked: false },
     quantity: 1,
     unitPrice: r.unitPrice,
-    source: r.org || r.componentId.startsWith('ez_') ? 'EZPLM' : 'MOCK',
+    source: sourceForCandidate(r),
     // 可信等级：来自 ezPLM/分销商检索的器件是库内命中；
     // 子电路/AI 建议（sub_ 前缀）与占位器件只能算未验证，导出时要显式提示。
     trust: trustForResult(r),

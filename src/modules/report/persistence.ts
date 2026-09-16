@@ -7,7 +7,6 @@ import type { CircuitCanvasDocument } from '../../design-core/document/types';
 
 // 自动保存已统一到 ProjectPersistenceService（唯一键 'cc_doc_autosave'）；
 // 旧 'cc:autosave' 键由服务在 load() 时一次性迁移。
-import { ProjectPersistenceService } from '../../design-core/document/persistence-service';
 import { describeMountingHoles } from '../../design-core/board/mounting-holes';
 
 export function exportDocument(doc: CircuitCanvasDocument) {
@@ -30,15 +29,7 @@ export function importDocumentFromFile(file: File): Promise<CircuitCanvasDocumen
   });
 }
 
-/** @deprecated 请直接用 ProjectPersistenceService.saveDebounced */
-export function autosave(doc: CircuitCanvasDocument) {
-  ProjectPersistenceService.saveDebounced(doc);
-}
 
-/** @deprecated 请直接用 ProjectPersistenceService.load */
-export function loadAutosave(): CircuitCanvasDocument | null {
-  return ProjectPersistenceService.load()?.doc ?? null;
-}
 
 /**
  * 生成 Markdown 方案设计报告并下载。
@@ -46,7 +37,7 @@ export function loadAutosave(): CircuitCanvasDocument | null {
  * SVG 以内嵌方式写入 Markdown（多数渲染器支持 <svg>；亦可另存 .svg 文件引用）。
  */
 import { buildBlockDiagramSvg, buildPcbLayoutSvg, buildSchematicSvg } from './reportSvg';
-import { digikeyOfferCached } from '../../providers/digikey';
+import { digikeyOfferCached } from '../../application/pricing';
 
 /** SVG → Markdown 图片（base64 data-URI，Typora/VSCode/GitHub 均可渲染） */
 function svgToMdImage(svg: string, alt: string): string {

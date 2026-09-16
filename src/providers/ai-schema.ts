@@ -9,9 +9,10 @@
  * 校验失败就整条拒绝，绝不"尽力解析出一部分"——半个方案比没有方案更危险。
  */
 import { z } from 'zod';
+import { TRUST_LEVELS } from '../design-core/document/enums';
 
 /** 器件可信等级：区分「数据库验证过」和「模型猜的」 */
-export const TrustLevel = z.enum(['VERIFIED', 'CANDIDATE', 'PLACEHOLDER']);
+export const TrustLevel = z.enum(TRUST_LEVELS);   // 枚举唯一来源：design-core/document/enums
 export type TrustLevel = z.infer<typeof TrustLevel>;
 
 const CATEGORY = z.enum(['mcu', 'power', 'passive', 'connector', 'sensor', 'rf', 'electromech', 'ic', 'other']);

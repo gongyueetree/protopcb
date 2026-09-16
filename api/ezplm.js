@@ -17,17 +17,11 @@ import { fetchUpstream, UpstreamError } from './_lib/net.js';
  *   GET /api/ezplm?path=status                                  → { configured: boolean }（不消耗上游配额）
  *   GET /api/ezplm?path=parts&keyword=STM32&pageSize=20         → 透传 ezPLM 响应
  *   GET /api/ezplm?path=reference-designs&partlibId=xxx         → 透传 ezPLM 响应
- *   GET /api/ezplm?path=application-projects&partlibId=xxx      → 透传（上游未开通时 404，前端显示 BACKEND_NOT_CONNECTED）
+ *   GET /api/ezplm?path=application-projects                     → 501 APPLICATION_PROJECTS_NOT_CONNECTED（私有数据，等 ezPLM 用户级端点；不用全局 Key 代理）
  */
 import crypto from 'node:crypto';
 
 const BASE_URL = 'https://www.ezplm.cn';
-// application-projects：ezPLM 网页端已有"应用项目"数据，但 API-Key 开放接口是否提供
-// 该端点尚未确认。此处放行透传：上游存在则直接接通；上游 404 由前端 Provider 映射为
-// BACKEND_NOT_CONNECTED 如实展示（绝不返回假项目数据）。
-// application-projects 是**私有**数据：在 ezPLM 提供用户级端点之前，
-// 不能用全局 EZPLM_API_KEY 冒充用户去拿 —— 那会把整个组织的项目暴露给任何会话。
-// 明确 501，前端如实显示 NOT_CONNECTED。
 const ALLOWED_PATHS = new Set(['parts', 'reference-designs']);
 const PRIVATE_NOT_CONNECTED = new Set(['application-projects']);
 

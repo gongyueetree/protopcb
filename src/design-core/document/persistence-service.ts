@@ -14,10 +14,11 @@
 import { parseDocument } from './schema';
 import type { CircuitCanvasDocument } from './types';
 import { UNTITLED_DOC_NAME } from './factory';
+import { KEYS } from '../../shared/storage';
 
-const KEY = 'cc_doc_autosave';
+const KEY = KEYS.docAutosave;
 const LEGACY_KEY = 'cc:autosave';
-const CORRUPT_BACKUP_KEY = 'cc_doc_autosave_corrupt';
+const CORRUPT_BACKUP_KEY = KEYS.docAutosaveCorrupt;
 const DEBOUNCE_MS = 800;
 
 function lsGet(k: string): string | null {
@@ -59,7 +60,7 @@ export function stripSessionOnlyUrls(doc: CircuitCanvasDocument): { doc: Circuit
 export function docHasContent(doc: CircuitCanvasDocument): boolean {
   if (doc.components.length) return true;
   if ((doc.tracks?.length ?? 0) > 0 || (doc.vias?.length ?? 0) > 0) return true;
-  if (doc.schematicSheet) return true;
+  if (doc.schematicSheets && Object.keys(doc.schematicSheets).length) return true;
   if ((doc.functionalBlocks?.length ?? 0) > 0 || (doc.connections?.length ?? 0) > 0) return true;
   if (doc.designIntent) return true;
   if (doc.enclosure?.enabled) return true;

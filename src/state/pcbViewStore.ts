@@ -8,6 +8,7 @@
  *   混进文档的后果是每次切个视图都把设计标记成"已修改"。
  */
 import { create } from 'zustand';
+import { KEYS } from '../shared/storage';
 
 export type PcbVisualMode = '2d' | 'hybrid' | 'realistic';
 
@@ -44,7 +45,7 @@ interface PcbViewState {
   is3DVisible: (instanceId: string) => boolean;
 }
 
-const MODE_KEY = 'cc_pcb_visual_mode';
+const MODE_KEY = KEYS.pcbVisualMode;
 const loadMode = (): PcbVisualMode => {
   try {
     const v = localStorage.getItem(MODE_KEY);

@@ -5,7 +5,7 @@
  *   - 无源器件默认 0603 封装（R_0603_1608Metric / C_0603_1608Metric / L_0603_1608Metric）
  *   - 每项标注连接的核心管脚（如 VDD、XTAL1），一键上画布时按管脚顺序围核心排布
  */
-import { geminiAvailable } from '../../providers/gemini';
+import { aiAvailable as geminiAvailable } from '../../application/ai';
 import { aiRequest, extractJson } from '../../providers/ai-client';
 import { curLang } from '../../shared/i18n';
 import { AiSubCircuitSchema, validateAi } from '../../providers/ai-schema';

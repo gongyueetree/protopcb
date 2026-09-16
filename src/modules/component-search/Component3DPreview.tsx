@@ -10,7 +10,7 @@ import { buildStudioEnvironment } from '../board-editor/studio-env';
 import type { PlacedComponent } from '../../design-core/document/types';
 import { buildComponent3D } from '../board-editor/footprint3d';
 import { stepStatusFor, stepFailReasonFor } from '../board-editor/step-loader';
-import { useLibFileStore } from '../../design-core/geometry/lib-file-registry';
+import { useLibFileStore } from '../../state/libFileStore';
 
 export function Component3DPreview({ c }: { c: PlacedComponent }) {
   const boxRef = useRef<HTMLDivElement>(null);

@@ -11,6 +11,7 @@
  *   连线 = 两块之间共享的信号网络；电源/地网络单独标注为电源连接，不画成满屏网状
  *   标签 = 共享网络名（最多两个），没有名字的网络显示网络数
  */
+import { classifyNet, isCommonRail } from '../semantics/net';
 import type { CircuitCanvasDocument, PlacedComponent } from '../document/types';
 
 export interface NetBlock {
@@ -31,7 +32,23 @@ export interface NetLink {
   nets: number[];
 }
 
-const POWER_NAME = /^(GND|AGND|DGND|PGND|VSS|VCC|VDD|VBUS|VBAT|VIN|VOUT|\+?\d+V\d*|[+-]\d+V\d*|\d+V\d*)$/i;
+/**
+ * 网络是否公共轨（电源/地）：走统一的 NetSemanticClassifier。
+ * 此前这里自己维护一个 POWER_NAME 且把 VIN/VOUT 一律当电源 —— 与 fragment 的判定互相矛盾。
+ * 现在带上"连到它的器件类别"作证据：LDO 上的 VOUT 是电源轨，DAC 上的 VOUT 是模拟信号。
+ */
+function isRail(doc: CircuitCanvasDocument, netId: number): boolean {
+  const name = doc.nets?.[String(netId)] ?? '';
+  const pins = doc.components
+    .filter((c) => Object.values(c.display?.padNets ?? {}).includes(netId))
+    .map((c) => ({ componentCategory: c.category }));
+  const kind = classifyNet({ name, pins });
+  if (kind === 'UNKNOWN' && /^(VIN|VOUT)/i.test(name)) {
+    // 歧义名、无引脚类型证据：挂在电源类器件上才当轨
+    return pins.some((p) => p.componentCategory === 'power');
+  }
+  return isCommonRail(kind);
+}
 
 /** 核心器件判定：非无源即核心；无源件只做附属 */
 function isCore(c: PlacedComponent): boolean {
@@ -86,8 +103,7 @@ export function blocksFromNetlist(doc: CircuitCanvasDocument): { blocks: NetBloc
     const score = new Map<string, number>();
     for (const n of Object.values(c.display?.padNets ?? {})) {
       if (!n) continue;
-      const name = doc.nets?.[String(n)] ?? '';
-      if (POWER_NAME.test(name)) continue;                  // 电源/地不作为归属依据（人人都连）
+      if (isRail(doc, n)) continue;                           // 电源/地不作为归属依据（人人都连）
       for (const ref of netMembers.get(n) ?? []) {
         if (ref === c.reference || !blockOfRef.has(ref)) continue;
         score.set(ref, (score.get(ref) ?? 0) + 1);
@@ -104,7 +120,7 @@ export function blocksFromNetlist(doc: CircuitCanvasDocument): { blocks: NetBloc
     const coreRefs = [...new Set(refs.filter((r) => blockOfRef.has(r)))];
     if (coreRefs.length < 2) continue;
     const name = doc.nets?.[String(net)] ?? '';
-    const isPower = POWER_NAME.test(name);
+    const isPower = isRail(doc, net);
     // 电源网络常常连接几乎所有器件，全画会变成网状；只在"电源块 → 其它块"方向保留
     for (let i = 0; i < coreRefs.length; i++) {
       for (let j = i + 1; j < coreRefs.length; j++) {

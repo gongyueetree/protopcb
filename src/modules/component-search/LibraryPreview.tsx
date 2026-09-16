@@ -13,8 +13,10 @@ import { PX_PER_MM } from '../../design-core/geometry';
 import { COLORS } from '../../shared/theme';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { buildKicadMod, buildKicadSym, downloadText } from './kicadExport';
-import { footprintFileStatus, symbolFileStatus, useLibFileStore, type LibFileStatus } from '../../design-core/geometry/lib-file-registry';
+import { footprintFileStatus, symbolFileStatus, type LibFileStatus } from '../../design-core/geometry/lib-file-registry';
+import { useLibFileStore } from '../../state/libFileStore';
 import { Component3DPreview } from './Component3DPreview';
+import { dialogs } from '../ui/dialogStore';
 
 function downloadSvg(svgMarkup: string, filename: string) {
   const blob = new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svgMarkup], { type: 'image/svg+xml' });
@@ -186,7 +188,7 @@ async function downloadStep(stepUrl: string, mpn: string) {
     if (!r.ok) {
       let detail = '';
       try { detail = String((await r.json())?.error ?? ''); } catch { /* 非 JSON */ }
-      alert(`STEP 下载失败 HTTP ${r.status}${detail ? ' · ' + detail : ''}\n签名链接可能已过期——重新搜索该器件后再试。`);
+      dialogs.toast(`STEP 下载失败 HTTP ${r.status}${detail ? ' · ' + detail : ''}\n签名链接可能已过期——重新搜索该器件后再试。`, 'error');
       return;
     }
     const blob = await r.blob();
@@ -196,6 +198,6 @@ async function downloadStep(stepUrl: string, mpn: string) {
     a.click();
     URL.revokeObjectURL(a.href);
   } catch (e) {
-    alert('STEP 下载失败：' + (e as Error).message);
+    dialogs.toast('STEP 下载失败：' + (e as Error).message, 'error');
   }
 }

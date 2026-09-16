@@ -8,7 +8,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useDesignStore } from '../../state/designStore';
 import { useSchematicStore, type SchNet } from './schematicStore';
 import { symbolUnitsFor } from './symbols';
-import { useLibFileStore } from '../../design-core/geometry/lib-file-registry';
+import { useLibFileStore } from '../../state/libFileStore';
 import { ImportedSchematicView } from './ImportedSchematicView';
 import { isCore, signalFlowRank } from '../../design-core/placement/affinity';
 import type { PlacedComponent } from '../../design-core/document/types';
@@ -17,7 +17,9 @@ let netCounter = 0;
 const nid = () => `net_${++netCounter}_${Date.now()}`;
 
 export function SchematicPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: boolean; onToggleFullscreen?: () => void }) {
-  const sheet = useDesignStore((st) => st.doc.schematicSheet);
+  const sheets = useDesignStore((st) => st.doc.schematicSheets);
+  const rootFile = useDesignStore((st) => st.doc.rootSheetFile);
+  const sheet = sheets ? (sheets[rootFile ?? ''] ?? Object.values(sheets)[0]) : undefined;
   const [schView, setSchView] = useState<'imported' | 'auto'>('imported');
   const [wireHint, setWireHint] = useState(false);
   const items = useDesignStore((s) => s.doc.components);

@@ -56,17 +56,18 @@ describe('原理图数据在持久化往返中不丢失（Zod 会剥掉未声明
     expect(sch.comps[0].value).toBe('2k');
 
     const doc = createDocument({ name: 't' });
-    doc.schematicSheet = {
+    doc.rootSheetFile = 'legacy.sch';
+    doc.schematicSheets = { 'legacy.sch': {
       instances: sch.comps.map((c) => ({ ref: c.ref, libId: c.libId, value: c.value, x: c.x, y: c.y, rot: c.rot, mirror: c.mirror, unit: c.unit })),
       wires: sch.wires, buses: sch.buses, busEntries: sch.busEntries,
       junctions: sch.junctions, labels: sch.labels, noConnects: sch.noConnects,
       libSymbols: {}, legacySymbols: lib, frame: sch.sheet,
-    };
+    } };
 
     // 模拟「保存到 localStorage → 刷新页面 → 校验恢复」
     const round = parseDocument(JSON.parse(JSON.stringify(doc)));
     if (!round.ok) throw new Error(round.error);
-    const sheet = (round as { document: typeof doc }).document.schematicSheet!;
+    const sheet = (round as { document: typeof doc }).document.schematicSheets!['legacy.sch'];
     expect(sheet.buses?.length).toBe(1);                        // 总线
     expect(sheet.frame?.title).toBe('Mini DDS AWG Generator');  // 图框标题栏
     expect(sheet.instances[0].value).toBe('2k');                // 器件值（曾因 schema 缺字段被剥掉）

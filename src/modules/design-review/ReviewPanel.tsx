@@ -129,7 +129,7 @@ export function ReviewPanel() {
         <div key={g} style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8F3EE', padding: 14, marginBottom: 10 }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: COLORS.green, marginBottom: 8 }}>{g}</div>
           {items.filter((i) => i.group === g).map((i) => (
-            <div key={i.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '7px 0', borderTop: '1px solid #f8fafc' }}>
+            <div key={i.id} data-testid={`review-${i.id}`} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '7px 0', borderTop: '1px solid #f8fafc' }}>
               <span style={{ fontSize: 13, lineHeight: 1.4 }}>{i.advisory ? 'ℹ️' : i.pass ? '✅' : '🔴'}</span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: i.advisory ? '#475569' : i.pass ? '#15803d' : '#b91c1c' }}>

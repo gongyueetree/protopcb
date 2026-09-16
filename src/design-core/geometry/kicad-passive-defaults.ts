@@ -12,8 +12,8 @@
  * 只对**能确定类别**的无源件生效；判不出来就返回 undefined，交给原有流程。
  */
 
-export type PassiveKind = 'capacitor' | 'resistor' | 'inductor' | 'ferrite' | 'led'
-  | 'diode' | 'schottky' | 'zener' | 'tvs' | 'crystal' | 'fuse';
+import { classifyPart, type PassiveKind } from '../semantics/part';
+export type { PassiveKind };
 
 export interface PassiveDefaults {
   kind: PassiveKind;
@@ -61,24 +61,9 @@ const FIXED_FP: Partial<Record<PassiveKind, string>> = {
   fuse: 'Fuse_1206_3216Metric',
 };
 
-/** 由位号 + 值/型号 + 描述判断无源件类别；判不出返回 undefined（不硬猜） */
+/** 无源件细分：委托统一的 PartSemanticClassifier（判不出返回 undefined，不硬猜） */
 export function classifyPassive(reference: string, value: string, description = ''): PassiveKind | undefined {
-  const ref = (reference ?? '').toUpperCase();
-  const hay = `${value ?? ''} ${description ?? ''}`.toUpperCase();
-
-  // TVS / 肖特基 / 稳压管要在普通二极管之前判，否则会被 D 位号吞掉
-  if (/TVS|ESD|瞬态/.test(hay)) return 'tvs';
-  if (/SCHOTTKY|肖特基/.test(hay)) return 'schottky';
-  if (/ZENER|齐纳|稳压二极管/.test(hay)) return 'zener';
-  if (/^LED\d|LED/.test(ref) || /\bLED\b|发光二极管/.test(hay)) return 'led';
-  if (/^(FB|FL)\d/.test(ref) || /FERRITE|磁珠/.test(hay)) return 'ferrite';
-  if (/^C\d/.test(ref) || /\d\s*(PF|NF|UF|ΜF)\b/.test(hay) || /CAPACITOR|电容/.test(hay)) return 'capacitor';
-  if (/^R\d/.test(ref) || /\d\s*(Ω|OHM|[KM]Ω?)\b/.test(hay) || /RESISTOR|电阻/.test(hay)) return 'resistor';
-  if (/^L\d/.test(ref) || /\d\s*(NH|UH|MH)\b/.test(hay) || /INDUCTOR|电感/.test(hay)) return 'inductor';
-  if (/^(D|ZD)\d/.test(ref) || /DIODE|二极管/.test(hay)) return 'diode';
-  if (/^(Y|X|XTAL)\d/.test(ref) || /CRYSTAL|晶振|MHZ/.test(hay)) return 'crystal';
-  if (/^F\d/.test(ref) || /FUSE|保险丝/.test(hay)) return 'fuse';
-  return undefined;
+  return classifyPart({ reference, value, description }).passiveKind;
 }
 
 /** 从已有封装名里提取尺寸代号（0402 等），用于保留设计者已指定的尺寸 */

@@ -1,68 +1,41 @@
 /**
  * state/useAccessContext.ts
- * 调用方身份的**唯一**来源。
+ * AccessContext（调用方身份）—— **派生自** entitlementStore 的会话状态，不是第二个身份源。
  *
- * 修复的问题：App.tsx / ComponentSearchPanel / AdvisorPanel 各写了一行
- * `const ctx = { userId: 'demo-user', organizationId: 'org-demo' }`。
- * 接入真实 ezPLM 后，所有请求仍然带着演示身份 —— 私有数据
- * （应用项目、组织物料、参考设计）的租户边界形同虚设。
- *
- * 现在统一走 providers.identity.getAccessContext()：
- * demo 模式下 Mock Provider 自然返回 demo-user，集成模式下是真实身份，
- * UI 一行都不许再自己编 ID。
+ * 此前这里自己调 providers.identity.getAccessContext() 维护一份身份，与
+ * entitlementStore（/api/session）并存：两处可能不一致（一处已登录、一处匿名）。
+ * 现在唯一的服务端可信来源是 /api/session（entitlementStore.refresh），
+ * 这里只把它投影成 AccessContext 形状供 provider 调用。
  */
 import { useEffect } from 'react';
-import { create } from 'zustand';
-import { getProviders } from '../providers/factory';
+import { useEntitlementStore } from './entitlementStore';
 import type { AccessContext } from '../providers/types';
 
-interface AccessState {
-  ctx: AccessContext | null;
-  status: 'idle' | 'loading' | 'ready' | 'error';
-  error?: string;
-  load: () => Promise<void>;
+function toAccessContext(ent: { tier: string; userId?: string; organizationId?: string }): AccessContext | null {
+  if (ent.tier !== 'registered' || !ent.userId) return null;
+  return { userId: ent.userId, organizationId: ent.organizationId ?? '' } as AccessContext;
 }
-
-export const useAccessStore = create<AccessState>((set, get) => ({
-  ctx: null,
-  status: 'idle',
-  load: async () => {
-    if (get().status === 'loading' || get().status === 'ready') return;
-    set({ status: 'loading' });
-    try {
-      set({ ctx: await getProviders().identity.getAccessContext(), status: 'ready' });
-    } catch (e) {
-      // 拿不到身份时**不伪造** —— 返回 null，调用方据此降级为"仅公开数据"
-      set({ ctx: null, status: 'error', error: String((e as Error).message ?? e) });
-    }
-  },
-}));
 
 /**
- * 取当前访问身份。首次调用触发加载。
- * 返回 null 表示尚未就绪或获取失败：此时调用方只能访问公开数据，
- * 不得退回到写死的 demo 身份。
+ * 取当前访问身份。返回 null = 匿名或会话未就绪：调用方只能访问公开数据，
+ * 不得退回到任何写死的 demo 身份。
  */
 export function useAccessContext(): AccessContext | null {
-  const ctx = useAccessStore((s) => s.ctx);
-  const load = useAccessStore((s) => s.load);
-  useEffect(() => { void load(); }, [load]);
-  return ctx;
+  const ent = useEntitlementStore((s) => s.ent);
+  const status = useEntitlementStore((s) => s.status);
+  const refresh = useEntitlementStore((s) => s.refresh);
+  useEffect(() => { if (status === 'idle') void refresh(); }, [status, refresh]);
+  return toAccessContext(ent);
 }
 
-/** 非 React 环境（provider / 服务层）取身份 */
+/** 非 React 环境取身份（同一来源） */
 export async function getAccessContext(): Promise<AccessContext | null> {
-  const st = useAccessStore.getState();
-  if (st.status !== 'ready') await st.load();
-  return useAccessStore.getState().ctx;
+  const st = useEntitlementStore.getState();
+  if (st.status === 'idle') await st.refresh();
+  return toAccessContext(useEntitlementStore.getState().ent);
 }
 
-/** 供测试重置 */
-export function __resetAccessContext() {
-  useAccessStore.setState({ ctx: null, status: 'idle', error: undefined });
-}
-
-/** 兼容仍需同步 ctx 的调用点：未就绪时给出显式的匿名上下文，而不是假装是某个用户 */
+/** 兼容仍需同步 ctx 的调用点：匿名上下文（空身份），provider 据此只查公开数据 */
 export function anonymousContext(): AccessContext {
   return { userId: '', organizationId: '' } as AccessContext;
 }

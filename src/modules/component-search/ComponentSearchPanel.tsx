@@ -4,8 +4,8 @@
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getProviders } from '../../providers/factory';
-import { searchSupplierParts, supplierPartToResult } from '../../providers/supplier-search';
-import { searchEzplmParts, ezplmLiveAvailable } from '../../providers/ezplm-live';
+import { searchSupplierParts, supplierPartToResult } from '../../application/parts';
+import { searchEzplmParts, ezplmLiveAvailable } from '../../application/parts';
 import { useDesignStore } from '../../state/designStore';
 import { useT, useTranslated, tr } from '../../shared/i18n';
 import { COLORS, fmtMoney } from '../../shared/theme';

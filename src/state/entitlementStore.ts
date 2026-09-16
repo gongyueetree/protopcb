@@ -26,11 +26,6 @@ interface EntitlementState {
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   check: (cap: Capability) => CapabilityCheck;
-  /**
-   * @deprecated 余额只认服务端 usage.remaining。保留签名仅为兼容，实现为空操作：
-   * 前端自行扣减会与服务端返回值叠加，出现"服务端说 95、UI 显示 90"。
-   */
-  noteConsumed: (cap: Capability) => void;
   /** 服务端通过响应头回传的权威余额 */
   setRemaining: (remaining: number) => void;
 }
@@ -77,7 +72,6 @@ export const useEntitlementStore = create<EntitlementState>((set, get) => ({
   },
 
   check: (cap) => checkCapability(get().ent, cap),
-  noteConsumed: () => { /* 有意留空：余额以服务端 usage.remaining 为唯一来源 */ },
   setRemaining: (remaining) => set((s) => ({ ent: { ...s.ent, credits: remaining, creditsKnown: true } })),
 }));
 

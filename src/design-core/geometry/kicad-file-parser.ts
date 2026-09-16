@@ -3,7 +3,7 @@
  * KiCad 库文件运行时解析 —— 从 ezPLM 返回的真实 .kicad_mod 文件解析【逐点精确】的焊盘。
  * 有真实文件时优先于名字参数化解析（kicad-name-parser 仅作拉取中/失败的兜底）。
  */
-import type { PadFootprint, Pad } from './footprint-pads';
+import type { PadFootprint, Pad } from './pad-types';
 
 /* ---------- 轻量 S-表达式解析 ---------- */
 export type SExpr = string | SExpr[];

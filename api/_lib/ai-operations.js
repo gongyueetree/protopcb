@@ -37,10 +37,19 @@ const compLine = S.obj({
   description: S.opt(S.str(200)),
 });
 
+const ENUMS = JSON.parse(readFileSync(new URL('../../contracts/custom-part-enums.json', import.meta.url), 'utf8'));
+/** Credit 单价的唯一来源（contracts/ai-operations.json）；注册表里不再手写数字 */
+const CONTRACT = JSON.parse(readFileSync(new URL('../../contracts/ai-operations.json', import.meta.url), 'utf8'));
+const costOf = (op) => {
+  const c = CONTRACT.operations?.[op]?.cost;
+  if (typeof c !== 'number') throw new Error(`contracts/ai-operations.json 缺少操作 ${op} 的单价`);
+  return c;
+};
+
 export const AI_OPERATIONS = {
   /* ───────────── 方案 ───────────── */
   'scheme.generate': {
-    cost: 5,
+    cost: costOf('scheme.generate'),
     maxInputChars: 2000,
     validate: S.obj({ requirement: S.str(2000, { min: 2 }), lang: S.opt(S.oneOf(['zh', 'en'])) }),
     buildPrompt: ({ requirement, lang }) => `${langLine(lang)}你是资深硬件工程师。用户需求：「${requirement}」
@@ -60,7 +69,7 @@ export const AI_OPERATIONS = {
   },
 
   'scheme.revise': {
-    cost: 3,
+    cost: costOf('scheme.revise'),
     maxInputChars: 8000,
     validate: S.obj({
       requirement: S.str(2000, { min: 2 }),
@@ -80,7 +89,7 @@ export const AI_OPERATIONS = {
 
   /* ───────────── 子电路 / 顾问 / 框图 ───────────── */
   'subcircuit.recommend': {
-    cost: 2,
+    cost: costOf('subcircuit.recommend'),
     maxInputChars: 1000,
     validate: S.obj({ mpn: S.str(80, { min: 1 }), manufacturer: S.opt(S.str(64)), description: S.opt(S.str(200)), lang: S.opt(S.oneOf(['zh', 'en'])) }),
     buildPrompt: ({ mpn, manufacturer, description, lang }) => `${langLine(lang)}你是资深硬件工程师。核心器件：${mpn}${manufacturer ? `（${manufacturer}）` : ''}${description ? ` — ${description}` : ''}
@@ -95,7 +104,7 @@ export const AI_OPERATIONS = {
   },
 
   'advisor.analyze': {
-    cost: 2,
+    cost: costOf('advisor.analyze'),
     maxInputChars: 6000,
     validate: S.obj({ components: S.arr(200, compLine), lang: S.opt(S.oneOf(['zh', 'en'])) }),
     buildPrompt: ({ components, lang }) => `${langLine(lang)}你是资深硬件工程师。当前 PCB 画布上已有器件：
@@ -106,7 +115,7 @@ ${components.map((c) => `- ${c.mpn}（${c.category ?? ''}${c.family ? '/' + c.fa
   },
 
   'block.analyze': {
-    cost: 2,
+    cost: costOf('block.analyze'),
     maxInputChars: 12000,
     validate: S.obj({
       components: S.arr(300, compLine),
@@ -128,7 +137,7 @@ ${nets?.length ? `网络：\n${nets.slice(0, 200).map((n) => `- ${n.name}: ${n.m
 
   /* ───────────── BOM ───────────── */
   'bom.estimate': {
-    cost: 1,
+    cost: costOf('bom.estimate'),
     maxInputChars: 600,
     validate: S.obj({ reference: S.str(16), mpn: S.str(80, { min: 1 }), footprint: S.opt(S.str(80)), description: S.opt(S.str(200)), lang: S.opt(S.oneOf(['zh', 'en'])) }),
     buildPrompt: ({ reference, mpn, footprint, description, lang }) => lang === 'en'
@@ -140,7 +149,7 @@ Estimate the unit price for a 100-piece small-batch purchase in mainland China. 
 
   /* ───────────── 定制器件提取 ───────────── */
   'part.extract': {
-    cost: 4,
+    cost: costOf('part.extract'),
     maxInputChars: 60000,
     allowAttachments: true,
     // 判别校验：mode 决定哪个字段必填。此前 input={} 也能通过，等于免费空转一次模型。
@@ -165,7 +174,7 @@ Estimate the unit price for a 100-piece small-batch purchase in mainland China. 
   },
 
   'symbol.generate': {
-    cost: 3,
+    cost: costOf('symbol.generate'),
     maxInputChars: 4000,
     validate: S.obj({ mpn: S.str(80, { min: 1 }), pins: S.arr(200, S.obj({ number: S.str(8), name: S.str(32), type: S.opt(S.str(16)) })), lang: S.opt(S.oneOf(['zh', 'en'])) }),
     buildPrompt: ({ mpn, pins, lang }) => `${langLine(lang)}为器件 ${mpn} 生成 KiCad 风格原理图符号的引脚布局。引脚：
@@ -179,7 +188,6 @@ ${pins.map((p) => `${p.number}: ${p.name}${p.type ? ` (${p.type})` : ''}`).join(
 // 提取输出的结构与枚举来自 contracts/custom-part-enums.json（前端 custom-lib 读的是同一个文件）。
 // ⚠ 尺寸字段必须在 package{} 下：前端 applyExtract 只认 package.family / package.bodyW…
 //   此前写在根对象上，模型给了尺寸前端一个都收不到（真实回归）。
-const ENUMS = JSON.parse(readFileSync(new URL('../../contracts/custom-part-enums.json', import.meta.url), 'utf8'));
 const EXTRACT_PROMPT_BASE = `请从以上器件资料中提取信息，严格输出 JSON（勿输出其它文字）：
 {"mpn":"型号","description":"30字内功能描述","category":"${ENUMS.categories.join('|')}",
 "pins":[{"num":"1","name":"VCC","type":"${ENUMS.pinTypes.join('|')}","desc":"电源","side":"${ENUMS.pinSides.join('|')}"}],

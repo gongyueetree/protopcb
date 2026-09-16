@@ -9,7 +9,7 @@ import { useMemo, useRef, useState } from 'react';
 import { tr } from '../../shared/i18n';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
 import { rawSymbolGeom } from '../../design-core/geometry/kicad-sch-import';
-import { useDesignStore } from '../../state/designStore';
+import { useSchematicViewStore } from '../../state/schematicViewStore';
 
 const PXMM = 6; // px per mm
 
@@ -69,10 +69,12 @@ function arcPts(p1: Pt, pm: Pt, p2: Pt): string {
 }
 
 export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
-  const sheet = doc.schematicSheet;
-  const showSheet = useDesignStore((s) => s.showSchematicSheet);
+  const activeFile = useSchematicViewStore((s) => s.activeSheetFile);
+  const showSheet = useSchematicViewStore((s) => s.showSheet);
   const sheetList = doc.schematicSheets ? Object.entries(doc.schematicSheets) : [];
-  const currentFile = sheet?.file;
+  // 当前页只是 UI 状态：优先用户选的，其次根页，最后任意一页
+  const currentFile = (activeFile && doc.schematicSheets?.[activeFile]) ? activeFile : (doc.rootSheetFile ?? sheetList[0]?.[0]);
+  const sheet = currentFile ? doc.schematicSheets?.[currentFile] : undefined;
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 20, y: 20 });
   const drag = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);

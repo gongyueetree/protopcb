@@ -11,30 +11,19 @@
  *   - 无源件即使有料号，也要求料号形态足够具体（避免 10K/100nF 这类值）
  */
 
+import { classifyPart } from '../../design-core/semantics/part';
+
 export type PartClass = 'ic' | 'transistor' | 'diode' | 'led' | 'resistor' | 'capacitor'
   | 'inductor' | 'crystal' | 'connector' | 'switch' | 'fuse' | 'module' | 'mechanical' | 'other';
 
-/** 位号前缀 → 类别（KiCad/IPC 通用约定） */
+/** 位号/封装/值 → 类别：委托统一的 PartSemanticClassifier，折到 BOM 用的粗类 */
 export function classifyByRefDes(reference: string, footprint = '', value = ''): PartClass {
-  const p = (reference.match(/^[A-Za-z]+/)?.[0] ?? '').toUpperCase();
-  const fp = footprint.toUpperCase();
-  // 封装名比位号更可靠时优先（LED_0603 明确是 LED，即使位号写 D）
-  if (/^LED_|_LED/.test(fp) || /\bLED\b/i.test(value)) return 'led';
-  switch (p) {
-    case 'U': case 'IC': return 'ic';
-    case 'Q': return 'transistor';
-    case 'D': case 'CR': return /LED/i.test(fp + value) ? 'led' : 'diode';
-    case 'R': case 'RN': case 'RV': return 'resistor';
-    case 'C': return 'capacitor';
-    case 'L': case 'FB': return 'inductor';
-    case 'Y': case 'X': case 'XTAL': return 'crystal';
-    case 'J': case 'P': case 'CN': return 'connector';
-    case 'SW': case 'S': case 'K': return 'switch';
-    case 'F': return 'fuse';
-    case 'M': case 'MOD': return 'module';
-    case 'H': case 'MH': case 'TP': return 'mechanical';
-    default: return 'other';
-  }
+  const c = classifyPart({ reference, footprint, value }).class;
+  if (c === 'ferrite') return 'inductor';
+  if (c === 'buzzer' || c === 'relay' || c === 'battery') return 'other';
+  if (c === 'testpoint' || c === 'mounting') return 'mechanical';
+  if (c === 'unknown') return 'other';
+  return c;
 }
 
 /** 类别中文名（界面显示与检索提示词用） */

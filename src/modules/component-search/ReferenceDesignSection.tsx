@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react';
 import type { PlacedComponent } from '../../design-core/document/types';
 import { useDesignStore } from '../../state/designStore';
-import { isEzplmPart } from '../../providers/ezplm-live';
+import { isEzplmPart } from '../../application/parts';
 import { getProviders } from '../../providers/factory';
 import { useAccessContext } from '../../state/useAccessContext';
 import type { ReferenceLoadResult as LoadResult } from '../../providers/types';

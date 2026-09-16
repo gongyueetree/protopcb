@@ -23,7 +23,7 @@ import { z } from 'zod';
 import {
   type ReferenceDesign, type ReferenceLoadState, ReferenceDesignSchema, NO_ASSETS,
 } from './schema';
-import { isEzplmPart } from '../ezplm-live';
+import { isEzplmPart } from '../ezplm/live';
 import { getPrivate, setPrivate } from './private-cache';
 import type { AccessContext } from '../types';
 

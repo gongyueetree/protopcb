@@ -9,7 +9,7 @@
  *   未命中（典型为无源件/连接器）→ 按 Gemini 建议的封装名做封装占位，交用户确认
  */
 import type { AiModelProvider, AiSchemeRequest, AiSchemeResult, AccessContext, ComponentSearchResult, ComponentTrust } from '../types';
-import { searchEzplmParts, ezplmLiveAvailable } from '../ezplm-live';
+import { searchEzplmParts, ezplmLiveAvailable } from '../ezplm/live';
 import type { ComponentCategory } from '../../design-core/document/types';
 import { AiSchemeSchema, validateAi, assessTrust, type AiComponent } from '../ai-schema';
 import { aiRequest } from '../ai-client';
@@ -30,11 +30,6 @@ export async function geminiAvailable(): Promise<boolean> {
 }
 
 /** 一次性文本补全（经服务端代理） */
-/**
- * @deprecated 统一入口已改为 providers/ai-client 的 aiRequest()。
- * 保留 re-export 仅为兼容旧导入；业务代码不得再拼 prompt 调用它。
- */
-export { AiAccessError } from '../ai-client';
 
 /** 从模型输出中稳健提取 JSON（剥离 ```json 围栏与前后杂文） */
 export function extractJson<T>(text: string): T {
@@ -145,7 +140,8 @@ export class GeminiAiProvider implements AiModelProvider {
       if (sc.reason && !mapped.description?.includes(sc.reason)) mapped = { ...mapped, description: `${sc.reason} · ${mapped.description ?? ''}` };
       // 分组信息随器件带下去：UI 按「核心器件 + 附属器件」分组展示，上画布后用于成组布局
       mapped = { ...mapped!, group: sc.group?.trim() || undefined, core: sc.core === true, qty };
-      for (let k = 0; k < qty; k++) items.push(mapped!);
+      // 评审阶段一行一条：qty 只作数量，展开在 Apply 时由 materializeSchemeLines 完成
+      items.push(mapped!);
     }
 
     return {

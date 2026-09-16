@@ -30,11 +30,8 @@ export const CATEGORY_DISPLAY: Record<ComponentCategory, { name: string; icon: s
 export const CATEGORY_LIST: ComponentCategory[] = ['mcu', 'power', 'passive', 'connector', 'ic', 'electromech', 'sensor', 'rf'];
 
 /**
- * @deprecated 请改用 design-core/money 的 formatMoney(money, locale)。
- *
- * 旧实现按界面语言切符号（中文 ¥ / 英文 $）却不换数值 —— 一条 CNY 报价切到英文
- * 就被标成美元，是数据错误而不是本地化。这里保留调用点兼容，但**必须带币种**，
- * 缺币种时如实显示"币种未知"，不再默认成本地货币。
+ * UI 层的金额格式化便捷入口：只负责把当前界面语言喂给领域层的 formatMoney。
+ * 唯一的格式化实现在 design-core/money —— 这里不允许再出现任何货币逻辑。
  */
 export function fmtMoney(amount?: number, currency?: string): string {
   if (amount == null) return '—';

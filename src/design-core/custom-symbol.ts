@@ -12,7 +12,7 @@
  * 电源变换例外处理：power_in 靠左、power_out 靠右。
  */
 import type { ParsedSymbol } from './geometry/lib-file-registry';
-import type { CustomPin } from './custom-lib';
+import type { CustomPin } from './custom-types';
 
 /** 一格 = KiCad 的 2.54mm（100mil）网格 */
 const GRID = 2.54;

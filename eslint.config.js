@@ -27,11 +27,56 @@ export default tseslint.config(
     },
   },
   {
-    files: ['api/**/*.js', 'scripts/**/*.mjs', 'server/src/**/*.js'],
+    files: ['api/**/*.js', 'scripts/**/*.mjs'],
     languageOptions: { globals: { ...globals.node } },
     rules: {
       'no-fallthrough': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
+    },
+  },
+
+  /* ───────────── 架构门禁（与 tests/architecture-boundaries 同一套规则，lint 阶段就拦） ─────────────
+   * flat config 里后出现的同名规则会**整体替换**前面的，所以每个块都要写全自己的 patterns。*/
+  {
+    // 任何生产源码都不得依赖 Mock（factory 是唯一装配点）
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/providers/factory.ts', 'src/providers/mock/**', '**/*.test.{ts,tsx}', '**/__tests__/**'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [
+        { regex: '(^|/)providers/mock(/|$)', message: '生产源码不得 import providers/mock（只有 factory 可装配）' },
+      ] }],
+    },
+  },
+  {
+    // Domain 是纯的：不 import providers / modules / state / react / zustand
+    files: ['src/design-core/**/*.{ts,tsx}'],
+    ignores: ['src/design-core/**/*.test.{ts,tsx}', 'src/design-core/__tests__/**'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [
+        { regex: '(^|/)providers/mock(/|$)', message: '生产源码不得 import providers/mock' },
+        { regex: '(^|/)providers(/|$)', message: 'design-core 不得依赖 providers（依赖方向：Provider → Domain）' },
+        { regex: '(^|/)modules(/|$)', message: 'design-core 不得依赖 UI modules' },
+        { regex: '(^|/)state(/|$)', message: 'design-core 不得依赖 state store' },
+        { regex: '^(react|react-dom|zustand)$', message: 'design-core 不得依赖 React/zustand' },
+      ] }],
+    },
+  },
+  {
+    // UI 不直接碰基础设施实现：只能走 application facade / providers/types / factory
+    files: ['src/modules/**/*.{ts,tsx}', 'src/App.tsx'],
+    ignores: ['**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [
+        { regex: '(^|/)providers/mock(/|$)', message: '生产 UI 不得依赖 Mock' },
+        { regex: '(^|/)providers/gemini(/|$)', message: 'AI 只能经 providers/ai-client 的 aiRequest()；可用性用 application/ai 的 aiAvailable()' },
+        { regex: '(^|/)providers/reference-design/ezplm-provider$', message: '参考设计只能经 getProviders().referenceDesigns' },
+        { regex: '(^|/)providers/(ezplm/live|ezplm-live|digikey|suppliers|supplier-search|kicad-library)(/|$)', message: 'UI 不得直接依赖具体供应商/库适配器；请走 application/* 服务' },
+      ] }],
+      // UI 不直接 fetch /api/*：所有 HTTP 细节在 providers/*，UI 只见 application/* 用例
+      'no-restricted-syntax': ['error', {
+        selector: "CallExpression[callee.name='fetch'] > :first-child[value=/^\\/api\\//], CallExpression[callee.name='fetch'] > TemplateLiteral > TemplateElement:first-child[value.raw=/^\\/api\\//]",
+        message: 'UI 不得直接 fetch(/api/...)：请通过 application/* 服务调用 providers 适配器',
+      }],
     },
   },
   {

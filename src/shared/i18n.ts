@@ -8,6 +8,7 @@
  */
 import { create } from 'zustand';
 import { useEffect, useState } from 'react';
+import { KEYS } from './storage';
 
 
 export type Lang = 'zh' | 'en';
@@ -19,13 +20,13 @@ interface LangState {
 }
 
 export const useLangStore = create<LangState>((set) => ({
-  lang: (localStorage.getItem('cc_lang') as Lang) || 'zh',
+  lang: (localStorage.getItem(KEYS.lang) as Lang) || 'zh',
   toggle: () => set((s) => {
     const lang: Lang = s.lang === 'zh' ? 'en' : 'zh';
-    localStorage.setItem('cc_lang', lang);
+    localStorage.setItem(KEYS.lang, lang);
     return { lang };
   }),
-  setLang: (lang) => { localStorage.setItem('cc_lang', lang); set({ lang }); },
+  setLang: (lang) => { localStorage.setItem(KEYS.lang, lang); set({ lang }); },
 }));
 
 /* ───────────── 固定文案词典（key = 中文原文） ───────────── */
@@ -716,6 +717,15 @@ const DICT: Record<string, string> = {
   '登录后可查询 DigiKey / Mouser 实时库存与价格': 'Sign in to query DigiKey / Mouser live stock and pricing',
   '工程自带 3D 模型已随会话失效 · 重新导入 zip 可恢复 · 参数化预览': 'Project-bundled 3D model expired with the session · re-import the zip to restore · parametric preview',
   '工程自带 STEP 模型 ✓': 'Project-bundled STEP ✓',
+  '不能为空': 'Required',
+  '请输入': 'Enter a value',
+  '请确认': 'Confirm',
+  '确定': 'OK',
+  '重命名项目': 'Rename project',
+  '已导入': 'Imported',
+  '个封装缺少位置信息被跳过': 'footprints skipped (no position)',
+  '项目名不能为空': 'Project name is required',
+  '项目名不超过 60 个字符': 'Project name must be 60 characters or fewer',
   '包内无原理图，符号用名字解析': 'No schematic in package; symbols resolved by name',
   '区间': 'range',
   '单价': 'Unit price',
@@ -1044,7 +1054,7 @@ export function useT() {
 /* ───────────── 动态内容翻译（ezPLM 中文数据 → 英文） ───────────── */
 const trCache = new Map<string, string>();
 try {
-  const saved = JSON.parse(localStorage.getItem('cc_tr_cache') ?? '{}') as Record<string, string>;
+  const saved = JSON.parse(localStorage.getItem(KEYS.trCache) ?? '{}') as Record<string, string>;
   for (const [k, v] of Object.entries(saved)) trCache.set(k, v);
 } catch { /* 忽略损坏缓存 */ }
 

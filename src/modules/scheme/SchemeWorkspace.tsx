@@ -16,6 +16,7 @@ import {
   type SchemeItem, type SchemeChange, type DerivedBlock, type DerivedLink,
 } from '../../design-core/scheme-workspace';
 import type { ComponentTrust } from '../../providers/types';
+import { materializeSchemeLines, toSchemeLines } from '../../design-core/scheme-lines';
 
 export interface SchemeProposal {
   rationale: string;
@@ -221,9 +222,9 @@ export function SchemeWorkspace({ proposal, busy, onRevise, onRemove, onConfirm,
                   style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: busy || !feedback.trim() ? '#cbd5e1' : '#1f5c3b', fontSize: 12.5, fontWeight: 700, cursor: busy || !feedback.trim() ? 'default' : 'pointer' }}>
                   {busy ? '⟳ ' + tr('重新生成中…') : '🔄 ' + tr('按意见重新生成')}
                 </button>
-                <button onClick={() => onConfirm(shown)} disabled={busy}
+                <button onClick={() => onConfirm(materializeSchemeLines(toSchemeLines(shown as never[])) as unknown as SchemeProposal['details'])} disabled={busy}
                   style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: `linear-gradient(135deg,#245b3a,${COLORS.green})`, color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: busy ? 'default' : 'pointer' }}>
-                  ✓ {tr('确认并上画布')}（{shown.length}）
+                  ✓ {tr('确认并上画布')}（{shown.reduce((a, d) => a + Math.max(1, Number((d as { qty?: number }).qty) || 1), 0)}）
                 </button>
               </div>
             </div>

@@ -6,7 +6,7 @@
  */
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import type { ComponentCategory, CircuitCanvasDocument, PlacedComponent, BoardShapeKind } from '../design-core/document/types';
+import type { ComponentCategory, CircuitCanvasDocument, PlacedComponent, BoardShapeKind, SchematicSheetData } from '../design-core/document/types';
 import { createDocument, touchDocument , createBoard} from '../design-core/document/factory';
 import type { ComponentSearchResult } from '../providers/types';
 import { searchResultToPlaced, nextReference, buildBom, runDesignReview } from '../design-core/document/services';
@@ -82,11 +82,8 @@ interface DesignState {
   linkFootprintByMpn: (mpn: string, src: { footprintName: string; stepUrl?: string; pins?: number }) => void;
   /** 工程导入：按位号批量挂载原理图符号，返回命中数 */
   assignSymbolsByReference: (map: Record<string, string>) => number;
-  setSchematicSheet: (sheet: CircuitCanvasDocument['schematicSheet']) => void;
   /** 多页工程：一次写入全部页面并选定根页作为当前页 */
-  setSchematicSheets: (sheets: Record<string, NonNullable<CircuitCanvasDocument['schematicSheet']>>, rootFile: string) => void;
-  /** 切换当前查看的页面 */
-  showSchematicSheet: (file: string) => void;
+  setSchematicSheets: (sheets: Record<string, SchematicSheetData>, rootFile: string) => void;
   /** 给全部同封装且尚无 3D 的器件挂 stepUrl（无源器件自动关联 KiCad 官方库用） */
   setStepUrlByFootprint: (footprintName: string, stepUrl: string) => void;
   /** 仅关联 PCB 封装（借用库中器件的封装，型号/符号不变） */
@@ -471,25 +468,11 @@ export const useDesignStore = create<DesignState>()(
         if (hit) s.doc = touchDocument(s.doc);
       }),
 
-    setSchematicSheet: (sheet) =>
-      set((s) => {
-        s.doc.schematicSheet = sheet;
-        s.doc = touchDocument(s.doc);
-      }),
-
     setSchematicSheets: (sheets, rootFile) =>
       set((s) => {
         s.doc.schematicSheets = sheets;
         s.doc.rootSheetFile = rootFile;
-        s.doc.schematicSheet = sheets[rootFile] ?? Object.values(sheets)[0];
         s.doc = touchDocument(s.doc);
-      }),
-
-    // 切页是视图操作：不改版本号、不进 undo
-    showSchematicSheet: (file) =>
-      set((s) => {
-        const sh = s.doc.schematicSheets?.[file];
-        if (sh) s.doc.schematicSheet = sh;
       }),
 
     assignSymbolsByReference: (map) => {
@@ -552,14 +535,18 @@ export const useDesignStore = create<DesignState>()(
         s.doc = touchDocument(s.doc);
       }),
 
-    clearAll: () =>
+    clearAll: () => {
+      // 工程自带 STEP 的 blob 随项目清空一起撤销（它们只属于这次导入；不撤销就持续泄漏）。
+      // 动态 import：state 层不静态依赖 board-editor 模块。
+      void import('../modules/board-editor/model-blob-registry').then((m) => m.revokeAllModelBlobs()).catch(() => undefined);
       set((s) => {
         snapshot(s);
         s.doc.components = [];
         // 清画布 = 清整个设计上下文：框图、连接、导入原理图、AI 方案意图、板框尺寸一并复位
         s.doc.functionalBlocks = [];
         s.doc.connections = [];
-        s.doc.schematicSheet = undefined;
+        s.doc.schematicSheets = undefined;
+        s.doc.rootSheetFile = undefined;
         s.doc.tracks = undefined;         // 导入的铜箔走线/过孔一并清除
         s.doc.vias = undefined;
         s.doc.nets = undefined;
@@ -572,7 +559,9 @@ export const useDesignStore = create<DesignState>()(
         s.overlaps = new Set();
         // 原理图编辑状态（位置/连线）同步复位
         import('../modules/schematic/schematicStore').then((m) => m.useSchematicStore.getState().reset()).catch(() => { /* 忽略 */ });
-      }),
+        import('./schematicViewStore').then((m) => m.useSchematicViewStore.getState().reset()).catch(() => { /* 忽略 */ });
+      });
+    },
 
     placeScheme: (results, intent) =>
       set((s) => {

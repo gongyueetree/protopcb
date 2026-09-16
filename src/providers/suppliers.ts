@@ -44,3 +44,15 @@ export function fmtOfferPrice(o: SupplierOffer): string {
   const sym = o.currency === 'CNY' ? '¥' : o.currency === 'USD' ? '$' : o.currency ? o.currency + ' ' : '';
   return `${sym}${o.price < 1 ? o.price.toFixed(4) : o.price.toFixed(2)}`;
 }
+
+/** 按位号/封装/描述做分销商关键词检索（供 BOM 关联用） */
+export interface SupplierFuzzyItem {
+  mpn: string; manufacturer?: string; description?: string; vendor?: string;
+  price?: number; currency?: string; stock?: number; url?: string;
+}
+export async function searchSupplierFuzzy(params: { mpn: string; footprint?: string; desc?: string; q?: string }): Promise<{ items: SupplierFuzzyItem[]; message?: string }> {
+  const qs = new URLSearchParams({ path: 'fuzzy', mpn: params.mpn, footprint: params.footprint ?? '', desc: params.desc ?? '', q: params.q ?? '' });
+  const r = await fetch(`/api/suppliers?${qs}`, { credentials: 'include' });
+  const j = await r.json().catch(() => ({}));
+  return { items: Array.isArray(j.items) ? j.items : [], message: j.message ? String(j.message) : undefined };
+}

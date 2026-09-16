@@ -1,4 +1,7 @@
-# Circuit Canvas v3
+# protopcb — 硬件原型工坊
+
+> 当前架构：`docs/ARCHITECTURE.md`（按代码重写）；规划：`docs/ROADMAP.md`；审计：`docs/CODEBASE_AUDIT.md`。
+> 仓库 / 包名 `protopcb`；产品显示名「硬件原型工坊」。旧名 Circuit Canvas 仅存于 Git 历史。
 
 电子产品早期架构与 PCB 预布局智能工具 — TypeScript 分层架构重构版。
 
@@ -34,7 +37,6 @@ src/
 ├── config/        三种运行模式配置
 ├── shared/        共享主题/常量
 └── App.tsx        应用壳
-server/            standalone 后端骨架 (Express)
 docs/              架构文档
 ```
 
@@ -147,8 +149,7 @@ ZIP 解压经 `safe-unzip.ts` 限制压缩包体积、解压总量、单文件�
   这些属于"不支持无损编辑"的范围，导入工程再导出时请以 KiCad 内 diff 复核。
 - **正确性验证口径**：round-trip 测试使用本项目 parser 验证本项目 exporter 的字段
   保真，尚未接入 kicad-cli 解析/DRC 验证（CI 未安装 KiCad）。
-- **standalone server（server/）= 本地开发/演示专用**：文件存储、dev 桩身份、无
-  PostgreSQL/SSO。production 环境默认拒绝启动（`STANDALONE_ALLOW_PROD=1` 可显式放行，自担风险）。
+- **后端只有一套：`api/`（Vercel Serverless）**。曾并行存在的 `server/` Express 骨架已删除（Git 历史可查），避免两套后端各自演进。
 - **BGA 合成封装**：由 body+pitch+pinCount 推出的 ball map 是近似（`approximate` 标记），
   只能作为 CANDIDATE/PLACEHOLDER；有 datasheet ball map 或官方 KiCad footprint 时以真实数据为准。
 - **AI 数据信任**：所有 LLM 返回经 Zod 校验后才入 store（`providers/ai-schema.ts`、

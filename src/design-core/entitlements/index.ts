@@ -13,6 +13,8 @@
  * 本模块的价值是让 UI 的提示与服务端的判定用同一套语义，不会互相矛盾。
  */
 
+import aiContract from '../../../contracts/ai-operations.json';
+
 export type AccessTier = 'anonymous' | 'registered';
 
 /** 需要消耗 Credit 的能力 —— 每一项都对应一次真实的上游付费调用 */
@@ -37,20 +39,16 @@ export type AccountCapability =
 
 export type Capability = AiCapability | AccountCapability;
 
-/** 每次调用扣多少 Credit。按上游成本粗分档，不是随意定价。 */
-export const CREDIT_COST: Record<AiCapability, number> = {
-  'scheme.generate': 5,       // 一次完整方案，上下文最长
-  'scheme.revise': 3,
-  'subcircuit.recommend': 2,
-  'advisor.analyze': 2,
-  'block.analyze': 2,
-  'part.extract': 4,          // 带 PDF/图片，token 消耗大
-  'bom.estimate': 1,          // 单行估价，通常批量调用
-  'symbol.generate': 3,
-};
+/**
+ * 每次调用扣多少 Credit —— 从 contracts/ai-operations.json 生成，与服务端注册表同源。
+ * 这里只用于前端提示；实际扣费以服务端为准。
+ */
+export const CREDIT_COST: Record<AiCapability, number> = Object.fromEntries(
+  Object.entries(aiContract.operations).map(([k, v]) => [k, (v as { cost: number }).cost]),
+) as Record<AiCapability, number>;
 
 /** 新注册用户赠送的体验额度 */
-export const WELCOME_CREDITS = 100;
+export const WELCOME_CREDITS: number = aiContract.welcomeCredits;
 
 export interface Entitlements {
   tier: AccessTier;
