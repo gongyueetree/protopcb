@@ -166,10 +166,51 @@ export const importProjectFile = async (f: File): Promise<ImportResult> => {
       // 解压在 Web Worker 内进行，30~60MB 工程不再卡死 UI 线程
       const entries = await safeUnzipOffThread(new Uint8Array(await f.arrayBuffer()));
       const names = Object.keys(entries).filter((n) => !n.startsWith('__MACOSX') && !n.endsWith('/'));
+      /**
+       * AD 工程也常打成 zip：包内有 .PcbDoc 就走 Altium 路径。
+       * 必须在 .kicad_pcb 的判断**之前**，否则会先抛"未找到 .kicad_pcb"。
+       */
+      const altiumPcb = names.filter((n) => /\.pcbdoc$/i.test(n)).sort((a, b) => entries[b].length - entries[a].length)[0];
+      if (altiumPcb) {
+        const data = parseAltiumPcb(entries[altiumPcb], { onWarning: (m) => pendingWarnings.push(m) });
+        for (const [name, def] of Object.entries(data.footprintDefs)) registerFootprintOverride(name, def);
+        useDesignStore.getState().importKicad(data);
+
+        // 内嵌 3D 模型：按模型键注册 blob（同模型多实例共享），再按位号绑到各自的器件
+        let modelCount = 0;
+        if (data.altiumModels?.length) {
+          revokeAllModelBlobs();
+          const urlByKey = new Map<string, string>();
+          for (const m of data.altiumModels) urlByKey.set(m.key, registerModelBlob(`altium:${m.key}`, m.step));
+          for (const c of data.comps) {
+            const url = c.altiumModelKey ? urlByKey.get(c.altiumModelKey) : undefined;
+            if (url) { useDesignStore.getState().setStepUrlByReference(c.reference, url); modelCount++; }
+          }
+        }
+
+        // 同包内的原理图
+        let schSymbols = 0;
+        const schDocs = names.filter((n) => /\.schdoc$/i.test(n)).sort((a, b) => entries[b].length - entries[a].length);
+        if (schDocs[0]) {
+          try {
+            schSymbols = applyAltiumSch(entries[schDocs[0]], schDocs[0].split('/').pop()!, (m) => pendingWarnings.push(m)).symbols;
+          } catch (e) {
+            pendingWarnings.push(`${tr('原理图解析失败')}：${String((e as Error).message).slice(0, 80)}`);
+          }
+          if (schDocs.length > 1) pendingWarnings.push(tr('包内有多张原理图，本轮只导入最大的一张（层级图纸尚未支持）'));
+        }
+
+        for (const c of data.footprintConflicts) {
+          pendingWarnings.push(`${tr('封装几何冲突')}：${c.footprintName}（${c.references.join('、')} ${tr('的焊盘与首个实例不同，已按首个实例渲染')}）`);
+        }
+        notices.push({ level: 'success', text: `${tr('已导入 Altium 工程')}：${data.comps.length} ${tr('个器件')}、${Object.keys(data.nets).length} ${tr('个网络')}${modelCount ? ` · ${modelCount} ${tr('个内嵌 3D 模型')}` : ''}${schSymbols ? ` · ${tr('原理图')} ${schSymbols} ${tr('个符号')}` : ''}` });
+        for (const w of pendingWarnings) notices.push({ level: 'warning', text: w });
+        return { kind: 'zip', pcbComponents: data.comps.length, skipped: data.skipped.length, projectModels: modelCount, notices };
+      }
       const pcbName = names.filter((n) => /\.kicad_pcb$/i.test(n)).sort((a, b) => entries[b].length - entries[a].length)[0];
       const schNames = names.filter((n) => /\.kicad_sch$/i.test(n));
       const legacySchNames = names.filter((n) => /\.sch$/i.test(n) && !/\.kicad_sch$/i.test(n));
-      if (!pcbName) throw new Error(tr('压缩包内未找到 .kicad_pcb 文件'));
+      if (!pcbName) throw new Error(tr('压缩包内未找到可导入的文件（支持 KiCad .kicad_pcb / .kicad_sch，Altium .PcbDoc / .SchDoc）'));
       const r = importPcbText(strFromU8(entries[pcbName]));
       // 工程自带的 3D 模型：.kicad_pcb 里 (model "${KIPRJMOD}/3D/xxx.step") 这类引用，
       // 包内有对应文件就按文件名匹配并注册（官方库里没有的按键、弯针连接器靠的就是它）

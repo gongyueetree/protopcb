@@ -753,6 +753,7 @@ const DICT: Record<string, string> = {
   '请直接导入 .PcbDoc / .SchDoc，或把整个工程打包成 zip 导入': 'Import the .PcbDoc / .SchDoc directly, or zip the whole project',
   '原理图解析失败': 'Schematic parsing failed',
   '包内有多张原理图，本轮只导入最大的一张（层级图纸尚未支持）': 'The archive has several schematics; only the largest one is imported (hierarchical sheets not supported yet)',
+  '压缩包内未找到可导入的文件（支持 KiCad .kicad_pcb / .kicad_sch，Altium .PcbDoc / .SchDoc）': 'No importable file in the archive (supports KiCad .kicad_pcb / .kicad_sch and Altium .PcbDoc / .SchDoc)',
   '包内无原理图，符号用名字解析': 'No schematic in package; symbols resolved by name',
   '区间': 'range',
   '单价': 'Unit price',
