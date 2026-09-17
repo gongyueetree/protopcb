@@ -731,6 +731,7 @@ const DICT: Record<string, string> = {
   '通用值器件': 'Generic value part',
   '无需型号验证；后续可用「按参数选型」换成具体型号': 'No MPN verification needed; swap for a specific part later via parametric selection',
   '登录后可查询': 'Sign in to query',
+  '自建/占位器件不查询': 'Custom/placeholder part — not queried',
   '包内无原理图，符号用名字解析': 'No schematic in package; symbols resolved by name',
   '区间': 'range',
   '单价': 'Unit price',

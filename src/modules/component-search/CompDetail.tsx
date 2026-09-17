@@ -37,14 +37,22 @@ export function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: stri
   const [, setOffers] = useState<{ vendor: string; price?: { amount: number; currency: string }; stock?: number; url: string }[]>([]);
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof providers.components.getComponentDetail>>>(null);
   const [dkOffer, setDkOffer] = useState<DigikeyOffer | null>(null);
+  /** DigiKey 查询状态：null 表示还在飞，'done' 表示查完（无论是否命中）—— 
+      此前只在命中时才赋值，查不到就永远停在"查询中…" */
+  const [dkState, setDkState] = useState<'loading' | 'done' | 'unavailable'>('loading');
   const [supOffers, setSupOffers] = useState<SupplierOffer[]>([]);
   useEffect(() => {
     if (!c) return;
-    setDkOffer(null);
+    setDkOffer(null); setDkState('loading');
     // 自建/占位器件的型号不是真实厂商料号，不查供应商（否则会匹配到无关器件的图片与价格）
     const isSynthetic = c.componentId?.startsWith('custom_') || c.componentId?.startsWith('fp_');
     // 分销商实时查询用的是平台 Key：未登录不发请求（服务端本来也会 401，但别白跑一趟）
-    if (!isSynthetic) fetchDigikeyOffer(c.mpn).then((o) => { if (o?.found) setDkOffer(o); });
+    if (isSynthetic) setDkState('unavailable');
+    else {
+      fetchDigikeyOffer(c.mpn)
+        .then((o) => { if (o?.found) setDkOffer(o); setDkState('done'); })
+        .catch(() => setDkState('done'));
+    }
     setSupOffers([]);
     if (!isSynthetic) fetchSupplierOffers(c.mpn).then(setSupOffers);
     providers.components.getAlternatives(c.componentId, ctx).then(setAlts);
@@ -131,7 +139,7 @@ export function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: stri
           </a>
         ) : (
           <div style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>
-            DigiKey：{dkOffer === null ? tr('查询中…') : tr('未收录该型号')}
+            DigiKey：{dkState === 'loading' ? tr('查询中…') : dkState === 'unavailable' ? tr('自建/占位器件不查询') : tr('未收录该型号')}
           </div>
         )}
         {/* Mouser/Arrow/element14：配置了 Key → 实时数据；未配置 → 演示数据占位 */}

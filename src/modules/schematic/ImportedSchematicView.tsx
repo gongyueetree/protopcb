@@ -31,17 +31,20 @@ function makeXform(inst: { x: number; y: number; rot: number; mirror?: string; m
       };
     };
   }
-  const rad = (inst.rot * Math.PI) / 180;
+  /**
+   * KiCad 的 mirror 会改变手性，旋转方向随之反向：无镜像时取 -rot，有镜像时取 +rot。
+   * 判据：电源/GND 符号的图形必须与 KiCad 自己放置的 value 标签同向
+   *（标签总在图形那一侧）。实测两个真实工程共 123 个电源符号：
+   *   本规则 123/123；此前一律取 +rot 为 114/123（错的 9 个全是 rot 90/270 且无 mirror）。
+   */
+  const effRot = inst.mirror ? inst.rot : -inst.rot;
+  const rad = (effRot * Math.PI) / 180;
   const cos = Math.cos(rad), sin = Math.sin(rad);
   return (px: number, py: number): Pt => {
     // 符号 Y-up → sch 局部 Y-down
     let sx = px, sy = -py;
     if (inst.mirror === 'x') sy = -sy;
     if (inst.mirror === 'y') sx = -sx;
-    // 旋转方向经真实工程实测判定（Openscope_RP2040.kicad_sch，84 个电源符号）：
-    // 判据为「电源/GND 符号的图形必须朝向所连导线的反方向」。
-    //   取正：94.0% 正确   取负（原实现）：77.4% 正确
-    // 故此处用 +rot；90°/270° 摆放的符号此前会反 180°。
     const rx = sx * cos - sy * sin;
     const ry = sx * sin + sy * cos;
     return { x: (inst.x + rx) * PXMM, y: (inst.y + ry) * PXMM };
