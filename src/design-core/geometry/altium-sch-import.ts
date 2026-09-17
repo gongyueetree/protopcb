@@ -29,9 +29,23 @@ export interface AltiumSchOptions {
   onWarning?: (message: string) => void;
 }
 
+/**
+ * 原理图渲染用的符号几何。用与 KiCad 5 旧库相同的容器（legacySymbols）——
+ * 它本来就是"从几何图元重建符号"的通用形状，渲染器已支持，AD 直接产出它即可。
+ */
+export interface AltiumLegacySymbol {
+  rects: { x1: number; y1: number; x2: number; y2: number }[];
+  polys: { x: number; y: number }[][];
+  circles: { cx: number; cy: number; r: number }[];
+  arcs: { x1: number; y1: number; xm: number; ym: number; x2: number; y2: number }[];
+  pins: { x: number; y: number; ex: number; ey: number; number: string; name: string }[];
+}
+
 export interface AltiumSchResult extends KicadSchResult {
-  /** 器件位号 → 该器件的符号几何（注册进符号注册表用） */
+  /** 器件位号 → 符号几何（注册进符号注册表，供详情预览用） */
   symbolsByRef: Record<string, ParsedSymbol>;
+  /** libId → 渲染用几何：原理图页面按它画符号 */
+  legacySymbols: Record<string, AltiumLegacySymbol>;
 }
 
 /**
@@ -63,6 +77,8 @@ export function parseAltiumSch(bytes: Uint8Array, opts: AltiumSchOptions = {}): 
     /** 该器件的图形与管脚，先按绝对坐标收集，最后转成以器件原点为中心的局部坐标 */
     rects: { x: number; y: number; w: number; h: number }[];
     polys: string[];
+    /** 折线的原始点（legacySymbols 需要点列表而非 path 串） */
+    polyPoints: [number, number][][];
     circles: { x: number; y: number; r: number }[];
     pins: ParsedSymbol['pins'];
   }
@@ -87,7 +103,7 @@ export function parseAltiumSch(bytes: Uint8Array, opts: AltiumSchOptions = {}): 
       rot: (numOf(r, 'ORIENTATION') % 4) * 90,
       unit: numOf(r, 'CURRENTPARTID') || 1,
       displayMode: numOf(r, 'DISPLAYMODE'),
-      rects: [], polys: [], circles: [], pins: [],
+      rects: [], polys: [], polyPoints: [], circles: [], pins: [],
     });
   });
 
@@ -140,16 +156,25 @@ export function parseAltiumSch(bytes: Uint8Array, opts: AltiumSchOptions = {}): 
       });
     } else if (owner && (type === '6' || type === '7')) {
       const pts = pointList(r);
-      if (pts.length >= 2) owner.polys.push(toPath(pts, type === '7'));
+      if (pts.length >= 2) {
+        owner.polys.push(toPath(pts, type === '7'));
+        owner.polyPoints.push(type === '7' ? [...pts, pts[0]] : pts);
+      }
     } else if (owner && type === '13') {
-      owner.polys.push(toPath([[x, y], [coord(r, 'CORNER.X'), -coord(r, 'CORNER.Y')]], false));
+      const seg: [number, number][] = [[x, y], [coord(r, 'CORNER.X'), -coord(r, 'CORNER.Y')]];
+      owner.polys.push(toPath(seg, false));
+      owner.polyPoints.push(seg);
     } else if (owner && type === '14') {
       const cx = coord(r, 'CORNER.X'), cy = -coord(r, 'CORNER.Y');
       owner.rects.push({ x: Math.min(x, cx), y: Math.min(y, cy), w: Math.abs(cx - x), h: Math.abs(cy - y) });
     } else if (owner && (type === '8' || type === '12')) {
       const rr = coord(r, 'RADIUS');
       if (type === '12' && !r.ENDANGLE) owner.circles.push({ x, y, r: rr });
-      else owner.polys.push(toPath(arcPoints(x, y, rr, numOf(r, 'STARTANGLE'), r.ENDANGLE ? numOf(r, 'ENDANGLE') : 360), false));
+      else {
+        const pts = arcPoints(x, y, rr, numOf(r, 'STARTANGLE'), r.ENDANGLE ? numOf(r, 'ENDANGLE') : 360);
+        owner.polys.push(toPath(pts, false));
+        owner.polyPoints.push(pts);
+      }
     } else if (type === '27') {
       const pts = pointList(r);
       if (pts.length >= 2) wires.push(pts);
@@ -177,6 +202,7 @@ export function parseAltiumSch(bytes: Uint8Array, opts: AltiumSchOptions = {}): 
   const instances: SchInstance[] = [];
   const refToLibId: Record<string, string> = {};
   const symbolsByRef: Record<string, ParsedSymbol> = {};
+  const legacySymbols: Record<string, AltiumLegacySymbol> = {};
 
   for (const d of drafts.values()) {
     const shift = <T extends { x: number; y: number }>(o: T): T => ({ ...o, x: o.x - d.x, y: o.y - d.y });
@@ -201,13 +227,25 @@ export function parseAltiumSch(bytes: Uint8Array, opts: AltiumSchOptions = {}): 
     if (!sym.pins.length && !sym.rects.length && !sym.polys.length) continue;   // 空符号不注册
 
     symbolsByRef[d.ref] = sym;
-    const libId = `ALTIUM:${d.libRef}`;
+    /**
+     * 每个实例一份几何，键用位号 —— AD 的同型号器件可以各自改画法/单元，
+     * 按 libRef 共享会把它们串在一起。
+     */
+    const libId = `ALTIUM:${d.ref}`;
     refToLibId[d.ref] = libId;
+    legacySymbols[libId] = {
+      rects: sym.rects.map((r) => ({ x1: r.x, y1: r.y, x2: r.x + r.w, y2: r.y + r.h })),
+      polys: d.polyPoints.map((pts) => pts.map(([x, y]) => ({ x: x - d.x, y: y - d.y }))),
+      circles: sym.circles.map((c) => ({ cx: c.x, cy: c.y, r: c.r })),
+      arcs: [],
+      pins: sym.pins.map((p) => ({ x: p.tipX, y: p.tipY, ex: p.endX, ey: p.endY, number: p.number, name: p.name })),
+    };
     instances.push({ ref: d.ref, libId, value: d.value, x: d.x, y: d.y, rot: d.rot, unit: d.unit });
   }
 
   return {
-    libSymbols: {},          // AD 没有 KiCad 那样的符号定义块原文；几何走 symbolsByRef
+    libSymbols: {},          // AD 没有 KiCad 那样的 s-expr 定义块；几何走 legacySymbols
+    legacySymbols,
     refToLibId,
     instances,
     wires,

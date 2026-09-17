@@ -293,8 +293,8 @@ export function parseAltiumPcb(bytes: Uint8Array, opts: AltiumImportOptions = {}
     tracks,
     vias,
     mountingHoles,
-    widthMm: Math.max(widthMm, 1),
-    heightMm: Math.max(heightMm, 1),
+    widthMm: roundBoardMm(Math.max(widthMm, 1)),
+    heightMm: roundBoardMm(Math.max(heightMm, 1)),
     originXMm: 0,
     originYMm: 0,
     comps,
@@ -307,6 +307,13 @@ export function parseAltiumPcb(bytes: Uint8Array, opts: AltiumImportOptions = {}
     altiumModels: embeddedModels,
   };
 }
+
+/**
+ * 板尺寸规整到 0.1mm。
+ * 板框由顶点坐标相减得出，浮点误差会让它变成 39.64369515999999 —— 这个数字会一路
+ * 出现在标题、概览、审查、外壳计算里。制板精度也远达不到 0.001mm，取一位小数即可。
+ */
+const roundBoardMm = (v: number) => Math.round(v * 10) / 10;
 
 /** 与 KiCad 导入同一套指纹规则，保证冲突判定一致 */
 function padFingerprint(fp: PadFootprint): string {

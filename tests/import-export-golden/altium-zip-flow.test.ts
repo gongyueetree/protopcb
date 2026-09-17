@@ -99,3 +99,24 @@ describe('拖一个 AD 工程 zip 进来', () => {
     expect(r.notices.some((n) => n.level === 'error')).toBe(true);
   });
 });
+
+describe('导入后文档里的数据足以渲染', () => {
+  it('原理图页带 legacySymbols，板尺寸是一位小数', async () => {
+    const { importProjectFile } = await import('../../src/application/project-import');
+    const { useDesignStore } = await import('../../src/state/designStore');
+    useDesignStore.getState().clearAll();
+    await importProjectFile(asFile(makeZip(), 'Nano_Debug.zip'));
+    const doc = useDesignStore.getState().doc;
+
+    // 板尺寸：顶点相减的浮点结果不该原样显示（39.64369515999999）
+    expect(doc.board.widthMm).toBe(39.6);
+    expect(doc.board.heightMm).toBe(60.1);
+
+    // 原理图：没有几何就是一片空白
+    const sheet = Object.values(doc.schematicSheets ?? {})[0];
+    expect(Object.keys(sheet.legacySymbols ?? {})).toHaveLength(53);
+    for (const inst of sheet.instances) {
+      expect(sheet.legacySymbols?.[inst.libId], `${inst.ref} 没有渲染几何`).toBeDefined();
+    }
+  });
+});

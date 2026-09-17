@@ -80,3 +80,33 @@ describe('健壮性', () => {
     expect(typeof r.refToLibId).toBe('object');
   });
 });
+
+describe('渲染几何（原理图页面实际用的那份）', () => {
+  const r = parse();
+
+  it('每个实例都有可渲染的几何，libId 按实例唯一', () => {
+    expect(Object.keys(r.legacySymbols)).toHaveLength(53);
+    const missing = r.instances.filter((i) => !r.legacySymbols[i.libId]);
+    expect(missing).toEqual([]);
+    // 同型号器件各自一份：AD 允许实例改画法，共享会串在一起
+    expect(new Set(r.instances.map((i) => i.libId)).size).toBe(53);
+  });
+
+  it('几何形状与器件相符', () => {
+    const u1 = r.legacySymbols[r.instances.find((i) => i.ref === 'U1')!.libId];
+    expect(u1.pins).toHaveLength(64);
+    expect(u1.rects.length).toBeGreaterThan(0);      // IC 是矩形框
+    const r1 = r.legacySymbols[r.instances.find((i) => i.ref === 'R1')!.libId];
+    expect(r1.pins).toHaveLength(2);
+    expect(r1.polys.length).toBeGreaterThan(0);      // 电阻是折线画的
+  });
+
+  it('管脚两端都是有限坐标，且连接端与本体端不重合', () => {
+    for (const g of Object.values(r.legacySymbols)) {
+      for (const p of g.pins) {
+        expect([p.x, p.y, p.ex, p.ey].every(Number.isFinite)).toBe(true);
+        expect(Math.hypot(p.x - p.ex, p.y - p.ey)).toBeGreaterThan(0);
+      }
+    }
+  });
+});

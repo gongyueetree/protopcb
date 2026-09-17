@@ -145,6 +145,7 @@ function applyAltiumSch(bytes: Uint8Array, fileName: string, warn: (m: string) =
       labels: sch.labels,
       noConnects: sch.noConnects,
       libSymbols: sch.libSymbols,
+      legacySymbols: sch.legacySymbols,     // 渲染用几何：AD 没有 s-expr 定义块
       buses: sch.buses,
       busEntries: sch.busEntries,
       sheets: sch.sheets,

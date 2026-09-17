@@ -20,6 +20,9 @@ const num = (l: SExpr[] | undefined, i: number): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/** 板尺寸规整到 0.1mm：板框由顶点相减得出，浮点误差不该显示给用户（制板精度也到不了） */
+const roundBoardMm = (v: number) => Math.round(v * 10) / 10;
+
 /** 焊盘几何指纹：坐标/尺寸/脚号一致即视为同一封装 */
 function padFingerprint(fp: { pads: { x: number; y: number; w: number; h: number; num: string | number }[] }): string {
   return fp.pads.map((p) => `${p.num}:${p.x.toFixed(4)},${p.y.toFixed(4)},${p.w.toFixed(4)},${p.h.toFixed(4)}`).sort().join('|');
@@ -350,5 +353,5 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const widthMm = hasOutline ? Math.max(1, rawW) : Math.max(20, rawW);
   const heightMm = hasOutline ? Math.max(1, rawH) : Math.max(20, rawH);
 
-  return { nets, copperLayers, tracks, vias: viasArr, mountingHoles, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs, projectModelPaths, footprintConflicts };
+  return { nets, copperLayers, tracks, vias: viasArr, mountingHoles, widthMm: roundBoardMm(widthMm), heightMm: roundBoardMm(heightMm), originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs, projectModelPaths, footprintConflicts };
 }
