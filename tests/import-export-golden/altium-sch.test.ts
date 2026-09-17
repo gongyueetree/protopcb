@@ -22,9 +22,9 @@ describe('器件与符号', () => {
     // 电阻/电容 2 脚；AD 的器件常带 2~3 套 DISPLAYMODE 画法，不过滤会变成 6 脚
     expect(r.symbolsByRef.R1.pins).toHaveLength(2);
     expect(r.symbolsByRef.C1.pins).toHaveLength(2);
-    expect(r.symbolsByRef.U1.pins).toHaveLength(64);    // TQFP-32 的符号按 64 个管脚记录画
+    expect(r.symbolsByRef.U1.pins).toHaveLength(32);   // TQFP-32 就是 32 脚
     const total = Object.values(r.symbolsByRef).reduce((a, s) => a + s.pins.length, 0);
-    expect(total).toBe(241);
+    expect(total).toBe(201);
   });
 
   it('符号几何是局部坐标（以器件原点为中心）', () => {
@@ -94,8 +94,8 @@ describe('渲染几何（原理图页面实际用的那份）', () => {
 
   it('几何形状与器件相符', () => {
     const u1 = r.legacySymbols[r.instances.find((i) => i.ref === 'U1')!.libId];
-    expect(u1.pins).toHaveLength(64);
-    expect(u1.rects.length).toBeGreaterThan(0);      // IC 是矩形框
+    expect(u1.pins).toHaveLength(32);
+    expect(u1.rects).toHaveLength(1);                // 一个本体框，不是两套画法叠在一起
     const r1 = r.legacySymbols[r.instances.find((i) => i.ref === 'R1')!.libId];
     expect(r1.pins).toHaveLength(2);
     expect(r1.polys.length).toBeGreaterThan(0);      // 电阻是折线画的
@@ -108,5 +108,39 @@ describe('渲染几何（原理图页面实际用的那份）', () => {
         expect(Math.hypot(p.x - p.ex, p.y - p.ey)).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+describe('多套画法只画当前那一套（AD 的 DISPLAYMODE）', () => {
+  const r = parse();
+
+  it('没有器件出现重复本体框', () => {
+    const dup = r.instances.filter((i) => (r.legacySymbols[i.libId]?.rects.length ?? 0) > 1);
+    expect(dup.map((i) => i.ref)).toEqual([]);
+  });
+
+  it('OWNERPARTDISPLAYMODE 字段缺失按 0 处理（AD 省略默认值）', () => {
+    // U1 的两套画法：一套标 mode=1、另一套字段缺失。把"缺失"当"不限制"会两套都画，
+    // 结果是 64 个管脚、两个矩形重叠 —— 正是页面看起来混乱的原因。
+    const u1 = r.symbolsByRef.U1;
+    expect(u1.pins).toHaveLength(32);
+    expect(u1.rects).toHaveLength(1);
+  });
+
+  it('TQFP 的管脚四边均分且都朝外', () => {
+    const g = r.legacySymbols[r.instances.find((i) => i.ref === 'U1')!.libId];
+    const sides = { left: 0, right: 0, up: 0, down: 0 };
+    for (const p of g.pins) {
+      const dx = p.x - p.ex, dy = p.y - p.ey;
+      if (Math.abs(dx) > Math.abs(dy)) sides[dx < 0 ? 'left' : 'right']++;
+      else sides[dy < 0 ? 'up' : 'down']++;
+    }
+    expect(sides).toEqual({ left: 8, right: 8, up: 8, down: 8 });
+    // 连接端必须在本体框之外，否则导线会插进符号里
+    const rect = g.rects[0];
+    const inside = g.pins.filter((p) =>
+      p.x > Math.min(rect.x1, rect.x2) + 0.5 && p.x < Math.max(rect.x1, rect.x2) - 0.5
+      && p.y > Math.min(rect.y1, rect.y2) + 0.5 && p.y < Math.max(rect.y1, rect.y2) - 0.5);
+    expect(inside).toEqual([]);
   });
 });

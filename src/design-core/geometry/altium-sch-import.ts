@@ -136,7 +136,9 @@ export function parseAltiumSch(bytes: Uint8Array, opts: AltiumSchOptions = {}): 
      */
     if (owner) {
       if (numOf(r, 'OWNERPARTID') > 0 && numOf(r, 'OWNERPARTID') !== owner.unit) return;
-      if (r.OWNERPARTDISPLAYMODE !== undefined && numOf(r, 'OWNERPARTDISPLAYMODE') !== owner.displayMode) return;
+      // 字段缺失 = 0（AD 省略默认值）。此前把"缺失"当成"不限制"，
+      // 于是 DISPLAYMODE=1 的器件两套画法都画出来：U1 变成 64 个管脚、两个矩形叠在一起。
+      if (numOf(r, 'OWNERPARTDISPLAYMODE') !== owner.displayMode) return;
     }
 
     if (type === '2' && owner) {
