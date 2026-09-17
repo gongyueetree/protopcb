@@ -10,9 +10,9 @@ import { searchEzplmParts, ezplmLiveAvailable } from '../../application/parts';
 import { useT, useTranslated, tr } from '../../shared/i18n';
 import { COLORS, fmtMoney } from '../../shared/theme';
 import { filterAndRank, looksLikeMpn } from '../../design-core/part-match-policy';
-import { useEntitlementStore } from '../../state/entitlementStore';
-import { loginUrl } from '../../design-core/entitlements';
-import { useLangStore } from '../../shared/i18n';
+
+
+
 import type { ComponentSearchResult } from '../../providers/types';
 import type { ComponentCategory } from '../../design-core/document/types';
 import { useAccessContext, anonymousContext } from '../../state/useAccessContext';
@@ -32,7 +32,6 @@ export function ComponentSearchPanel() {
   const [category] = useState<ComponentCategory | null>(null);
   const [orgOnly] = useState(false);
   /** 未登录只检索 ezPLM 器件库；分销商实时检索需要登录 */
-  const webAllowed = useEntitlementStore((st) => st.check('search.web').allowed);
   const [orgResults, setOrgResults] = useState<ComponentSearchResult[]>([]);
   const [ezplmResults, setEzplmResults] = useState<ComponentSearchResult[]>([]);
   const [netResults, setNetResults] = useState<ComponentSearchResult[]>([]);
@@ -66,7 +65,7 @@ export function ComponentSearchPanel() {
     dedupedNet.length ? 'net' : null,
   ].filter(Boolean) as ('org' | 'ezplm' | 'net')[]);
   const results = srcTab === 'org' ? orgResults : srcTab === 'ezplm' ? ezplmResults : dedupedNet;
-  const lang = useLangStore((st) => st.lang) === 'en' ? 'en' as const : 'zh' as const;
+
   /** 通用无源件查询（Cap / 100nF / 10k 0402）：库里搜不到，但我们能直接给一个标准件 */
   const generic = useMemo(() => parseGenericPartQuery(keyword), [keyword]);
   const addGeneric = (g: NonNullable<typeof generic>) => {
@@ -113,12 +112,7 @@ export function ComponentSearchPanel() {
       } else {
         setOrgResults([]);
       }
-      // 分销商实时检索用的是我们的 DigiKey/Mouser Key，未登录不发起。
-      // ⚠ 这里只能跳过这一条分支，绝不能 return —— 函数后面还有 ezPLM 实时检索，
-      //   提前 return 会把未登录用户的 ezPLM 搜索一起打掉（踩过一次）。
-      if (!webAllowed) {
-        setNetResults([]); setNetBusy(false); setNetMsg('');
-      } else {
+      {
       setNetBusy(true); setNetMsg('');
       searchSupplierParts(q, 10)
         .then((r) => {
@@ -165,7 +159,7 @@ export function ComponentSearchPanel() {
     if (seq !== searchSeq.current) return;
     setResults(res.items);
   // 身份与网络权限变化都要重跑：登录后本组织与分销商结果才会出现
-  }, [keyword, category, orgOnly, ctx?.userId, ctx?.organizationId, webAllowed]);
+  }, [keyword, category, orgOnly, ctx?.userId, ctx?.organizationId]);
 
   // 当前 Tab 无结果时自动切到有结果的源（避免用户看到空白误以为没搜到）
   useEffect(() => {
@@ -199,12 +193,6 @@ export function ComponentSearchPanel() {
             </button>
           ))}
           {netBusy && <span style={{ alignSelf: 'center', fontSize: 10, color: '#94a3b8' }}>⟳</span>}
-          {!webAllowed && (
-            <a href={loginUrl(lang)} title={tr('分销商实时检索需要登录后使用。未登录可以检索 ezPLM 器件库。')}
-              style={{ flex: 1, padding: '5px 0', borderRadius: 6, border: '1px dashed #cbd5e1', background: '#fff', color: '#94a3b8', fontSize: 11, fontWeight: 700, textAlign: 'center', textDecoration: 'none' }}>
-              🔑 {tr('网络检索')}
-            </a>
-          )}
         </div>
       )}
       {/* 通用无源件：Cap / 100nF / 10k 0402 这类查询在库里搜不到（它们是值不是型号），
@@ -233,7 +221,7 @@ export function ComponentSearchPanel() {
       )}
       {!availTabs.length && keyword.trim() !== '' && !netBusy && (
         <div style={{ padding: '10px 12px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a', fontSize: 11, color: '#92400e', marginBottom: 8 }}>
-          {webAllowed ? tr('本组织、ezPLM 与网络（DigiKey/Mouser）均未查询到结果') : tr('ezPLM 器件库未查询到结果')}
+          {tr('本组织、ezPLM 与网络（DigiKey/Mouser）均未查询到结果')}
           {netGate.rejected > 0 && (
             <div style={{ marginTop: 4, fontSize: 10, color: '#b45309' }}>
               {tr('网络返回的')} {netGate.rejected} {tr('条结果与该型号相关性过低，已过滤')}

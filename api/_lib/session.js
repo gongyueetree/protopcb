@@ -14,6 +14,7 @@
  *   '0'（仅本地开发）→ 放行并在响应里标注 authBypassed，便于本地调试。
  */
 import { fetchUpstream, UpstreamError } from './net.js';
+import { acquire } from './guard.js';
 
 // 每次调用时读取：Serverless 冷启动后环境变量可能更新，测试里也需要按用例切换
 const authBase = () => (process.env.EZPLM_AUTH_BASE ?? '').trim();     // 如 https://ezplm.cn/api/v1
@@ -130,4 +131,34 @@ export async function requireAuthenticatedCapability(req, capability) {
     return { ok: false, status: sess.status, body: { error: sess.message, code: sess.code, capability } };
   }
   return { ok: true, identity: sess };
+}
+
+/**
+ * 分销商/器件库检索的访问控制。
+ *
+ * 这类查询**不消耗 AI Token**，只耗上游 API 配额，所以匿名用户也放行 —— 未登录也能完整体验选型，
+ * 这是引流场景的关键。代价用限频兜住：匿名按调用方（IP）每小时 ANON_SEARCH_PER_HOUR 次（默认 50），
+ * 登录用户不受这条限制（仍受全局限流约束）。
+ */
+export async function allowLookupQuery(req, capability) {
+  const sess = await verifySession(req);
+  if (sess.ok) return { ok: true, identity: sess, anonymous: false };
+
+  // 鉴权后台故障时也按匿名处理：查器件不该因为登录服务挂了而完全不可用
+  const lease = acquire(req, `anon-lookup:${capability}`, {
+    windowMs: 60 * 60 * 1000,
+    perWindow: Number(process.env.ANON_SEARCH_PER_HOUR ?? 50),
+    concurrent: 2,
+  });
+  if (!lease.ok) {
+    return {
+      ok: false, status: 429,
+      body: {
+        error: `未登录时每小时最多 ${process.env.ANON_SEARCH_PER_HOUR ?? 50} 次检索，登录后不受此限制`,
+        code: 'ANON_RATE_LIMITED', capability, retryAfter: lease.retryAfter,
+      },
+    };
+  }
+  lease.release();   // 只做计数，不占并发槽
+  return { ok: true, identity: null, anonymous: true };
 }

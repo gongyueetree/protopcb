@@ -113,11 +113,32 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const modelRefs: Record<string, { lib3d: string; name3d: string }> = {};
   /** 封装名 → .kicad_pcb 里写的原始 model 路径（可能含 ${KIPRJMOD} 变量） */
   const projectModelPaths: Record<string, string> = {};
-  // 顶层网络表：(net 3 +5V) / (net 1 "Net-(R20-Pad1)")
+  /**
+   * 网络表。两种格式都要支持：
+   *   KiCad ≤9：文件顶层有 (net 3 "+5V") 编号表，pad 里写 (net 3 "+5V")
+   *   KiCad 10（version 20260206+）：**取消了顶层编号表**，pad 里只写 (net "+5V")
+   * 后者若按旧格式解析，一个网络都认不出来 —— 导入的板会全部显示"没有网络连接数据"。
+   * 对新格式我们自行编号（按首次出现顺序），编号只在本次导入内有意义。
+   */
   const nets: Record<number, string> = {};
+  const netIdByName = new Map<string, number>();
+  let nextNetId = 1;
+  const netIdOf = (rawName: string): number => {
+    const name = rawName.replace(/^"|"$/g, '');
+    const existing = netIdByName.get(name);
+    if (existing != null) return existing;
+    const id = nextNetId++;
+    netIdByName.set(name, id);
+    nets[id] = name;
+    return id;
+  };
   for (const n of findAll(pcb, 'net')) {
     const id = Number(n[1]);
-    if (Number.isFinite(id)) nets[id] = String(n[2] ?? '').replace(/^"|"$/g, '');
+    if (!Number.isFinite(id)) continue;                       // 新格式的 (net "名字")：留给 netIdOf 按需编号
+    const name = String(n[2] ?? '').replace(/^"|"$/g, '');
+    nets[id] = name;
+    if (name) netIdByName.set(name, id);
+    nextNetId = Math.max(nextNetId, id + 1);
   }
   // ── 铜层栈：解析 (layers (0 "F.Cu" signal) (1 "In1.Cu" signal) …) 中的 *.Cu 层 ──
   // 4/6 层板的 In1.Cu/In2.Cu 必须保留原名，绝不能压成 TOP/BOTTOM。
@@ -177,7 +198,11 @@ export function parseKicadPcb(text: string): KicadImportResult {
     for (const pd of findAll(fp, 'pad')) {
       const pnum = String(pd[1] ?? '').replace(/^"|"$/g, '');
       const nn = find(pd, 'net');
-      if (pnum && nn && Number.isFinite(Number(nn[1]))) padNets[pnum] = Number(nn[1]);
+      if (!pnum || !nn) continue;
+      // (net 3 "+5V") → 直接用编号；(net "+5V") → 按名字取/分配编号（KiCad 10）
+      padNets[pnum] = Number.isFinite(Number(nn[1]))
+        ? Number(nn[1])
+        : netIdOf(String(nn[1] ?? ''));
     }
     comps.push({
       padNets: Object.keys(padNets).length ? padNets : undefined,
@@ -204,7 +229,7 @@ export function parseKicadPcb(text: string): KicadImportResult {
     const ly = String(find(seg, 'layer')?.[1] ?? '');
     const nn = find(seg, 'net');
     if (!st || !en) continue;
-    const netId = nn ? Number(nn[1]) : NaN;
+    const netId = nn ? (Number.isFinite(Number(nn[1])) ? Number(nn[1]) : netIdOf(String(nn[1] ?? ''))) : NaN;
     tracks.push({
       x1: num(st, 1), y1: num(st, 2), x2: num(en, 1), y2: num(en, 2),
       w: wd ? num(wd, 1) : 0.25,
@@ -216,7 +241,7 @@ export function parseKicadPcb(text: string): KicadImportResult {
   for (const v of findAll(pcb, 'via')) {
     const at = find(v, 'at'), sz = find(v, 'size'), dr = find(v, 'drill'), nn = find(v, 'net'), lys = find(v, 'layers');
     if (!at) continue;
-    const netId = nn ? Number(nn[1]) : NaN;
+    const netId = nn ? (Number.isFinite(Number(nn[1])) ? Number(nn[1]) : netIdOf(String(nn[1] ?? ''))) : NaN;
     // (layers "F.Cu" "B.Cu")：贯穿层对原样保留（盲埋孔的层对不同）
     const layerPair = lys
       ? [String(lys[1] ?? '').replace(/^"|"$/g, ''), String(lys[2] ?? '').replace(/^"|"$/g, '')] as [string, string]

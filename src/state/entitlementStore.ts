@@ -9,7 +9,7 @@
 import { create } from 'zustand';
 import {
   ANONYMOUS, checkCapability, loginUrl, buyCreditsUrl,
-  type Entitlements, type Capability, type CapabilityCheck,
+  type Entitlements, type Capability, type OpenCapability, type CapabilityCheck,
 } from '../design-core/entitlements';
 
 /**
@@ -25,7 +25,7 @@ interface EntitlementState {
   sessionDetail?: string;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
-  check: (cap: Capability) => CapabilityCheck;
+  check: (cap: Capability | OpenCapability) => CapabilityCheck;
   /** 服务端通过响应头回传的权威余额 */
   setRemaining: (remaining: number) => void;
 }

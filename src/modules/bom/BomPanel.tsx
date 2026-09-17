@@ -72,7 +72,6 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
         },
         searchDistributors: async (q) => {
           const out: Candidate[] = [];
-          if (!checkCap('search.web').allowed) return out;   // 未登录：不打分销商
           // 先 DigiKey，再多分销商聚合；任一家命中即止（省配额）
           for (const run of [() => searchDigikeyFuzzy(q), () => searchSupplierFuzzy({ mpn: q, q })]) {
             try {
@@ -144,9 +143,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
     } catch { notes.push('ezPLM 查询失败'); }
 
     // 2) 分销商补充（用平台 Key：未登录不发请求，服务端本来也会 401）
-    const webOk = checkCap('search.web').allowed;
-    if (!webOk) notes.push('登录后可查询 DigiKey / Mouser 实时库存与价格');
-    if (webOk) try {
+    try {
       const j = await searchSupplierFuzzy({ mpn: searchMpn, footprint: l.footprint, desc: l.description, q: query.queries[0] });
       for (const it of j.items) {
         pool.push({
@@ -158,7 +155,7 @@ export function BomPanel({ isFullscreen, onToggleFullscreen }: { isFullscreen?: 
     } catch (e) { notes.push((e as Error).message); }
 
     // 3) DigiKey 关键词检索：用户填写的型号优先，其次是构造出的检索串
-    if (webOk) try {
+    try {
       for (const kw of [searchMpn, query.queries[0]].filter(Boolean).slice(0, 2)) {
         const j = await searchDigikeyFuzzy(kw as string);
         for (const it of j.items) {

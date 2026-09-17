@@ -139,7 +139,7 @@ describe('/api/ai 服务端边界', () => {
   });
 });
 
-describe('分销商端点服务端门禁（不扣费，但必须登录）', () => {
+describe('分销商端点：匿名可用（限频），不扣 Credit', () => {
   let up;
   beforeEach(() => {
     process.env.EZPLM_AUTH_BASE = 'https://auth.test/api/v1'; process.env.AI_REQUIRE_AUTH = '1';
@@ -148,18 +148,16 @@ describe('分销商端点服务端门禁（不扣费，但必须登录）', () =
   });
   afterEach(() => { for (const k of ['EZPLM_AUTH_BASE', 'DIGIKEY_CLIENT_ID', 'DIGIKEY_CLIENT_SECRET', 'MOUSER_API_KEY']) delete process.env[k]; vi.unstubAllGlobals(); });
 
-  it('匿名 GET /api/digikey?path=fuzzy → 401，零 DigiKey 上游调用', async () => {
+  it('匿名检索不再 401（这类查询不耗 AI Token，未登录也要能选型）', async () => {
     const res = mockRes();
     await digikeyHandler(req({ method: 'GET', query: { path: 'fuzzy', q: 'CH340C' } }), res);
-    expect(res.statusCode).toBe(401);
-    expect(up.calls.digikey).toBe(0);
+    expect(res.statusCode).not.toBe(401);
   });
 
-  it('匿名 GET /api/suppliers?path=fuzzy → 401，零上游调用', async () => {
+  it('匿名 /api/suppliers 同样放行', async () => {
     const res = mockRes();
     await suppliersHandler(req({ method: 'GET', query: { path: 'fuzzy', q: 'CH340C', mpn: 'CH340C' } }), res);
-    expect(res.statusCode).toBe(401);
-    expect(up.calls.mouser + up.calls.digikey).toBe(0);
+    expect(res.statusCode).not.toBe(401);
   });
 
   it('status 保持匿名可访问', async () => {
@@ -279,5 +277,31 @@ describe('application-projects 代理已下线（P0-9）', () => {
     expect(JSON.parse(res.body).code).toBe('APPLICATION_PROJECTS_NOT_CONNECTED');
     expect(Object.values(up.calls).reduce((a, v) => a + v, 0)).toBe(0);
     delete process.env.EZPLM_API_KEY; vi.unstubAllGlobals();
+  });
+});
+
+describe('分销商检索：匿名放行 + 限频（不耗 AI Token）', () => {
+  beforeEach(() => {
+    process.env.EZPLM_AUTH_BASE = 'https://auth.test/api/v1';
+    process.env.DIGIKEY_CLIENT_ID = 'id'; process.env.DIGIKEY_CLIENT_SECRET = 'sec';
+    process.env.ANON_SEARCH_PER_HOUR = '3';
+  });
+  afterEach(() => { for (const k of ['EZPLM_AUTH_BASE', 'DIGIKEY_CLIENT_ID', 'DIGIKEY_CLIENT_SECRET', 'ANON_SEARCH_PER_HOUR']) delete process.env[k]; vi.unstubAllGlobals(); });
+
+  it('匿名前几次放行（不再 401），超额后 429 且不打上游', async () => {
+    const up = installUpstreamMock();
+    const ip = '198.51.100.7';
+    let last;
+    for (let i = 0; i < 3; i++) {
+      last = mockRes();
+      await digikeyHandler(req({ method: 'GET', query: { path: 'fuzzy', q: 'CH340C' }, socket: { remoteAddress: ip } }), last);
+      expect(last.statusCode).not.toBe(401);
+    }
+    const upstreamBefore = up.calls.digikey;
+    const res = mockRes();
+    await digikeyHandler(req({ method: 'GET', query: { path: 'fuzzy', q: 'CH340C' }, socket: { remoteAddress: ip } }), res);
+    expect(res.statusCode).toBe(429);
+    expect(JSON.parse(res.body).code).toBe('ANON_RATE_LIMITED');
+    expect(up.calls.digikey).toBe(upstreamBefore);   // 超额那次零上游调用
   });
 });

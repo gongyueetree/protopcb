@@ -19,7 +19,7 @@ import { registerFootprintOverride, registerSymbolOverride, symbolOverrideFor, f
 import { parseKicadSym } from '../../design-core/geometry/lib-file-registry';
 import type { PlacedComponent as PlacedComponentT } from '../../design-core/document/types';
 import { dialogs } from '../../modules/ui/dialogStore';
-import { useEntitlementStore } from '../../state/entitlementStore';
+
 import { COLORS, CATEGORY_DISPLAY } from '../../shared/theme';
 import { bumpLibRegistry } from '../../design-core/geometry/lib-file-registry';
 import { keyOf } from '../../shared/storage';
@@ -31,7 +31,6 @@ const providers = getProviders();
 
 export function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => void }) {
   const ctx = useAccessContext() ?? anonymousContext();
-  const webAllowed = useEntitlementStore((s2) => s2.check('search.web').allowed);
   const t = useT();
   const c = useDesignStore((s) => s.doc.components.find((x) => x.instanceId === iid));
   const [alts, setAlts] = useState<{ mpn: string; manufacturer: string; note: string; channel: string; footprint?: string; description?: string }[]>([]);
@@ -45,14 +44,14 @@ export function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: stri
     // 自建/占位器件的型号不是真实厂商料号，不查供应商（否则会匹配到无关器件的图片与价格）
     const isSynthetic = c.componentId?.startsWith('custom_') || c.componentId?.startsWith('fp_');
     // 分销商实时查询用的是平台 Key：未登录不发请求（服务端本来也会 401，但别白跑一趟）
-    if (!isSynthetic && webAllowed) fetchDigikeyOffer(c.mpn).then((o) => { if (o?.found) setDkOffer(o); });
+    if (!isSynthetic) fetchDigikeyOffer(c.mpn).then((o) => { if (o?.found) setDkOffer(o); });
     setSupOffers([]);
-    if (!isSynthetic && webAllowed) fetchSupplierOffers(c.mpn).then(setSupOffers);
+    if (!isSynthetic) fetchSupplierOffers(c.mpn).then(setSupOffers);
     providers.components.getAlternatives(c.componentId, ctx).then(setAlts);
     providers.components.getSupplierOffers(c.componentId, ctx).then(setOffers);
     providers.components.getComponentDetail(c.componentId, ctx).then(setDetail);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [c?.componentId, webAllowed, ctx?.userId]);
+  }, [c?.componentId, ctx?.userId]);
   if (!c) return null;
   const disp = CATEGORY_DISPLAY[c.category];
   const coreParams = detail?.coreParams ?? c.display?.attributes ?? {};
@@ -132,7 +131,7 @@ export function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: stri
           </a>
         ) : (
           <div style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>
-            DigiKey：{!webAllowed ? tr('登录后可查询') : dkOffer === null ? tr('查询中…') : tr('未收录该型号')}
+            DigiKey：{dkOffer === null ? tr('查询中…') : tr('未收录该型号')}
           </div>
         )}
         {/* Mouser/Arrow/element14：配置了 Key → 实时数据；未配置 → 演示数据占位 */}
@@ -159,18 +158,9 @@ export function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: stri
           if (vendor === 'Iceasy' || vendor === 'OURIC') {
             return (
               <div key={vendor} style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>
-                {vendor}：{!webAllowed
-                  ? tr('登录后可查询')
-                  : real
-                    ? (real.error ? tr('查询失败') : tr('未收录该型号'))
-                    : `${tr('未配置凭据')}（${vendor === 'Iceasy' ? 'ICEASY_ACCOUNT + ICEASY_PASSWORD' : 'OURIC_API_KEY + OURIC_API_SECRET'}）`}
-              </div>
-            );
-          }
-          if (!webAllowed) {
-            return (
-              <div key={vendor} style={{ fontSize: 10, color: '#94a3b8', padding: '4px 8px', marginBottom: 4 }}>
-                {vendor}：{tr('登录后可查询')}
+                {vendor}：{real
+                  ? (real.error ? tr('查询失败') : tr('未收录该型号'))
+                  : `${tr('未配置凭据')}（${vendor === 'Iceasy' ? 'ICEASY_ACCOUNT + ICEASY_PASSWORD' : 'OURIC_API_KEY + OURIC_API_SECRET'}）`}
               </div>
             );
           }

@@ -69,7 +69,7 @@ State (src/state/*)：zustand store；Domain 的观察者桥接（libFileStore�
 - 会话由 ezPLM / EEHub 签发（`ezplm_session` / `eehub_session` Cookie 或 Bearer）；本站只校验不签发
 - `/api/auth/logout` 清 Cookie；AccountBar 有退出按钮、窗口回前台时刷新会话
 
-两档权限：匿名（画布 / KiCad 导入 / ezPLM 公开检索 / 导出原型）与注册（+ 分销商检索、定制器件、AI 按 Credit）。
+两档权限：匿名（画布 / KiCad 导入 / 器件与分销商检索（限频） / 导出原型）与注册（+ 定制器件、云端保存、AI 按 Credit）。
 
 ## 5. AI Operation Registry（唯一 AI 路径）
 
@@ -96,7 +96,7 @@ Browser  aiRequest(operation, input)  [src/providers/ai-client]
 | `GET /api/session` | — | 返回会话状态；后端未配置时如实 `BACKEND_NOT_CONNECTED` |
 | `POST /api/auth/logout` | — | 清 Cookie |
 | `GET /api/ezplm?path=parts\|reference-designs\|file` | — | 公开数据；`application-projects` → **501** |
-| `GET /api/digikey`、`/api/suppliers` | 登录（不扣费） | `path=status` 匿名可访问 |
+| `GET /api/digikey`、`/api/suppliers` | 匿名可用，按 IP 每小时限频（`ANON_SEARCH_PER_HOUR`，默认 50） | 不耗 AI Token，只耗上游配额 |
 | `POST /api/ds2kicad` | 登录 | 提取引擎 |
 | `GET /api/kicadlib` | — | KiCad 官方库代理 |
 

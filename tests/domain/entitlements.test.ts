@@ -90,12 +90,10 @@ describe('价目表与入口', () => {
 });
 
 describe('未登录时的非 AI 限制', () => {
-  it('分销商实时检索需要登录（用的是我们的 DigiKey/Mouser Key）', () => {
+  it('分销商检索匿名可用（不耗 AI Token，服务端按小时限频）', () => {
     const r = checkCapability(ANONYMOUS, 'search.web');
-    expect(r.allowed).toBe(false);
-    expect(r.reason).toBe('login-required');
-    expect(r.cost).toBe(0);                       // 不耗 Credit
-    expect(r.message).toMatch(/ezPLM 器件库/);     // 但要说清还能用什么
+    expect(r.allowed).toBe(true);
+    expect(r.cost).toBe(0);
   });
 
   it('定制器件需要登录（器件属于账户资产）', () => {
@@ -105,7 +103,7 @@ describe('未登录时的非 AI 限制', () => {
     expect(r.cost).toBe(0);
   });
 
-  it('注册用户零余额时，这两项仍然可用（不耗 Credit）', () => {
+  it('注册用户零余额时，检索与定制器件仍可用（不耗 Credit）', () => {
     const zero: Entitlements = { tier: 'registered', credits: 0, creditsKnown: true };
     expect(checkCapability(zero, 'search.web').allowed).toBe(true);
     expect(checkCapability(zero, 'part.custom').allowed).toBe(true);
@@ -117,7 +115,7 @@ describe('未登录时的非 AI 限制', () => {
 describe('匿名用户仍可用的检索路径（回归）', () => {
   it('ezPLM 器件库检索不需要登录 —— 它是匿名体验的主要入口', () => {
     // 曾经因为"跳过网络检索"时写成 return，把同一函数里的 ezPLM 检索一起打掉了
-    expect(checkCapability(ANONYMOUS, 'search.web').allowed).toBe(false);
+    expect(checkCapability(ANONYMOUS, 'search.web').allowed).toBe(true);
     // ezPLM 检索不属于任何受限能力：没有为它定义 capability，即默认可用
     const restricted = ['search.web', 'part.custom', 'design.save', 'design.open', 'design.share',
       ...Object.keys(CREDIT_COST)];

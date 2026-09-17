@@ -34,8 +34,14 @@ export type AccountCapability =
   | 'design.open'          // 打开自己空间里的设计
   | 'design.share'         // 分享
   // 下面两项不耗 Credit，但同样消耗我们的上游配额 / 需要身份边界：
-  | 'search.web'           // 分销商 API 检索（DigiKey/Mouser 用的是我们的 Key）
   | 'part.custom';         // 定制器件（建库属于账户资产，且提取走 AI）
+
+/**
+ * 匿名也可用的能力。分销商/器件库检索**不消耗 AI Token**，只耗上游 API 配额，
+ * 未登录也放行（限频在服务端，每小时 ANON_SEARCH_PER_HOUR 次），
+ * 否则"未注册可完整体验"这条就不成立。
+ */
+export type OpenCapability = 'search.web';
 
 export type Capability = AiCapability | AccountCapability;
 
@@ -84,17 +90,17 @@ export const isAiCapability = (c: Capability): c is AiCapability => AI_CAPS.has(
  * 能否使用某能力。
  * 判定顺序：登录 → 额度 —— 顺序很重要，未登录时不该说"额度不足"。
  */
-export function checkCapability(ent: Entitlements, cap: Capability): CapabilityCheck {
-  const cost = isAiCapability(cap) ? CREDIT_COST[cap] : 0;
+export function checkCapability(ent: Entitlements, cap: Capability | OpenCapability): CapabilityCheck {
+  // 检索类能力匿名可用（服务端限频）
+  if (cap === 'search.web') return { allowed: true, cost: 0 };
+  const cost = isAiCapability(cap as Capability) ? CREDIT_COST[cap as AiCapability] : 0;
 
   if (ent.tier === 'anonymous') {
     return {
       allowed: false, cost, reason: 'login-required',
       message: isAiCapability(cap)
         ? 'AI 功能需要登录后使用。未登录可以完整体验画布、导入工程与导出原型文件。'
-        : cap === 'search.web'
-          ? '分销商实时检索需要登录后使用。未登录可以检索 ezPLM 器件库。'
-          : cap === 'part.custom'
+        : cap === 'part.custom'
             ? '定制器件需要登录后使用。（当前版本定制器件保存在本浏览器；云端账户器件库尚未接通）'
             : '保存与云端空间需要登录后使用。',
     };

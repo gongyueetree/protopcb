@@ -193,6 +193,7 @@ EZPLM_API_KEY=xxx node scripts/check-ezplm-refdesign.mjs TPS79301DBVR
 | 画布、导入 KiCad、3D、外壳、导出原型文件 | ✅ | ✅ |
 | 器件库检索（ezPLM / 分销商） | ✅ | ✅ |
 | 浏览器本地自动存档（刷新不丢） | ✅ | ✅ |
+| 分销商实时检索（DigiKey/Mouser/Arrow…） | ✅ 限频（每小时 50 次，`ANON_SEARCH_PER_HOUR`） | ✅ 不限 |
 | **AI 功能**（方案生成、子电路推荐、顾问分析、估价…） | ❌ | 按 Credit 计费 |
 | **云端保存 / 打开我的设计** | ❌ | ✅ |
 

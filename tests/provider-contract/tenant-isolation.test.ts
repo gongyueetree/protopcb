@@ -47,7 +47,7 @@ describe('权限矩阵（§30）', () => {
     {
       name: 'ANONYMOUS',
       ent: ANONYMOUS,
-      expect: { 'search.web': false, 'part.custom': false, 'design.save': false, 'design.open': false, ...Object.fromEntries(ai.map((c) => [c, false])) },
+      expect: { 'search.web': true, 'part.custom': false, 'design.save': false, 'design.open': false, ...Object.fromEntries(ai.map((c) => [c, false])) },
     },
     {
       name: 'REGISTERED / 0 CREDIT',
@@ -69,8 +69,8 @@ describe('权限矩阵（§30）', () => {
     });
   }
 
-  it('画布 / KiCad 导入 / ezPLM 公开检索不属于任何受限能力（匿名可用）', () => {
-    const restricted = new Set<string>(['search.web', 'part.custom', 'design.save', 'design.open', 'design.share', ...ai]);
+  it('画布 / KiCad 导入 / 器件检索不属于需登录的能力（匿名可用）', () => {
+    const restricted = new Set<string>(['part.custom', 'design.save', 'design.open', 'design.share', ...ai]);
     for (const free of ['canvas.edit', 'kicad.import', 'search.ezplm', 'export.prototype']) expect(restricted.has(free)).toBe(false);
   });
 });

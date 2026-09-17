@@ -1,5 +1,5 @@
 import { acquire, checkBodySize, deny } from './_lib/guard.js';
-import { requireAuthenticatedCapability } from './_lib/session.js';
+import { allowLookupQuery } from './_lib/session.js';
 import { fetchWithTimeout, readResponseLimited } from './_lib/net.js';
 /** 统一出站通道（本文件所有上游请求走这里）：超时 + 响应体上限 */
 async function tfetch(url, init = {}) {
@@ -78,10 +78,10 @@ export default async function handler(req, res) {
     return res.status(200).send(JSON.stringify({ configured: !!(clientId && clientSecret) }));
   }
 
-  // ── 账户门禁（不扣 Credit）：除 status 外都消耗平台的分销商 Key，匿名一律 401，
-  //    且必须在任何上游调用之前 —— 匿名直接 curl 这个接口也拿不到数据 ──
+  // ── 访问控制：器件检索不耗 AI Token，匿名也放行（未登录也要能完整选型），
+  //    用每小时限频兜住上游配额；必须在任何上游调用之前 ──
   {
-    const gate = await requireAuthenticatedCapability(req, 'search.web');
+    const gate = await allowLookupQuery(req, 'search.web');
     if (!gate.ok) {
       if (typeof lease !== 'undefined' && lease?.release) lease.release();
       return res.status(gate.status).send(JSON.stringify(gate.body));
