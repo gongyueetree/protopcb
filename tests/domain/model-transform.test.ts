@@ -78,3 +78,35 @@ describe('应用变换', () => {
     expect((b.min.y + b.max.y) / 2).toBeCloseTo(3 + 1.5, 4);
   });
 });
+
+describe('测试点 / 定位孔的 3D（板上没有器件本体）', () => {
+  const build = async (fpName: string) => {
+    const { buildComponent3D } = await import('../../src/modules/board-editor/footprint3d');
+    const { searchResultToPlaced } = await import('../../src/design-core/document/services');
+    return buildComponent3D(searchResultToPlaced({
+      componentId: 'k', mpn: 'TP', manufacturer: '-', category: 'passive',
+      defaultFootprintName: fpName, family: 'TP', description: '', pins: 1,
+    }, 'TP1'));
+  };
+
+  it('TestPoint 是贴板的圆形焊盘，不是黑方块', async () => {
+    const g = await build('TestPoint_Pad_D1.0mm');
+    const mesh = g.children[0] as THREE.Mesh;
+    expect(mesh.geometry.type).toBe('CylinderGeometry');
+    const b = new THREE.Box3().setFromObject(g);
+    expect(b.max.y).toBeLessThan(0.1);                 // 几乎贴板
+    expect(b.max.x - b.min.x).toBeCloseTo(1, 1);       // φ1.0
+  });
+
+  it('焊盘直径跟随封装名', async () => {
+    const b = new THREE.Box3().setFromObject(await build('TestPoint_Pad_D2.0mm'));
+    expect(b.max.x - b.min.x).toBeCloseTo(2, 1);
+  });
+
+  it('定位孔只画铜环，没有本体', async () => {
+    const g = await build('MountingHole_3.2mm_M3');
+    const b = new THREE.Box3().setFromObject(g);
+    expect(b.max.y).toBeLessThan(0.1);
+    expect(b.max.x - b.min.x).toBeGreaterThan(3.2);    // 环外径 > 孔径
+  });
+});

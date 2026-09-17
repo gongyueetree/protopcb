@@ -286,6 +286,30 @@ export function buildComponent3D(comp: PlacedComponent): THREE.Group {
 
   // 导入的 KiCad 封装名：按器件族给形状与配色，避免整板一个颜色
   const K = fp.toUpperCase();
+
+  /**
+   * 测试点 / 定位孔：板上没有"器件本体"，只有一片裸露的圆形焊盘（或一个孔）。
+   * 此前落到通用分支画成黑色方块 —— 板子看上去多了几十个不存在的小器件。
+   */
+  if (/^TESTPOINT/.test(K)) {
+    const g = new THREE.Group();
+    const d = parseFloat(K.match(/_D(\d+(?:\.\d+)?)MM/)?.[1] ?? '1');
+    // 裸铜/沉金焊盘：薄圆片贴在板面上，略高于阻焊
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(d / 2, d / 2, 0.05, 24), MAT.gold);
+    pad.position.y = 0.025;
+    g.add(pad);
+    return g;
+  }
+  if (/^MOUNTINGHOLE/.test(K)) {
+    const g = new THREE.Group();
+    const d = parseFloat(K.match(/^MOUNTINGHOLE_(\d+(?:\.\d+)?)MM/)?.[1] ?? '3.2');
+    // 只画一圈铜环示意（孔本身由板框几何开出），不画本体
+    const ring = new THREE.Mesh(new THREE.RingGeometry(d / 2, d / 2 + 0.6, 24), MAT.gold);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.03;
+    g.add(ring);
+    return g;
+  }
   const chipSize = (): [number, number, number] | null => {
     const m = K.match(/_(\d{4})_/);
     const map: Record<string, [number, number, number]> = {
