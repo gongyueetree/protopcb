@@ -12,7 +12,7 @@ import { parseLegacySch, isLegacySch } from '../design-core/geometry/kicad-sch-l
 import { parseLegacyLib, legacyToParsedSymbol } from '../design-core/geometry/kicad-lib-legacy';
 import { safeUnzipOffThread } from '../design-core/geometry/safe-unzip-worker';
 
-import { registerFootprintOverride, registerSymbolOverride, parseKicadSym } from '../design-core/geometry/lib-file-registry';
+import { registerSymbolOverride, parseKicadSym } from '../design-core/geometry/lib-file-registry';
 import { ZipSafetyError } from '../design-core/geometry/safe-unzip';
 import { keyOf } from '../shared/storage';
 import { importDocumentFromFile } from '../design-core/document/persistence-service';
@@ -39,11 +39,18 @@ export interface ImportResult {
 /** KiCad 水平对齐 → SVG textAnchor */
 const JUST = { L: 'start', C: 'middle', R: 'end' } as const;
 
+/** 解析期产生的告警，由 importProjectFile 汇总进 notices */
+const pendingWarnings: string[] = [];
+
 export const importPcbText = (text: string): { comps: number; skipped: number; projectModelPaths: Record<string, string> } => {
   const data = parseKicadPcb(text);
   // 注册 PCB 内嵌封装定义 → 导入器件焊盘精确、3D 按真实焊盘构建
-  for (const [name, def] of Object.entries(data.footprintDefs)) registerFootprintOverride(name, def);
+  // PROJECT 层的注册由 store 的 importKicad 统一做（与 doc.importedFootprints 同步），这里不再单独注册
   useDesignStore.getState().importKicad(data);
+  // 同名封装但几何不同：保留了首次出现的定义，其余实例如实告知，不静默丢信息
+  for (const c of data.footprintConflicts ?? []) {
+    pendingWarnings.push(`${tr('封装几何冲突')}：${c.footprintName}（${c.references.join('、')} ${tr('的焊盘与首个实例不同，已按首个实例渲染')}）`);
+  }
   return { comps: data.comps.length, skipped: data.skipped.length, projectModelPaths: data.projectModelPaths };
 };
 
@@ -116,6 +123,7 @@ export const applySchText = (text: string, fileName = 'schematic.kicad_sch', col
 /** 统一入口：按文件类型分派到 zip / pcb / sch / legacy / JSON */
 export const importProjectFile = async (f: File): Promise<ImportResult> => {
   const notices: ImportNotice[] = [];
+  pendingWarnings.length = 0;
   let result: ImportResult | undefined;
   try {
     if (/\.zip$/i.test(f.name)) {
@@ -194,7 +202,9 @@ export const importProjectFile = async (f: File): Promise<ImportResult> => {
         notices.push({ level: 'success', text: `${tr('原理图符号提取完成')}：${rr.symbols} ${tr('个符号')}，${rr.linked} ${tr('个器件已挂载')}` });
         result = { kind: 'schematic', extractedSymbols: rr.symbols, linkedSymbols: rr.linked, notices };
     } else {
-      useDesignStore.getState().loadDocument(await importDocumentFromFile(f));
+      const loaded = await importDocumentFromFile(f);
+      useDesignStore.getState().loadDocument(loaded);
+      notices.push({ level: 'success', text: `${tr('设计文件导入完成')}：${loaded.components.length} ${tr('个器件')}` });
       result = { kind: 'json', notices };
     }
   } catch (err) {
@@ -203,5 +213,6 @@ export const importProjectFile = async (f: File): Promise<ImportResult> => {
     notices.push({ level: 'error', text: tr('导入失败：') + msg });
     return { kind: result?.kind ?? 'json', notices };
   }
+  for (const w of pendingWarnings) notices.push({ level: 'warning', text: w });
   return result ?? { kind: 'json', notices };
 };

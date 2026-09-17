@@ -7,12 +7,12 @@
 | 指标 | 整理前 | 当前 |
 |---|---|---|
 | 生产代码 LOC（src + api） | 24 168 | 25 299 |
-| 测试文件 / 测试数 | — / 522 | 82 / 639 |
+| 测试文件 / 测试数 | — / 522 | 85 / 663 |
 | `App.tsx` 行数 | 1 492 | **335** |
 | bundle（dist/assets/*.js） | 1 395 KB | 1 417 KB |
 | 循环依赖（madge） | 3 | **0**（已进 verify 与 CI） |
 | UI 直连 `fetch('/api/*')` | 19 | **0** |
-| `@deprecated` 导出 | 5 | **0** |
+| `@deprecated` 导出 | 5 | **0**（globalRateLimiter 别名已删，审计不再领先于代码） |
 | design-core 反向依赖违规 | 3 个文件 | **0**（ESLint + 架构测试双重门禁） |
 | application → modules 依赖 | — | **0**（本轮新增门禁） |
 
@@ -21,7 +21,7 @@ LOC 上升是预期的：删掉了 `server/` 与死代码，但新增了 applica
 ## 架构边界（由 ESLint + `tests/architecture/` 强制）
 
 - `design-core` 不 import `providers/` `modules/` `state/` `react` `zustand`
-- `src/application/**` 不 import `src/modules/**`
+- `src/application/**` 与 `src/state/**` 不 import `src/modules/**`（**动态 import() 同样拦**）
 - 生产源码不 import `providers/mock`（`factory.ts` 是唯一装配点）
 - UI 不 `fetch('/api/…')`，不 import 具体供应商/库适配器
 - 生产源码不 POST `/api/gemini`；客户端不持有 AI prompt
@@ -50,10 +50,21 @@ LOC 上升是预期的：删掉了 `server/` 与死代码，但新增了 applica
 
 **状态：脚本已通过 tsc 类型检查；执行结果以 GitHub Actions 为准**（本地编写环境无法下载 Chromium）。
 
+## Domain 纯度（如实说明）
+
+`design-core` 不依赖 providers/modules/state/React，但**并非完全无副作用**：
+
+- `design-core/document/persistence-service.ts` 直接用 localStorage 与 FileReader/File
+- `design-core/geometry/lib-file-registry.ts` 直接 fetch('/api/ezplm') 与 localStorage
+
+长期应拆成 Domain（解析/数据）+ Infrastructure（File API / localStorage / HTTP）。
+本轮未动，文档也不声称 Domain 已 side-effect free。
+
 ## 已知技术债
 
 - `providers/ezplm/index.ts` 的 `getFootprintOptions` 等四项返回空并标 NOT_CONNECTED（上游端点不存在），不是真实能力
 - 限流是 `MemoryRateLimiter`（`globallyStrict: false`）：serverless 每实例独立计数，不是全局严格限额
+- 同名封装的实例级几何差异未处理：解析器按"首次出现为准"，而 KiCad 允许实例局部改焊盘
 - Credit consume 为 NON_TRANSACTIONAL（模型超时不退费）
 - `_legacy_App.jsx` 在当前基线中不存在（Git 历史保留）
 

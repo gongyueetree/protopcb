@@ -13,7 +13,7 @@ import { searchEzplmParts } from '../../application/parts';
 import { loadCustomParts, deleteCustomPart, customPartToResult, type CustomPart } from '../../design-core/custom-lib';
 import { parseKicadMod } from '../../design-core/geometry/kicad-file-parser';
 import { TRUST_META } from '../../providers/ai-schema';
-import { useAccessContext, anonymousContext } from '../../state/useAccessContext';
+import { useAccessContext } from '../../state/useAccessContext';
 import { useT, useTranslated, tr } from '../../shared/i18n';
 import { registerFootprintOverride, registerSymbolOverride, symbolOverrideFor, footprintOverrideFor } from '../../design-core/geometry/lib-file-registry';
 import { parseKicadSym } from '../../design-core/geometry/lib-file-registry';
@@ -30,7 +30,7 @@ import { getProviders } from '../../providers/factory';
 const providers = getProviders();
 
 export function CompDetail({ iid, onBuild }: { iid: string; onBuild?: (mpn: string) => void }) {
-  const ctx = useAccessContext() ?? anonymousContext();
+  const ctx = useAccessContext();
   const t = useT();
   const c = useDesignStore((s) => s.doc.components.find((x) => x.instanceId === iid));
   const [alts, setAlts] = useState<{ mpn: string; manufacturer: string; note: string; channel: string; footprint?: string; description?: string }[]>([]);

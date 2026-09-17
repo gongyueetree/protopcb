@@ -35,7 +35,3 @@ export async function getAccessContext(): Promise<AccessContext | null> {
   return toAccessContext(useEntitlementStore.getState().ent);
 }
 
-/** 兼容仍需同步 ctx 的调用点：匿名上下文（空身份），provider 据此只查公开数据 */
-export function anonymousContext(): AccessContext {
-  return { userId: '', organizationId: '' } as AccessContext;
-}

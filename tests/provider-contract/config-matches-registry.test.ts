@@ -13,9 +13,9 @@ if (typeof globalThis.localStorage === 'undefined') {
 }
 
 const presets = {
-  demo: { mode: 'demo', providers: { component: 'mock', reference: 'mock', project: 'local', ai: 'mock', identity: 'demo' } },
-  standalone: { mode: 'standalone', providers: { component: 'ezplm', reference: 'ezplm', project: 'local', ai: 'gemini-via-api', identity: 'ezplm' }, apiBaseUrl: '/api' },
-  integrated: { mode: 'integrated', providers: { component: 'ezplm', reference: 'ezplm', project: 'ezplm', ai: 'gemini-via-api', identity: 'ezplm' }, apiBaseUrl: 'https://www.ezplm.cn/api' },
+  demo: { mode: 'demo', providers: { component: 'mock', reference: 'mock', project: 'local', ai: 'mock' } },
+  standalone: { mode: 'standalone', providers: { component: 'ezplm', reference: 'ezplm', project: 'local', ai: 'gemini-via-api' }, apiBaseUrl: '/api' },
+  integrated: { mode: 'integrated', providers: { component: 'ezplm', reference: 'ezplm', project: 'ezplm', ai: 'gemini-via-api' }, apiBaseUrl: 'https://www.ezplm.cn/api' },
 } as const;
 
 const expectedClass = {

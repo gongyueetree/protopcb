@@ -20,6 +20,11 @@ const num = (l: SExpr[] | undefined, i: number): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/** 焊盘几何指纹：坐标/尺寸/脚号一致即视为同一封装 */
+function padFingerprint(fp: { pads: { x: number; y: number; w: number; h: number; num: string | number }[] }): string {
+  return fp.pads.map((p) => `${p.num}:${p.x.toFixed(4)},${p.y.toFixed(4)},${p.w.toFixed(4)},${p.h.toFixed(4)}`).sort().join('|');
+}
+
 export interface KicadImportedComp {
   reference: string;
   /** 焊盘号 → 网络号（来自源文件，导出时写回） */
@@ -76,6 +81,8 @@ export interface KicadImportResult {
   modelRefs: Record<string, { lib3d: string; name3d: string }>;
   /** 封装名 → 工程自带 3D 模型的原始路径（如 ${KIPRJMOD}/3D/evqp7-ja-01p.step） */
   projectModelPaths: Record<string, string>;
+  /** 同名封装几何冲突（保留首次出现的定义，其余实例记录在此） */
+  footprintConflicts: { footprintName: string; references: string[]; kept: 'first' }[];
 }
 
 /** 读取 footprint 的文本属性：v7+ (property "Reference" "U1") / v6 (fp_text reference U1 …) */
@@ -128,6 +135,8 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const modelRefs: Record<string, { lib3d: string; name3d: string }> = {};
   /** 封装名 → .kicad_pcb 里写的原始 model 路径（可能含 ${KIPRJMOD} 变量） */
   const projectModelPaths: Record<string, string> = {};
+  /** 同名封装但几何不同的实例（KiCad 允许实例级改焊盘）；上层据此提示，不静默丢弃 */
+  const footprintConflicts: { footprintName: string; references: string[]; kept: 'first' }[] = [];
   /**
    * 网络表。两种格式都要支持：
    *   KiCad ≤9：文件顶层有 (net 3 "+5V") 编号表，pad 里写 (net 3 "+5V")
@@ -190,10 +199,24 @@ export function parseKicadPcb(text: string): KicadImportResult {
       }
       continue;
     }
-    // 提取内嵌焊盘定义（首次出现为准；同名封装在 KiCad 内定义一致）
-    if (!footprintDefs[fpName]) {
+    /**
+     * 提取内嵌焊盘定义。默认"首次出现为准" —— 但这只是**惯例**，不是保证：
+     * KiCad 允许在实例上局部改焊盘。静默 first-wins 会悄悄丢掉后者的几何，
+     * 所以这里比对指纹，不一致时记进 footprintConflicts 交给上层提示。
+     */
+    {
       const def = parseFootprintNode(fp);
-      if (def && def.pads.length) footprintDefs[fpName] = def;
+      if (def && def.pads.length) {
+        const existing = footprintDefs[fpName];
+        if (!existing) {
+          footprintDefs[fpName] = def;
+        } else if (padFingerprint(existing) !== padFingerprint(def)) {
+          const ref = fpProperty(fp, 'Reference') || '?';
+          const c = footprintConflicts.find((x) => x.footprintName === fpName);
+          if (c) { if (!c.references.includes(ref)) c.references.push(ref); }
+          else footprintConflicts.push({ footprintName: fpName, references: [ref], kept: 'first' });
+        }
+      }
     }
     // ⚠ (model) 必须**每个实例**都解析：它不像焊盘定义那样同名即相同 ——
     //   同一封装的 J1/J2 常带不同的 rotate/offset。此前它被包在上面的
@@ -323,5 +346,5 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const widthMm = hasOutline ? Math.max(1, rawW) : Math.max(20, rawW);
   const heightMm = hasOutline ? Math.max(1, rawH) : Math.max(20, rawH);
 
-  return { nets, copperLayers, tracks, vias: viasArr, mountingHoles, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs, projectModelPaths };
+  return { nets, copperLayers, tracks, vias: viasArr, mountingHoles, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs, projectModelPaths, footprintConflicts };
 }

@@ -15,9 +15,12 @@ import { solvePlacementDetailed, DEFAULT_PLACEMENT_RULES, autoPlaceAllDetailed, 
 import { DEFAULT_ENCLOSURE } from '../design-core/enclosure';
 import { kicadPassiveDefaults } from '../design-core/geometry/kicad-passive-defaults';
 import { materializeMountingHoles } from '../design-core/board/mounting-holes';
-import { registerFootprintOverride } from '../design-core/geometry/lib-file-registry';
+import { syncProjectFootprints } from '../design-core/geometry/lib-file-registry';
 import { clampComponentToBoard, findOverlaps, resolveDropPosition, BOARD_MARGIN_MM } from '../design-core/collision';
 import { appConfig } from '../config';
+import { useSchematicStore } from './schematicEditStore';
+import { useSchematicViewStore } from './schematicViewStore';
+import { revokeAllModelBlobs } from '../infrastructure/model-assets';
 
 const HISTORY_LIMIT = 60;
 
@@ -545,7 +548,7 @@ export const useDesignStore = create<DesignState>()(
     clearAll: () => {
       // 工程自带 STEP 的 blob 随项目清空一起撤销（它们只属于这次导入；不撤销就持续泄漏）。
       // 动态 import：state 层不静态依赖 board-editor 模块。
-      void import('../infrastructure/model-assets').then((m) => m.revokeAllModelBlobs()).catch(() => undefined);
+      revokeAllModelBlobs();
       set((s) => {
         snapshot(s);
         s.doc.components = [];
@@ -554,6 +557,9 @@ export const useDesignStore = create<DesignState>()(
         s.doc.connections = [];
         s.doc.schematicSheets = undefined;
         s.doc.rootSheetFile = undefined;
+        // 工程几何随画布一起清：否则新工程会继续用上一个工程的焊盘
+        s.doc.importedFootprints = undefined;
+        syncProjectFootprints(undefined);
         s.doc.tracks = undefined;         // 导入的铜箔走线/过孔一并清除
         s.doc.vias = undefined;
         s.doc.nets = undefined;
@@ -565,8 +571,8 @@ export const useDesignStore = create<DesignState>()(
         s.multiSel = [];
         s.overlaps = new Set();
         // 原理图编辑状态（位置/连线）同步复位
-        import('../modules/schematic/schematicStore').then((m) => m.useSchematicStore.getState().reset()).catch(() => { /* 忽略 */ });
-        import('./schematicViewStore').then((m) => m.useSchematicViewStore.getState().reset()).catch(() => { /* 忽略 */ });
+        useSchematicStore.getState().reset();
+        useSchematicViewStore.getState().reset();
       });
     },
 
@@ -602,13 +608,14 @@ export const useDesignStore = create<DesignState>()(
 
     importKicad: (data) =>
       set((s) => {
-        // 内嵌焊盘表：既注册到内存（本次会话的 2D/3D/导出都用它），也写进文档（刷新后能恢复）。
-        // 注册放在 store 而不是导入服务里，保证"导入"与"恢复存档"两条路径行为一致。
-        if (data.footprintDefs && Object.keys(data.footprintDefs).length) {
-          s.doc.importedFootprints = { ...(s.doc.importedFootprints ?? {}), ...data.footprintDefs };
-          for (const [name, def] of Object.entries(data.footprintDefs)) registerFootprintOverride(name, def);
-        }
+        // ⚠ snapshot 必须在任何改动**之前**：此前先写 importedFootprints 再 snapshot，
+        //   undo 快照已被新工程污染，撤销回不到导入前的状态。
         snapshot(s);
+        // 内嵌焊盘表：**整体替换**而非合并 —— importKicad 本来就整体替换 components，
+        // 两者语义必须一致，否则导入工程 B 后还残留 A 的几何。
+        s.doc.importedFootprints = Object.keys(data.footprintDefs ?? {}).length ? { ...data.footprintDefs } : undefined;
+        // 传原始解析结果而不是 draft：draft 在 set() 外会被 immer 撤销
+        syncProjectFootprints(Object.keys(data.footprintDefs ?? {}).length ? { ...data.footprintDefs } : undefined);
         s.doc.components = data.comps.map((k) => {
           const cat: ComponentCategory = /^U/.test(k.reference) ? 'ic' : /^(R|C|L|D|Y|FB)/.test(k.reference) ? 'passive' : /^(J|P|X|CN)/.test(k.reference) ? 'connector' : /^(VR|PS)/.test(k.reference) ? 'power' : 'ic';
           // 符号家族：位号/封装名推断（C→电容 R→电阻 L→电感 LED→LED D→二极管），原理图符号随之正确
@@ -666,11 +673,9 @@ export const useDesignStore = create<DesignState>()(
     loadDocument: (doc) =>
       set((s) => {
         snapshot(s);
-        // 恢复存档/导入 JSON 时把内嵌焊盘表注册回注册表 —— 否则 2D/3D 会回落到按名字猜的几何。
-        // 这是"刷新后器件显示不对"的根因：文档恢复了，但几何依据没跟着回来。
-        for (const [name, def] of Object.entries(doc.importedFootprints ?? {})) {
-          registerFootprintOverride(name, def as Parameters<typeof registerFootprintOverride>[1]);
-        }
+        // 恢复存档/导入 JSON：把 PROJECT 层整体换成该文档的定义。
+        // 这是"刷新后器件显示不对"的根因 —— 文档恢复了，但几何依据没跟着回来。
+        syncProjectFootprints(doc.importedFootprints ? JSON.parse(JSON.stringify(doc.importedFootprints)) : undefined);
         s.doc = refreshDerived(doc);
         s.selectedId = null;
         s.multiSel = [];
@@ -683,6 +688,8 @@ export const useDesignStore = create<DesignState>()(
         if (!prev) return;
         s.future.push(JSON.parse(JSON.stringify(s.doc)));
         s.doc = prev;
+        // 运行时几何跟着文档一起回滚，否则撤销后画布仍用上一个工程的焊盘
+        syncProjectFootprints(prev.importedFootprints ? JSON.parse(JSON.stringify(prev.importedFootprints)) : undefined);
         s.overlaps = findOverlaps(prev.components, undefined, prev.board);
         s.selectedId = null;
       }),
@@ -693,6 +700,7 @@ export const useDesignStore = create<DesignState>()(
         if (!next) return;
         s.past.push(JSON.parse(JSON.stringify(s.doc)));
         s.doc = next;
+        syncProjectFootprints(next.importedFootprints ? JSON.parse(JSON.stringify(next.importedFootprints)) : undefined);
         s.overlaps = findOverlaps(next.components, undefined, next.board);
       }),
 

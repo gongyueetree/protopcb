@@ -18,6 +18,7 @@ import { requireAiAccess, verifySession } from './_lib/session.js';
 import { lookupOperation } from './_lib/ai-operations.js';
 import { callGemini } from './gemini.js';
 import { safeFetch } from './_lib/safe-fetch.js';
+import { ds2Available, runDs2Extract } from './_lib/ai/part-extract-executor.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -91,6 +92,26 @@ export default async function handler(req, res) {
     // 扣费（价格来自注册表；operationId 作幂等键）—— 到这里已确认能执行
     const access = await requireAiAccess(req, operation, op.cost, { operationId, session: sess });
     if (!access.ok) return res.status(access.status).send(JSON.stringify(access.body));
+
+    /**
+     * part.extract 的 PDF/URL：先试 DS2KiCad（确定性解析，精度高于纯 LLM），失败再回落 Gemini。
+     * 两条路径**同一次扣费、同一个 operationId** —— 此前 DS2 走前端直连，成功 0 Credit、
+     * 失败才扣 4，同一次提取的价格取决于后台可用性，用户无法预期。
+     */
+    if (operation === 'part.extract' && (effectiveInput.mode === 'pdf' || effectiveInput.mode === 'url') && ds2Available()) {
+      const payload = effectiveInput.mode === 'pdf'
+        ? { pdfBase64: inline?.data, fileName: String(body.fileName ?? 'datasheet.pdf') }
+        : { url: effectiveInput.url };
+      const ds = await runDs2Extract(payload);
+      if (ds.ok) {
+        return res.status(200).send(JSON.stringify({
+          data: { text: JSON.stringify(ds.data), engine: 'ds2kicad' },
+          usage: { operation, charged: op.cost, remaining: access.remaining, operationId },
+        }));
+      }
+      // 失败不额外扣费：这一次操作已经收过钱了，继续用 Gemini 完成它
+      console.warn('[part.extract] ds2kicad 不可用，回落 Gemini:', ds.reason);
+    }
 
     const prompt = op.buildPrompt(effectiveInput);
     const out = await callGemini(apiKey, prompt, Number(body.temperature ?? 0.2), inline);

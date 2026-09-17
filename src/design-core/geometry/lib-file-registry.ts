@@ -23,8 +23,36 @@ export interface ParsedSymbol {
 const symbolOverrides = new Map<string, ParsedSymbol>(); // key: mpn（拼合版，详情预览用）
 const symbolUnitsOverrides = new Map<string, ParsedSymbol[]>(); // key: mpn（分单元，原理图独立摆放用）
 
+/**
+ * 封装覆盖按来源分层，优先级 PROJECT > CUSTOM > LIBRARY > 名字解析兜底。
+ *
+ * 分层的原因是跨项目污染：此前三类来源混在一个 Map 里，导入工程 A 之后再导入 B，
+ * A 的几何会残留；clearAll 也清不干净。PROJECT 层与 doc.importedFootprints 严格同步
+ * （syncProjectFootprints 是唯一写入口），另外两层与文档无关、跨项目保留。
+ */
+const projectFootprints = new Map<string, PadFootprint>();   // 当前导入工程的内嵌定义
+const customFootprints = new Map<string, PadFootprint>();    // 用户自建器件
+// footprintOverrides 保留为 LIBRARY 层（KiCad 官方库 / 远程拉取）
+
 export function footprintOverrideFor(name: string): PadFootprint | undefined {
-  return footprintOverrides.get(name);
+  return projectFootprints.get(name) ?? customFootprints.get(name) ?? footprintOverrides.get(name);
+}
+
+/**
+ * 把 PROJECT 层整体换成给定定义（唯一写入口）。
+ * 导入、恢复存档、undo/redo、清空画布都必须经过它 —— 保证运行时几何与
+ * doc.importedFootprints 始终一致，且只 bump 一次。
+ */
+export function syncProjectFootprints(defs?: Record<string, PadFootprint>): void {
+  projectFootprints.clear();
+  for (const [name, fp] of Object.entries(defs ?? {})) projectFootprints.set(name, fp);
+  bumpLibRegistry();
+}
+
+/** 自建器件层：跨项目保留，不随工程导入清除 */
+export function registerCustomFootprint(name: string, fp: PadFootprint): void {
+  customFootprints.set(name, fp);
+  bumpLibRegistry();
 }
 export function symbolOverrideFor(mpn: string): ParsedSymbol | undefined {
   return symbolOverrides.get(mpn);
@@ -38,12 +66,15 @@ export function registerSymbolOverride(mpn: string, ps: ParsedSymbol) {
   symbolOverrides.set(mpn, ps);
   bumpLibRegistry();
 }
-/** 仅供测试：清空内存中的封装覆盖（模拟刷新后注册表为空的状态） */
+/** 仅供测试：清空全部层（模拟刷新后注册表为空的状态） */
 export function clearFootprintOverrides(): void {
   footprintOverrides.clear();
+  projectFootprints.clear();
+  customFootprints.clear();
   bumpLibRegistry();
 }
 
+/** LIBRARY 层：官方库 / 远程文件解析出的封装（优先级最低） */
 export function registerFootprintOverride(name: string, fp: PadFootprint) {
   footprintOverrides.set(name, fp);
   bumpLibRegistry();

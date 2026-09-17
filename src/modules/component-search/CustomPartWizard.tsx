@@ -21,7 +21,6 @@ import type { ComponentCategory } from '../../design-core/document/types';
 import { useAiGate } from '../account/useAiGate';
 import { AiGateNotice } from '../account/AccountBar';
 import type { DenyReason } from '../../design-core/entitlements';
-import { ds2kicad } from '../../application/library';
 
 const FAMILIES: [CustomPkg['family'], string][] = [
   ['dual', tr('双列贴片 (SOP/TSSOP)')], ['quad', tr('四边鸥翼 (QFP)')], ['qfn', tr('四边无脚 (QFN)')], ['header', tr('单排针 (2.54)')], ['chip', tr('两端贴片 (阻容)')],
@@ -190,25 +189,11 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
   const runAi = async (payload: { fileBase64?: string; mimeType?: string; url?: string; text?: string }) => {
     setAiBusy(true); setAiMsg('');
     try {
-      // 优先 ds2kicad 引擎（确定性 PDF 解析 + 按需 AI）：适用于 PDF 上传与 PDF 链接
-      let usedEngine = tr('内置 Gemini');
-      if (payload.fileBase64 || payload.url) {
-        const st = await ds2kicad.status();
-        if (!st.configured) {
-          setAiMsg(tr('⚠ 未配置 DS2KICAD_URL（提取引擎），本次使用内置 Gemini——PDF 提取精度建议配置 ds2kicad'));
-        }
-        if (st.configured) {
-          usedEngine = 'ds2kicad';
-          const body = payload.fileBase64
-            ? { pdfBase64: payload.fileBase64, fileName: `${mpn || 'part'}.pdf` }
-            : { pdfUrl: payload.url };
-          const r = await ds2kicad.extract(body);
-          if (r.ok) { applyDs2kicad(await r.json()); setAiBusy(false); return; }
-          const err = await r.json().catch(() => ({}));
-          setAiMsg(`ds2kicad 提取失败（${(err as { error?: string }).error ?? r.status}），回退内置 Gemini…`);
-        }
-      }
-      if (!(await geminiAvailable())) { setAiMsg(tr('未配置 GEMINI_API_KEY（或配置 DS2KICAD_URL 使用提取引擎）')); setAiBusy(false); return; }
+      // 提取引擎的选择在**服务端**：PDF/URL 先试 DS2KiCad（确定性解析），失败回落 Gemini。
+      // 浏览器不再直连 /api/ds2kicad —— 那条路径会让"后台可用就免费、不可用就扣 4 Credit"，
+      // 同一次提取的价格取决于后台状态，用户无法预期。现在一律一次扣费、一个 operationId。
+      let usedEngine = tr('提取引擎');
+      if (!(await geminiAvailable())) { setAiMsg(tr('AI 提取服务未配置')); setAiBusy(false); return; }
       let text: string;
       if (payload.text) {
         const src = payload.text;
@@ -217,15 +202,27 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
         if (out == null) { setAiBusy(false); return; }   // 被门禁拦下，提示已展示
         text = out;
       } else {
-        const out = await guard('part.extract', async () =>
-          (await aiRequest('part.extract', { mode: 'url', url: payload.url, lang: curLang() },
+        // PDF 附件 → mode:'pdf'；纯链接 → mode:'url'；图片 → mode:'image'
+        const mode = payload.fileBase64
+          ? (payload.mimeType === 'application/pdf' ? 'pdf' as const : 'image' as const)
+          : 'url' as const;
+        const res = await guard('part.extract', async () =>
+          aiRequest('part.extract', { mode, url: payload.url, lang: curLang() },
             { attachments: payload.fileBase64
               ? (payload.mimeType === 'application/pdf'
                 ? { pdfBase64: payload.fileBase64 }
                 : { imageBase64: payload.fileBase64, imageMime: payload.mimeType })
-              : undefined })).text);
-        if (out == null) { setAiBusy(false); return; }
-        text = out;
+              : undefined,
+              fileName: payload.fileBase64 ? `${mpn || 'part'}.pdf` : undefined }));
+        if (res == null) { setAiBusy(false); return; }
+        // 服务端用 DS2KiCad 完成时返回的是它的结构化结果，直接套用
+        if ((res as { engine?: string }).engine === 'ds2kicad') {
+          usedEngine = 'ds2kicad';
+          applyDs2kicad(JSON.parse(res.text));
+          setAiBusy(false);
+          return;
+        }
+        text = res.text;
       }
       const parsed = parseExtraction(extractJson(text));
       if (!parsed.ok) throw new Error(tr('提取结果结构不符') + `：${parsed.error}`);
@@ -250,26 +247,19 @@ export function CustomPartWizard({ initialMpn, editPart, onSaved, onClose }: { i
         rd.onerror = () => rej(new Error(tr('读取失败')));
         rd.readAsDataURL(f);
       });
-      let text = '';
-      let engine = '';
-      // 首选 ds2kicad（确定性解析 + 溯源）；不可用/失败则自动回落 Gemini 直读
-      try {
-        const r = await ds2kicad.extract({ pdfBase64: b64, fileName: f.name });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(String(j?.error ?? `HTTP ${r.status}`));
-        applyDs2kicad(j);
+      // 引擎选择在服务端（DS2KiCad 优先、失败回落 Gemini），一次扣费、一个 operationId
+      const res = await guard('part.extract', async () =>
+        aiRequest('part.extract', { mode: 'pdf', lang: curLang() },
+          { attachments: { pdfBase64: b64 }, fileName: f.name }));
+      if (res == null) { setAiBusy(false); return; }
+      if (res.engine === 'ds2kicad') {
+        applyDs2kicad(JSON.parse(res.text));
         setAiMsg('✓ ' + tr('已提取（DS2KiCad），请核对下方表单后保存'));
         setAiBusy(false);
         return;
-      } catch (dsErr) {
-        engine = `ds2kicad 不可用（${(dsErr as Error).message.slice(0, 80)}），已回落 Gemini`;
       }
-      const out = await guard('part.extract', async () =>
-        (await aiRequest('part.extract', { mode: 'pdf', lang: curLang() }, { attachments: { pdfBase64: b64 } })).text);
-      if (out == null) { setAiBusy(false); return; }
-      text = out;
-      applyExtract(extractJson(text));
-      setAiMsg('✓ ' + tr('已提取（Gemini 直读）') + (engine ? ' · ' + engine : ''));
+      applyExtract(extractJson(res.text));
+      setAiMsg('✓ ' + tr('已提取（Gemini 直读）'));
     } catch (err) {
       setAiMsg(tr('提取失败') + '：' + (err as Error).message);
     }

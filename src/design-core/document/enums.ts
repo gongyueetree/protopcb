@@ -4,7 +4,7 @@
  * schema.ts 用 z.enum(X)，types.ts 用 (typeof X)[number]，不再各写一份字面量列表。
  */
 /** 文档格式版本（与 package.json 的软件版本是两个概念，不要求相等） */
-export const SCHEMA_VERSION = '3.2.0';
+export const SCHEMA_VERSION = '3.3.0';
 
 export const RUN_MODES = ['demo', 'standalone', 'integrated'] as const;
 export const COMPONENT_CATEGORIES = ['mcu', 'power', 'passive', 'connector', 'ic', 'electromech', 'sensor', 'rf'] as const;

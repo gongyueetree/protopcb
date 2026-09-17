@@ -107,8 +107,6 @@ let activeLimiter = MemoryRateLimiter;
 export function setRateLimiter(impl) { activeLimiter = impl ?? MemoryRateLimiter; }
 export function rateLimiterKind() { return activeLimiter.kind; }
 
-/** @deprecated 名称保留给既有引用；请用 MemoryRateLimiter / setRateLimiter */
-export const globalRateLimiter = MemoryRateLimiter;
 
 function sweep(now) {
   if (now - LAST_SWEEP.at < 60_000) return;

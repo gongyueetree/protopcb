@@ -61,3 +61,25 @@ describe('KiCad ≤9 的编号表格式不受影响', () => {
     expect(r1.padNets).toEqual({ '1': 1, '2': 2 });
   });
 });
+
+describe('同名封装几何冲突不被静默吞掉', () => {
+  const mk = (ref: string, dy: number) => `  (footprint "Lib:SOIC-8" (layer "F.Cu") (at ${ref === 'U1' ? 10 : 30} 10)
+    (property "Reference" "${ref}" (at 0 0 0)) (property "Value" "X" (at 0 2 0))
+    (pad "1" smd rect (at -2 ${-dy}) (size 1 0.4) (layers "F.Cu"))
+    (pad "2" smd rect (at -2 ${dy}) (size 1 0.4) (layers "F.Cu")))`;
+  const head = `(kicad_pcb (version 20240108) (generator pcbnew)
+  (general (thickness 1.6)) (layers (0 "F.Cu" signal) (44 "Edge.Cuts" user)) (net 0 "")`;
+
+  it('几何一致时不报冲突', () => {
+    const r = parseKicadPcb(`${head}\n${mk('U1', 0.65)}\n${mk('U2', 0.65)})`);
+    expect(r.footprintConflicts).toEqual([]);
+  });
+
+  it('实例改过焊盘时记录冲突（保留首个，如实告知）', () => {
+    const r = parseKicadPcb(`${head}\n${mk('U1', 0.65)}\n${mk('U2', 1.27)})`);
+    expect(r.footprintConflicts).toHaveLength(1);
+    expect(r.footprintConflicts[0]).toMatchObject({ footprintName: 'SOIC-8', references: ['U2'], kept: 'first' });
+    // 保留的是首个实例的几何
+    expect(r.footprintDefs['SOIC-8'].pads.map((p) => p.y).sort()).toEqual([-0.65, 0.65]);
+  });
+});

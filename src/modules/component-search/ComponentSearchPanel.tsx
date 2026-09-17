@@ -15,7 +15,7 @@ import { filterAndRank, looksLikeMpn } from '../../design-core/part-match-policy
 
 import type { ComponentSearchResult } from '../../providers/types';
 import type { ComponentCategory } from '../../design-core/document/types';
-import { useAccessContext, anonymousContext } from '../../state/useAccessContext';
+import { useAccessContext } from '../../state/useAccessContext';
 import { parseGenericPartQuery } from '../../design-core/semantics/generic-part-query';
 import { useDesignStore } from '../../state/designStore';
 
@@ -26,7 +26,7 @@ const providers = getProviders();
 // 身份唯一来源是 /api/session（entitlementStore → useAccessContext）；匿名时为 null
 
 export function ComponentSearchPanel() {
-  const ctx = useAccessContext() ?? anonymousContext();
+  const ctx = useAccessContext();
   const t = useT();
   const [keyword, setKeyword] = useState('');
   const [category] = useState<ComponentCategory | null>(null);

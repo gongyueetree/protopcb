@@ -6,7 +6,7 @@
  */
 import type { PartCandidate as ComponentSearchResult } from './document/candidate';
 import type { ComponentCategory } from './document/types';
-import { registerSymbolOverride, registerFootprintOverride } from './geometry/lib-file-registry';
+import { registerSymbolOverride, registerCustomFootprint } from './geometry/lib-file-registry';
 import { padFootprintFor, type PadFootprint } from './geometry/footprint-pads';
 
 // 引脚类型枚举与基础类型在 custom-types.ts（叶子模块，同源 contracts/custom-part-enums.json）
@@ -191,7 +191,7 @@ function registerPart(part: CustomPart) {
   const sym = buildSym(part.pins);
   if (sym) registerSymbolOverride(part.mpn, sym);
   const fp = buildCustomFootprint(part.pkg, part.pins.length);
-  if (fp) registerFootprintOverride(part.footprintName, fp);
+  if (fp) registerCustomFootprint(part.footprintName, fp);
 }
 
 export function saveCustomPart(part: CustomPart) {

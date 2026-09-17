@@ -16,7 +16,9 @@ export type AiOperation =
   | 'block.analyze' | 'bom.estimate' | 'part.extract' | 'symbol.generate';
 
 export interface AiUsage { operation: AiOperation; charged: number; remaining: number | null; operationId: string }
-export interface AiResult { text: string; model?: string; usage: AiUsage }
+export interface AiResult {
+  /** 服务端实际用的执行器（如 ds2kicad）；缺省为 LLM */
+  engine?: string; text: string; model?: string; usage: AiUsage }
 
 export type AiAccessCode = 'LOGIN_REQUIRED' | 'INSUFFICIENT_CREDITS' | 'BACKEND_NOT_CONNECTED' | 'AUTH_UNAVAILABLE' | 'OTHER';
 
@@ -53,17 +55,17 @@ function codeOf(status: number, body: { code?: string } | null): AiAccessCode {
 export async function aiRequest(
   operation: AiOperation,
   input: Record<string, unknown>,
-  opts: { attachments?: AiAttachments; temperature?: number; operationId?: string } = {},
+  opts: { attachments?: AiAttachments; temperature?: number; operationId?: string; fileName?: string } = {},
 ): Promise<AiResult> {
   const operationId = opts.operationId ?? newOperationId();
   const r = await fetch('/api/ai', {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ operation, operationId, input, temperature: opts.temperature, ...(opts.attachments ?? {}) }),
+    body: JSON.stringify({ operation, operationId, input, temperature: opts.temperature, fileName: opts.fileName, ...(opts.attachments ?? {}) }),
   });
 
-  let body: { data?: { text?: string; model?: string }; usage?: AiUsage; error?: string; code?: string; cost?: number } | null = null;
+  let body: { data?: { text?: string; model?: string; engine?: string }; usage?: AiUsage; error?: string; code?: string; cost?: number } | null = null;
   try { body = await r.json(); } catch { body = null; }
 
   if (!r.ok) {
@@ -72,7 +74,7 @@ export async function aiRequest(
   const usage = body?.usage ?? { operation, charged: 0, remaining: null, operationId };
   // 余额的唯一来源：服务端。这里是全链路里唯一一处 setRemaining。
   if (usage.remaining != null) useEntitlementStore.getState().setRemaining(usage.remaining);
-  return { text: String(body?.data?.text ?? ''), model: body?.data?.model, usage };
+  return { engine: body?.data?.engine, text: String(body?.data?.text ?? ''), model: body?.data?.model, usage };
 }
 
 /** 从模型输出中稳健提取 JSON（剥离 ```json 围栏与前后杂文） */

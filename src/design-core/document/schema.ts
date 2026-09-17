@@ -4,6 +4,10 @@
  * 保证导入/加载的文档结构正确，旧版本可迁移。
  */
 import { z } from 'zod';
+
+/** 板级尺寸的合理上界（mm）：挡住畸形/篡改数据撑爆画布与 3D 场景 */
+const mmCoord = z.number().finite().min(-10000).max(10000);
+const mmPositive = z.number().finite().positive().max(10000);
 import { RUN_MODES, COMPONENT_CATEGORIES, COMPONENT_SOURCES, TRUST_LEVELS, BOARD_SIDES, BOARD_SHAPES, CONNECTION_STYLES, CONNECTION_DIRS, REVIEW_LEVELS, REVIEW_CATEGORIES, LABEL_KINDS, TEXT_ANCHORS, VIA_TYPES } from './enums';
 import { SCHEMA_VERSION } from './enums';
 // CircuitCanvasDocument 由本文件的 documentSchema 推导，这里直接用 z.infer，避免与 types.ts 互相 import
@@ -229,17 +233,22 @@ export const documentSchema = z.object({
    * 此前只注册在内存里，刷新后恢复的存档会回落到"按名字猜"的几何 —— 器件 2D/3D 全不对。
    * 体积可控：真实工程约 20 个唯一封装、16–19KB。
    */
-  importedFootprints: z.record(z.string(), z.object({
-    bodyW: z.number(), bodyH: z.number(),
-    bodyCx: z.number().optional(), bodyCy: z.number().optional(),
-    heightMm: z.number().optional(),
-    approximate: z.boolean().optional(),
-    pin1: z.object({ x: z.number(), y: z.number() }).optional(),
-    pads: z.array(z.object({
-      x: z.number(), y: z.number(), w: z.number(), h: z.number(),
-      num: z.union([z.string(), z.number()]), round: z.boolean().optional(),
-    })),
-  })).optional(),
+  importedFootprints: z.record(
+    z.string().max(200),
+    z.object({
+      // 尺寸有上界：异常工程/篡改过的 JSON 不该能撑爆 2D 画布与 3D 场景
+      bodyW: mmPositive, bodyH: mmPositive,
+      bodyCx: mmCoord.optional(), bodyCy: mmCoord.optional(),
+      heightMm: mmPositive.optional(),
+      approximate: z.boolean().optional(),
+      pin1: z.object({ x: mmCoord, y: mmCoord }).optional(),
+      pads: z.array(z.object({
+        x: mmCoord, y: mmCoord, w: mmPositive, h: mmPositive,
+        num: z.union([z.string().max(16), z.number()]),
+        round: z.boolean().optional(),
+      })).max(5000),                       // BGA 上千球已是极端，5000 足够且挡得住畸形数据
+    }),
+  ).refine((r) => Object.keys(r).length <= 2000, { message: '封装定义数量超出上限（2000）' }).optional(),
   schematicSheets: z.record(z.string(), SchematicSheetSchema).optional(),
   rootSheetFile: z.string().optional(),
   board: boardSchema,
@@ -362,6 +371,12 @@ export const MIGRATIONS: Migration[] = [
       delete d.schematicSheet;
       return d;
     },
+  },
+  {
+    // 3.2 → 3.3：新增 document.importedFootprints（导入工程的内嵌焊盘表）。
+    // 纯 additive 可选字段，无需搬数据；仍单独记一版，保持 schema 演进可追溯。
+    from: '3.2.0', to: '3.3.0',
+    up: (doc) => doc,
   },
 ];
 

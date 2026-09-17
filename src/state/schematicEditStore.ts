@@ -1,5 +1,5 @@
 /**
- * modules/schematic/schematicStore.ts
+ * state/schematicEditStore.ts
  * 原理图编辑状态 —— 独立 zustand store，跨全屏/非全屏共享，不因组件卸载丢失。
  */
 import { create } from 'zustand';

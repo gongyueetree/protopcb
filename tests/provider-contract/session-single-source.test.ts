@@ -49,3 +49,24 @@ describe('没有第二个身份源', () => {
     expect(src).toMatch(/useEntitlementStore/);
   });
 });
+
+describe('匿名就是 null，不伪造空用户', () => {
+  it('anonymousContext 已删除：不存在用空字符串 userId 冒充身份的出口', async () => {
+    const mod = await import('../../src/state/useAccessContext');
+    expect('anonymousContext' in mod).toBe(false);
+  });
+  it('公开方法签名接受 null，AI 方法只接受已认证身份', async () => {
+    const src = await import('node:fs').then((fs) => fs.readFileSync(
+      new URL('../../src/providers/types/index.ts', import.meta.url), 'utf8'));
+    expect(src).toMatch(/searchComponents\([^)]*ctx: AccessContext \| null\)/);
+    expect(src).toMatch(/generateScheme\([^)]*ctx: AuthenticatedAccessContext\)/);
+  });
+  it('生产代码里没有空字符串身份', async () => {
+    const { readdirSync, statSync, readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const root = new URL('../../src', import.meta.url).pathname;
+    const walk = (d: string, out: string[] = []): string[] => { for (const f of readdirSync(d)) { const p = join(d, f); if (statSync(p).isDirectory()) walk(p, out); else if (/\.tsx?$/.test(p) && !/\.test\./.test(p)) out.push(p); } return out; };
+    const offenders = walk(root).filter((p) => /userId:\s*''/.test(readFileSync(p, 'utf8'))).map((p) => p.split('/src/')[1]);
+    expect(offenders).toEqual([]);
+  });
+});

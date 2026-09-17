@@ -18,7 +18,11 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 const files = walk(SRC).map((p) => ({ rel: p.split('/src/')[1], text: readFileSync(p, 'utf8') }));
-const imports = (text: string) => [...text.matchAll(/^import[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
+/** 静态 import + 动态 import()：绕过静态门禁的动态导入同样算依赖 */
+const imports = (text: string) => [
+  ...[...text.matchAll(/^import[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1]),
+  ...[...text.matchAll(/\bimport\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1]),
+];
 
 describe('design-core 是纯 Domain', () => {
   const domain = files.filter((f) => f.rel.startsWith('design-core/'));
@@ -33,7 +37,14 @@ describe('design-core 是纯 Domain', () => {
   }
 });
 
-describe('Application 层不依赖 UI', () => {
+describe('Application / state 层不依赖 UI', () => {
+  it('src/state/** 不 import src/modules/**（动态 import 同样不行）', () => {
+    const offenders = files.filter((f) => f.rel.startsWith('state/'))
+      .filter((f) => imports(f.text).some((i) => /(^|\/)modules(\/|$)/.test(i)))
+      .map((f) => f.rel);
+    expect(offenders).toEqual([]);
+  });
+
   it('src/application/** 不 import src/modules/**', () => {
     const offenders = files.filter((f) => f.rel.startsWith('application/'))
       .filter((f) => imports(f.text).some((i) => /(^|\/)modules(\/|$)/.test(i)))

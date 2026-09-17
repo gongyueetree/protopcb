@@ -20,8 +20,15 @@ export function useProjectPersistence(
   useEffect(() => {
     if (restored.current) return;
     restored.current = true;
+    // ?fresh=1：本次**跳过恢复**，存档原样保留 —— URL 参数绝不能删除用户数据
+    //（上一版在这里直接删了存档，等于一个链接就能抹掉别人的设计）。
+    // 读完即从地址栏移除，避免被收藏后每次都空白启动。
     if (typeof location !== 'undefined' && /(?:\?|&)fresh=1(?:&|$)/.test(location.search)) {
-      ProjectPersistenceService.clearByUser();
+      try {
+        const url = new URL(location.href);
+        url.searchParams.delete('fresh');
+        history.replaceState(null, '', url.toString());
+      } catch { /* 无 history 时忽略 */ }
       return;
     }
     const saved = ProjectPersistenceService.load();

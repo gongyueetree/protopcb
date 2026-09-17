@@ -115,3 +115,27 @@ describe('匿名用户仍可用的检索路径（回归）', () => {
     expect(restricted).not.toContain('search.ezplm');
   });
 });
+
+describe('Advisor 的拒绝原因必须可区分（不能一律"去登录"）', () => {
+  it('匿名 → login-required', () => {
+    expect(checkCapability(ANONYMOUS, 'advisor.analyze').reason).toBe('login-required');
+  });
+  it('已登录但 0 Credit → insufficient-credits（不是要求登录）', () => {
+    const r = checkCapability({ tier: 'registered', credits: 0, creditsKnown: true }, 'advisor.analyze');
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toBe('insufficient-credits');
+    expect(r.cost).toBe(2);
+  });
+  it('额度未知 → credits-unknown', () => {
+    const r = checkCapability({ tier: 'registered', credits: 0, creditsKnown: false }, 'advisor.analyze');
+    expect(r.reason).toBe('credits-unknown');
+  });
+  it('AdvisorPanel 按三种原因给不同文案，且不整页挡板', async () => {
+    const src = await import('node:fs').then((fs) => fs.readFileSync(
+      new URL('../../src/modules/design-review/AdvisorPanel.tsx', import.meta.url), 'utf8'));
+    expect(src).toMatch(/insufficient-credits/);
+    expect(src).toMatch(/credits-unknown|AI 服务暂不可用/);
+    expect(src).toMatch(/buyCreditsUrl/);
+    expect(src).not.toMatch(/if \(!aiAllowed\) \{\s*return \(/);   // 不再整页 return 挡板
+  });
+});

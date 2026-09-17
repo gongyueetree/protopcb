@@ -6,7 +6,7 @@
 import { tr } from '../../shared/i18n';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useDesignStore } from '../../state/designStore';
-import { useSchematicStore, type SchNet } from './schematicStore';
+import { useSchematicStore, type SchNet } from '../../state/schematicEditStore';
 import { symbolUnitsFor } from './symbols';
 import { useLibFileStore } from '../../state/libFileStore';
 import { ImportedSchematicView } from './ImportedSchematicView';

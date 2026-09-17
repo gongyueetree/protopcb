@@ -21,7 +21,8 @@ Infrastructure adapters (src/providers/{ezplm (index + live), digikey, suppliers
    │
 HTTP  →  api/* (Vercel Serverless)  →  ezPLM / DigiKey / Mouser / Iceasy / Gemini
 
-Domain (src/design-core/**)：纯逻辑。不 import providers / modules / state / react / zustand。
+Domain (src/design-core/**)：不 import providers / modules / state / react / zustand。
+  注意：**不等于无副作用** —— persistence-service 用 localStorage/FileReader，lib-file-registry 用 fetch/localStorage（见审计）。
 Provider → Domain（Provider 依赖 Domain 的类型与规则），绝不反向。
 State (src/state/*)：zustand store；Domain 的观察者桥接（libFileStore）也在这里。
 ```

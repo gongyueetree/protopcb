@@ -33,7 +33,7 @@ describe('schema 迁移链', () => {
       board: { ...createDocument({ name: 'x' }).board, mountingHoles: [{ x: 3, y: 4, d: 2.7 }] },
     };
     const out = migrateDocument(v1doc) as { schemaVersion: string; board: { mountingHoles: { position: { x: number; y: number }; diameterMm: number }[] } };
-    expect(out.schemaVersion).toBe('3.2.0');
+    expect(out.schemaVersion).toBe('3.3.0');
     expect(out.board.mountingHoles[0]).toEqual({ position: { x: 3, y: 4 }, diameterMm: 2.7 });
     // 迁移后整体过 Zod
     const parsed = parseDocument(v1doc);
@@ -60,7 +60,7 @@ describe('schema 迁移链', () => {
     expect(parsed.ok).toBe(true);
     if (parsed.ok) {
       expect(parsed.document.components).toEqual([]);
-      expect(parsed.document.schemaVersion).toBe('3.2.0');
+      expect(parsed.document.schemaVersion).toBe('3.3.0');
     }
   });
 
@@ -80,7 +80,7 @@ describe('3.1 → 3.2：当前页不再复制进文档', () => {
     expect(out.schematicSheet).toBeUndefined();
     expect(Object.keys(out.schematicSheets ?? {})).toEqual(['main.kicad_sch']);
     expect(out.rootSheetFile).toBe('main.kicad_sch');
-    expect(out.schemaVersion).toBe('3.2.0');
+    expect(out.schemaVersion).toBe('3.3.0');
   });
   it('两者都有时以 schematicSheets 为准，只删复制的那份', () => {
     const doc = { schemaVersion: '3.1.0', board: { widthMm: 100, heightMm: 80, shape: 'rect' },
@@ -91,5 +91,22 @@ describe('3.1 → 3.2：当前页不再复制进文档', () => {
     expect(out.schematicSheet).toBeUndefined();
     expect(Object.keys(out.schematicSheets ?? {}).sort()).toEqual(['root.kicad_sch', 'sub.kicad_sch']);
     expect(out.rootSheetFile).toBe('root.kicad_sch');
+  });
+});
+
+describe('3.2 → 3.3：新增 importedFootprints', () => {
+  it('旧 3.2 文档升级后版本为 3.3，且不凭空造出字段', () => {
+    const doc = { schemaVersion: '3.2.0', board: { widthMm: 100, heightMm: 80, shape: 'rect' } };
+    const out = migrateDocument(doc) as { schemaVersion: string; importedFootprints?: unknown };
+    expect(out.schemaVersion).toBe('3.3.0');
+    expect(out.importedFootprints).toBeUndefined();
+  });
+  it('畸形焊盘表被 schema 挡下（数量/尺寸上界）', async () => {
+    const { documentSchema } = await import('./schema');
+    const huge = { pads: Array.from({ length: 5001 }, () => ({ x: 0, y: 0, w: 1, h: 1, num: '1' })), bodyW: 1, bodyH: 1 };
+    const r = documentSchema.shape.importedFootprints.safeParse({ X: huge });
+    expect(r.success).toBe(false);
+    const oversized = documentSchema.shape.importedFootprints.safeParse({ X: { bodyW: 99999, bodyH: 1, pads: [] } });
+    expect(oversized.success).toBe(false);
   });
 });

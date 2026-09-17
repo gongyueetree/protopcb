@@ -62,8 +62,8 @@ export default tseslint.config(
     },
   },
   {
-    // Application 层不得反向依赖 UI：它只返回结构化结果，由 UI 决定怎么提示
-    files: ['src/application/**/*.{ts,tsx}'],
+    // Application 与 state 层不得反向依赖 UI（动态 import 由架构测试补充拦截）
+    files: ['src/application/**/*.{ts,tsx}', 'src/state/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': ['error', { patterns: [
         { regex: '(^|/)modules(/|$)', message: 'application 不得依赖 modules（UI）；返回结构化结果交由 UI 处理' },

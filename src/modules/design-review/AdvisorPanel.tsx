@@ -15,10 +15,10 @@ import { CATEGORY_DISPLAY, COLORS } from '../../shared/theme';
 import type { PeripheralCircuitRecommendation } from '../../providers/types';
 import type { ComponentCategory, ReviewLevel } from '../../design-core/document/types';
 import { SubCircuitSection } from './SubCircuitSection';
-import { useAccessContext, anonymousContext } from '../../state/useAccessContext';
+import { useAccessContext } from '../../state/useAccessContext';
 import { useAiGate } from '../account/useAiGate';
 import { useEntitlementStore } from '../../state/entitlementStore';
-import { loginUrl } from '../../design-core/entitlements';
+import { loginUrl, buyCreditsUrl } from '../../design-core/entitlements';
 
 const providers = getProviders();
 // 身份唯一来源是 /api/session（entitlementStore → useAccessContext）；匿名时为 null
@@ -68,14 +68,16 @@ function ruleSuggestions(comps: { mpn: string; category: string; family?: string
 const geminiCache = new Map<string, { name: string; reason: string }[]>();
 
 export function AdvisorPanel() {
-  const ctx = useAccessContext() ?? anonymousContext();
+  const ctx = useAccessContext();
   const { guard, gateNotice } = useAiGate();
   /**
    * 未登录时整页收起：这一页的每个区块（配套电路推荐、板级系统补全、
    * 按类别建议）都依赖 AI 或需要账户边界。逐块显示"需要登录"会让页面
    * 变成三段重复的挡板 —— 不如一次说清，把位置让给一句有用的说明。
    */
-  const aiAllowed = useEntitlementStore((st) => st.check('advisor.analyze').allowed);
+  // 拒绝原因必须分开：已登录但 0 Credit 的用户看到"去登录"是错的
+  const aiGate = useEntitlementStore((st) => st.check('advisor.analyze'));
+  const aiAllowed = aiGate.allowed;
   const lang = useLangStore((st) => st.lang) === 'en' ? 'en' as const : 'zh' as const;
   const doc = useDesignStore((s) => s.doc);
   const addComponent = useDesignStore((s) => s.addComponent);
@@ -152,24 +154,31 @@ export function AdvisorPanel() {
   const layers = recommendLayers(doc);
   const highCount = doc.reviewResults.filter((r) => r.level === 'high').length;
 
-  if (!aiAllowed) {
-    return (
-      <div style={{ padding: '22px 16px', textAlign: 'center' }}>
-        <div style={{ fontSize: 28, marginBottom: 8 }}>🤖</div>
-        <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.green, marginBottom: 6 }}>{tr('AI 顾问需要登录')}</div>
-        <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.75, marginBottom: 12 }}>
-          {tr('这里会基于画布上的器件给出配套电路、参考设计与板级补全建议。登录后即可使用，新注册赠送体验 Credit。')}
-        </div>
-        <a href={loginUrl(lang)}
-          style={{ display: 'inline-block', padding: '7px 18px', borderRadius: 8, background: COLORS.green, color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
-          {tr('去登录')}
-        </a>
-        <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 12, lineHeight: 1.7 }}>
-          {tr('未登录仍可使用：画布编辑、KiCad 工程导入、ezPLM 器件库检索、3D 与外壳、导出原型文件。')}
-        </div>
+  /**
+   * 不整页挡板：规则检查与公开参考设计都不耗 Credit，匿名也该看得到；
+   * 只有"AI 深度分析"按钮按 advisor.analyze 计费。
+   * 拒绝原因分三种，文案各不相同 —— 已登录 0 Credit 的用户不该被要求"去登录"。
+   */
+  const advisorGateNotice = aiAllowed ? null : (
+    <div style={{ margin: '0 0 10px', padding: '9px 11px', borderRadius: 9, background: '#fffbeb', border: '1px solid #fde68a' }}>
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: '#92400e', marginBottom: 3 }}>
+        {aiGate.reason === 'login-required' ? tr('AI 深度分析需要登录')
+          : aiGate.reason === 'insufficient-credits' ? tr('Credit 不足')
+          : tr('AI 服务暂不可用')}
       </div>
-    );
-  }
+      <div style={{ fontSize: 10.5, color: '#78350f', lineHeight: 1.7 }}>
+        {aiGate.reason === 'login-required'
+          ? tr('下方的规则检查与公开参考设计无需登录即可使用；登录后可用 AI 深度分析，新账户赠送体验 Credit。')
+          : aiGate.reason === 'insufficient-credits'
+            ? `${tr('本次分析需要')} ${aiGate.cost ?? 2} Credit${tr('，余额不足。其余规则检查不受影响。')}`
+            : tr('账户服务暂时不可用，规则检查与公开参考设计仍可使用。')}
+      </div>
+      <a href={aiGate.reason === 'insufficient-credits' ? buyCreditsUrl(lang) : loginUrl(lang)}
+        style={{ display: 'inline-block', marginTop: 7, padding: '5px 13px', borderRadius: 7, background: COLORS.green, color: '#fff', fontSize: 11, fontWeight: 700, textDecoration: 'none' }}>
+        {aiGate.reason === 'insufficient-credits' ? tr('获取 Credit') : tr('去登录')}
+      </a>
+    </div>
+  );
 
 
   return (
@@ -182,6 +191,7 @@ export function AdvisorPanel() {
 
       {/* 板级补全：不针对某一颗器件，而是看整块板还缺什么子系统 */}
       <Section title={"🧠 " + tr('板级系统补全')} badge={sysSugs.length || undefined}>
+        {advisorGateNotice}
         {gateNotice && <div style={{ marginBottom: 6 }}>{gateNotice}</div>}
         {doc.components.length === 0 ? <Empty text={tr('添加器件后，AI 分析系统还缺什么')} /> : analyzing ? <Empty text={tr('分析中...')} /> : (
           <>

@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { getProviders } from '../../providers/factory';
 import { useDesignStore } from '../../state/designStore';
 import { useEntitlementStore } from '../../state/entitlementStore';
-import { useAccessContext, anonymousContext } from '../../state/useAccessContext';
+import { useAccessContext } from '../../state/useAccessContext';
 import { dialogs } from '../ui/dialogStore';
 import { tr } from '../../shared/i18n';
 import { diffSchemes } from '../../design-core/scheme-workspace';
@@ -17,7 +17,7 @@ import type { DenyReason } from '../../design-core/entitlements';
 const providers = getProviders();
 
 export function useSchemeController(aiPrompt: string) {
-  const ctx = useAccessContext() ?? anonymousContext();
+  const ctx = useAccessContext();
   const [aiBusy, setAiBusy] = useState(false);
   const [aiGate, setAiGate] = useState<{ reason: DenyReason; cost?: number } | null>(null);
   const checkCap = useEntitlementStore((s) => s.check);
@@ -29,6 +29,8 @@ export function useSchemeController(aiPrompt: string) {
     // 前端门禁只为体验（少一次白跑的请求）；真正的拦截在服务端
     const gate = checkCap('scheme.generate');
     if (!gate.allowed) { setAiGate({ reason: gate.reason!, cost: gate.cost }); return; }
+    // 类型上 AI 只接受已认证身份：门禁放行意味着已登录，这里做一次收窄
+    if (!ctx) { setAiGate({ reason: 'login-required' }); return; }
     setAiBusy(true);
     try {
       const result = await providers.ai.generateScheme({ prompt: aiPrompt }, ctx);
@@ -66,6 +68,10 @@ export function useSchemeController(aiPrompt: string) {
    */
   const reviseScheme = async (feedback: string) => {
     if (!aiProposal) return;
+    // 多轮修改同样是计费 AI 调用：先过门禁再花钱（服务端仍会二次拦截）
+    const gate = checkCap('scheme.revise');
+    if (!gate.allowed) { setAiGate({ reason: gate.reason!, cost: gate.cost }); return; }
+    if (!ctx) { setAiGate({ reason: 'login-required' }); return; }
     setAiBusy(true);
     const prevDetails = aiProposal.details;
     try {

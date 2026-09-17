@@ -7,6 +7,13 @@ import type { PartCandidate } from '../../design-core/document/candidate';
 import type { FootprintGeometry } from '../../design-core/geometry/types';
 
 /* ---------- 通用 ---------- */
+/**
+ * 调用方身份。**公开方法接受 null = 匿名**；不要用空字符串 userId 冒充匿名 ——
+ * 那会让"有身份但为空"和"没有身份"无法区分，私有数据的判定全靠调用方自觉。
+ */
+/** 已登录的身份：私有数据路径只接受它 */
+export type AuthenticatedAccessContext = AccessContext & { userId: string };
+
 export interface AccessContext {
   userId: string;
   organizationId?: string;
@@ -73,11 +80,11 @@ export interface PeripheralCircuitRecommendation {
 }
 
 export interface ComponentDataProvider {
-  searchComponents(query: ComponentSearchQuery, ctx: AccessContext): Promise<Paginated<ComponentSearchResult>>;
-  getComponentDetail(componentId: string, ctx: AccessContext): Promise<ComponentSearchResult | null>;
-  getFootprintOptions(componentId: string, ctx: AccessContext): Promise<FootprintOption[]>;
-  getAlternatives(componentId: string, ctx: AccessContext): Promise<ComponentAlternative[]>;
-  getSupplierOffers(componentId: string, ctx: AccessContext): Promise<SupplierOffer[]>;
+  searchComponents(query: ComponentSearchQuery, ctx: AccessContext | null): Promise<Paginated<ComponentSearchResult>>;
+  getComponentDetail(componentId: string, ctx: AccessContext | null): Promise<ComponentSearchResult | null>;
+  getFootprintOptions(componentId: string, ctx: AccessContext | null): Promise<FootprintOption[]>;
+  getAlternatives(componentId: string, ctx: AccessContext | null): Promise<ComponentAlternative[]>;
+  getSupplierOffers(componentId: string, ctx: AccessContext | null): Promise<SupplierOffer[]>;
   getOrganizationContext(componentId: string, organizationId: string): Promise<OrganizationMaterialInfo | null>;
   /** 浏览全部封装（含分类） */
   listFootprints(category?: string): Promise<FootprintOption[]>;
@@ -85,7 +92,7 @@ export interface ComponentDataProvider {
 
 /* ---------- 参考设计 / 子电路知识 ---------- */
 export interface ReferenceDesignProvider {
-  getRecommendedPeripheralCircuits(category: ComponentCategory, ctx: AccessContext): Promise<PeripheralCircuitRecommendation[]>;
+  getRecommendedPeripheralCircuits(category: ComponentCategory, ctx: AccessContext | null): Promise<PeripheralCircuitRecommendation[]>;
   /**
    * 应用项目（组织内用过该器件的历史项目）—— 私有数据，必须带身份；
    * 匿名返回 UNAUTHORIZED，不发请求。
@@ -144,7 +151,8 @@ export interface AiSchemeResult {
   fallbackReason?: string;
 }
 export interface AiModelProvider {
-  generateScheme(req: AiSchemeRequest, ctx: AccessContext): Promise<AiSchemeResult>;
+  /** AI 能力必须已登录：类型上就只接受已认证身份，避免匿名调用靠空 userId 混过去 */
+  generateScheme(req: AiSchemeRequest, ctx: AuthenticatedAccessContext): Promise<AiSchemeResult>;
 }
 
 /* ---------- Provider 集合 ---------- */

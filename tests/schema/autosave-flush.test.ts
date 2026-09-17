@@ -53,13 +53,19 @@ describe('useProjectPersistence 注册了离开页面的 flush', () => {
   });
 });
 
-describe('?fresh=1 空白启动', () => {
-  it('恢复逻辑识别该参数并清掉存档', async () => {
+
+describe('?fresh=1 绝不删用户存档（数据安全）', () => {
+  it('只跳过恢复，不调用 clearByUser，并从地址栏移除参数', async () => {
     const src = await import('node:fs').then((fs) => fs.readFileSync(
       new URL('../../src/modules/report/useProjectPersistence.ts', import.meta.url), 'utf8'));
+    // 整个文件里都不该再出现 clearByUser（清空只能来自用户显式操作）
+    expect(src).not.toMatch(/clearByUser/);
+    expect(src).toMatch(/history\.replaceState/);
     expect(src).toMatch(/fresh=1/);
-    expect(src).toMatch(/clearByUser\(\)/);
-    // 只在显式带参数时跳过：默认仍然恢复，不静默丢用户的设计
-    expect(src).toMatch(/const saved = ProjectPersistenceService\.load\(\);/);
+  });
+  it('存档仍可被普通刷新恢复', () => {
+    const doc = { ...createDocument({ name: '仍在' }), components: [] };
+    ProjectPersistenceService.saveNow(doc);
+    expect(ProjectPersistenceService.load()?.doc.name).toBe('仍在');
   });
 });

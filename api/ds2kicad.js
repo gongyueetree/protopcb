@@ -1,4 +1,5 @@
 import { requireAuthenticatedCapability } from './_lib/session.js';
+import { signJwt } from './_lib/ezplm-jwt.js';
 import { acquire, checkBodySize, deny, readJsonBody } from './_lib/guard.js';
 /**
  * api/ds2kicad.js — DS2KiCad 提取引擎代理（BFF）
@@ -15,7 +16,6 @@ import { acquire, checkBodySize, deny, readJsonBody } from './_lib/guard.js';
  * GET  /api/ds2kicad            → { configured, hasJwt }
  * POST /api/ds2kicad  body {pdfUrl} 或 {pdfBase64, fileName} → 透传 extract 响应
  */
-import { createHmac } from 'node:crypto';
 import { fetchWithTimeout, readResponseLimited } from './_lib/net.js';
 /** 统一出站通道（本文件所有上游请求走这里）：超时 + 响应体上限 */
 async function tfetch(url, init = {}) {
@@ -31,15 +31,6 @@ async function tfetch(url, init = {}) {
 }
 
 
-function signJwt(secret) {
-  const b64u = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const now = Math.floor(Date.now() / 1000);
-  const h = b64u({ alg: 'HS256', typ: 'JWT' });
-  // sub/tenantId 是 DS2KiCad 侧登记的**租户标识**，改了对方就认不出来（LEGACY_COMPAT_IDENTIFIER）
-  const p = b64u({ sub: 'circuit-canvas', name: '硬件原型工坊', tenantId: 'circuit-canvas', iat: now, exp: now + 300 });
-  const s = createHmac('sha256', secret).update(`${h}.${p}`).digest('base64url');
-  return `${h}.${p}.${s}`;
-}
 
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
