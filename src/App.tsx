@@ -81,7 +81,7 @@ import { DialogHost } from './modules/ui/DialogHost';
 
 /** 主视图页签 —— 与渲染稿一致的信息架构：各视图同级平铺，不再用底部抽屉 */
 
-// 身份来自 providers.identity（demo 模式自然是 demo-user，集成模式是真实身份）
+// 身份唯一来源是 /api/session（entitlementStore → useAccessContext）；匿名时为 null
 
 declare const __BUILD_STAMP__: string;
 declare const __BUILD_SHA__: string;

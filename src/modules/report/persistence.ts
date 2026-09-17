@@ -2,7 +2,7 @@
  * modules/report/persistence.ts
  * 设计文档的导入/导出/自动保存。
  */
-import { serializeDocument, deserializeDocument } from '../../design-core/document/factory';
+import { serializeDocument } from '../../design-core/document/factory';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
 
 // 自动保存已统一到 ProjectPersistenceService（唯一键 'cc_doc_autosave'）；
@@ -17,17 +17,9 @@ export function exportDocument(doc: CircuitCanvasDocument) {
   URL.revokeObjectURL(a.href);
 }
 
-export function importDocumentFromFile(file: File): Promise<CircuitCanvasDocument> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      try { resolve(deserializeDocument(String(reader.result))); }
-      catch (e) { reject(e); }
-    };
-    reader.onerror = () => reject(new Error('读取文件失败'));
-    reader.readAsText(file);
-  });
-}
+// importDocumentFromFile 已移到 design-core/document/persistence-service（Domain），
+// 这样 application 层不必反向依赖 modules/report。
+export { importDocumentFromFile } from '../../design-core/document/persistence-service';
 
 
 

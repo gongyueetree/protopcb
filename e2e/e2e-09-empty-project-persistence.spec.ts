@@ -10,7 +10,7 @@ test('component-less project with custom board/name restores after reload', asyn
   await page.getByTestId('project-name').click();
   const input = page.getByRole('dialog').getByRole('textbox');
   await input.fill('空板项目'); await input.press('Enter');
-  await page.waitForTimeout(800);   // 自动存档防抖
+  // 不用 sleep 掩盖持久化缺陷：离开页面时会 flush（pagehide / visibilitychange）
   await page.reload();
   const doc = await page.evaluate(() => JSON.parse((window as unknown as { __protopcb_test__: { getDocJson: () => string } }).__protopcb_test__.getDocJson()));
   expect(doc.board.widthMm).toBe(120);

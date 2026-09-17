@@ -1,7 +1,10 @@
 # protopcb — 硬件原型工坊
 
 > 当前架构：`docs/ARCHITECTURE.md`（按代码重写）；规划：`docs/ROADMAP.md`；审计：`docs/CODEBASE_AUDIT.md`。
-> 仓库 / 包名 `protopcb`；产品显示名「硬件原型工坊」。旧名 Circuit Canvas 仅存于 Git 历史。
+> 仓库 / 包名 `protopcb`；产品显示名「硬件原型工坊」。
+> 旧名 `circuit_canvas` / `circuit-canvas` 仍作为**兼容标识**保留在两处协议字段里
+> （KiCad 导出的 `generator`、DS2KiCad 的租户 `sub/tenantId`），改动会让对端认不出来。
+> 详见 `docs/ARCHITECTURE.md` 的 LEGACY_COMPAT_IDENTIFIER 一节。
 
 电子产品早期架构与 PCB 预布局智能工具 — TypeScript 分层架构重构版。
 

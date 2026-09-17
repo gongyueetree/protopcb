@@ -1,5 +1,5 @@
 /**
- * modules/board-editor/model-blob-registry.ts
+ * infrastructure/model-assets/index.ts
  * 工程 zip 里带的 STEP 文件 → blob URL 的**生命周期登记**。
  *
  * 此前 App 直接 URL.createObjectURL 然后就忘了它：反复导入工程，每次都是一批新 blob，
@@ -9,7 +9,7 @@
  *   register()  登记（一个封装名对应一个 URL；同名再登记先撤旧的）
  *   revokeAll() 重新导入 / 清空项目 / 应用卸载时整体撤销，并把 STEP 缓存里对应模型驱逐
  */
-import { evictStepModel } from './step-loader';
+import { evictStepModel } from '../../modules/board-editor/step-loader';
 
 const byFootprint = new Map<string, string>();
 const all = new Set<string>();

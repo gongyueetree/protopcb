@@ -30,6 +30,14 @@ export interface KicadImportedComp {
   yMm: number;
   rotation: number;
   layer: 'top' | 'bottom';
+  /**
+   * 本实例的 3D 模型摆正变换（来自该 footprint 节点自己的 (model)）。
+   * 必须按实例存：同一封装的 J1/J2 常带不同的 rotate/offset（一个朝板内一个朝板外），
+   * 按 footprintName 存会互相覆盖。
+   */
+  modelTransform?: ModelTransform;
+  /** 本实例引用的工程自带模型路径（${KIPRJMOD}/…） */
+  projectModelPath?: string;
 }
 
 /** .kicad_pcb 的 (model) 变换：offset(mm) / rotate(deg) / scale */
@@ -68,8 +76,6 @@ export interface KicadImportResult {
   modelRefs: Record<string, { lib3d: string; name3d: string }>;
   /** 封装名 → 工程自带 3D 模型的原始路径（如 ${KIPRJMOD}/3D/evqp7-ja-01p.step） */
   projectModelPaths: Record<string, string>;
-  /** 封装名 → 3D 模型的摆正变换（来自 .kicad_pcb 的 (model) 节点） */
-  modelTransforms: Record<string, ModelTransform>;
 }
 
 /** 读取 footprint 的文本属性：v7+ (property "Reference" "U1") / v6 (fp_text reference U1 …) */
@@ -122,8 +128,6 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const modelRefs: Record<string, { lib3d: string; name3d: string }> = {};
   /** 封装名 → .kicad_pcb 里写的原始 model 路径（可能含 ${KIPRJMOD} 变量） */
   const projectModelPaths: Record<string, string> = {};
-  /** 封装名 → (model) 里的 offset/rotate/scale（KiCad 用它把厂商 STEP 摆正） */
-  const modelTransforms: Record<string, ModelTransform> = {};
   /**
    * 网络表。两种格式都要支持：
    *   KiCad ≤9：文件顶层有 (net 3 "+5V") 编号表，pad 里写 (net 3 "+5V")
@@ -169,6 +173,9 @@ export function parseKicadPcb(text: string): KicadImportResult {
   for (const fp of fps) {
     const lib = String(fp[1] ?? '');
     const fpName = lib.includes(':') ? lib.split(':').pop()! : lib;
+    // 本实例的 3D 模型信息（同一封装的不同实例可以不同，必须按实例存）
+    let instModelTransform: ModelTransform | undefined;
+    let instProjectModelPath: string | undefined;
     if (/mountinghole|^hole[_-]|_hole_/i.test(fpName)) {
       hasMountingHoles = true;
       const at2 = find(fp, 'at');
@@ -187,13 +194,20 @@ export function parseKicadPcb(text: string): KicadImportResult {
     if (!footprintDefs[fpName]) {
       const def = parseFootprintNode(fp);
       if (def && def.pads.length) footprintDefs[fpName] = def;
+    }
+    // ⚠ (model) 必须**每个实例**都解析：它不像焊盘定义那样同名即相同 ——
+    //   同一封装的 J1/J2 常带不同的 rotate/offset。此前它被包在上面的
+    //   `if (!footprintDefs[fpName])` 里，只有该封装第一个实例被解析。
       // 内嵌 (model "…/X.3dshapes/Y.wrl|step") → 官方 3D 引用
       const mdl = find(fp, 'model');
       const mpath = mdl ? String(mdl[1] ?? '') : '';
       const mm = mpath.match(/([^/\\]+)\.3dshapes[/\\]([^/\\]+)\.(step|stp|wrl)$/i);
       if (mm) modelRefs[fpName] = { lib3d: mm[1], name3d: mm[2] };
       // 工程自带模型（${KIPRJMOD}/3D/xxx.step 这类）：记下原始路径，zip 导入时按文件名在包内匹配
-      if (mpath && /\.(step|stp)$/i.test(mpath) && !/\.3dshapes[/\\]/i.test(mpath)) projectModelPaths[fpName] = mpath;
+      if (mpath && /\.(step|stp)$/i.test(mpath) && !/\.3dshapes[/\\]/i.test(mpath)) {
+        projectModelPaths[fpName] = mpath;      // 封装级：zip 导入按文件名匹配 STEP 时用
+        instProjectModelPath = mpath;           // 实例级：与本实例的 transform 配套
+      }
       /**
        * (model) 自带的 offset/scale/rotate 必须带出来 —— KiCad 用它把厂商 STEP 摆正。
        * 忽略它的后果是实打实的：USB-C 的 (rotate 180 0 0) 丢掉就整个翻过来，
@@ -213,10 +227,10 @@ export function parseKicadPcb(text: string): KicadImportResult {
         const scale = xyzOf('scale');
         const nonTrivial = (v: [number, number, number] | undefined, unit: number) => v && v.some((x) => Math.abs(x - unit) > 1e-9);
         if (nonTrivial(offset, 0) || nonTrivial(rotate, 0) || nonTrivial(scale, 1)) {
-          modelTransforms[fpName] = { offset, rotate, scale };
+          instModelTransform = { offset, rotate, scale };
         }
       }
-    }
+
     const at = find(fp, 'at');
     const layerRaw = String(find(fp, 'layer')?.[1] ?? 'F.Cu');
     const reference = fpProperty(fp, 'Reference');
@@ -238,6 +252,8 @@ export function parseKicadPcb(text: string): KicadImportResult {
         : netIdOf(String(nn[1] ?? ''));
     }
     comps.push({
+      modelTransform: instModelTransform,
+      projectModelPath: instProjectModelPath,
       padNets: Object.keys(padNets).length ? padNets : undefined,
       reference: reference || `X${comps.length + 1}`,
       value: value || fpName,
@@ -307,5 +323,5 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const widthMm = hasOutline ? Math.max(1, rawW) : Math.max(20, rawW);
   const heightMm = hasOutline ? Math.max(1, rawH) : Math.max(20, rawH);
 
-  return { nets, copperLayers, tracks, vias: viasArr, mountingHoles, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs, projectModelPaths, modelTransforms };
+  return { nets, copperLayers, tracks, vias: viasArr, mountingHoles, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs, projectModelPaths };
 }

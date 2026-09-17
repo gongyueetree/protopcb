@@ -103,16 +103,7 @@ export interface ReferenceLoadResult {
 }
 
 /* ---------- 身份 ---------- */
-export interface CurrentUser {
-  userId: string;
-  displayName: string;
-  organizationId?: string;
-}
 
-export interface IdentityProvider {
-  getCurrentUser(): Promise<CurrentUser>;
-  getAccessContext(): Promise<AccessContext>;
-}
 
 /* ---------- 项目（写回 ezPLM 的契约） ---------- */
 export interface ProjectProvider {
@@ -158,7 +149,6 @@ export interface AiModelProvider {
 
 /* ---------- Provider 集合 ---------- */
 export interface ProviderRegistry {
-  identity: IdentityProvider;
   components: ComponentDataProvider;
   referenceDesigns: ReferenceDesignProvider;
   project: ProjectProvider;

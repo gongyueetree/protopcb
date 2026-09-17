@@ -120,12 +120,6 @@ export function checkCapability(ent: Entitlements, cap: Capability | OpenCapabil
   return { allowed: true, cost };
 }
 
-/** 扣费后的余额（纯函数；真实扣费由服务端账本完成，这里只用于乐观更新 UI） */
-export function applyCost(ent: Entitlements, cap: Capability): Entitlements {
-  const cost = isAiCapability(cap) ? CREDIT_COST[cap] : 0;
-  if (!cost || ent.tier === 'anonymous') return ent;
-  return { ...ent, credits: Math.max(0, ent.credits - cost) };
-}
 
 /** 登录入口：中文站 ezplm.cn，英文站 eehub.io */
 export function loginUrl(lang: 'zh' | 'en', returnTo?: string): string {

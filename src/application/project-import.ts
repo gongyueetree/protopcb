@@ -5,7 +5,6 @@
  * 只依赖 Domain 解析器、store 与 dialog 服务；不持有 React 状态。
  */
 import { useDesignStore } from '../state/designStore';
-import { dialogs } from '../modules/ui/dialogStore';
 import { tr } from '../shared/i18n';
 import { parseKicadPcb } from '../design-core/geometry/kicad-pcb-import';
 import { parseKicadSch } from '../design-core/geometry/kicad-sch-import';
@@ -16,9 +15,26 @@ import { safeUnzipOffThread } from '../design-core/geometry/safe-unzip-worker';
 import { registerFootprintOverride, registerSymbolOverride, parseKicadSym } from '../design-core/geometry/lib-file-registry';
 import { ZipSafetyError } from '../design-core/geometry/safe-unzip';
 import { keyOf } from '../shared/storage';
-import { importDocumentFromFile } from '../modules/report/persistence';
-import { registerModelBlob, revokeAllModelBlobs } from '../modules/board-editor/model-blob-registry';
+import { importDocumentFromFile } from '../design-core/document/persistence-service';
+import { registerModelBlob, revokeAllModelBlobs } from '../infrastructure/model-assets';
 import type { SchematicSheetData } from '../design-core/document/types';
+
+/**
+ * 导入结果。application 层只**返回**发生了什么，由 UI 决定怎么提示 ——
+ * 此前这里直接调 modules/ui/dialogStore，是 application → UI 的反向依赖。
+ */
+export type ImportKind = 'zip' | 'pcb' | 'schematic' | 'legacy-schematic' | 'json';
+export interface ImportNotice { level: 'success' | 'warning' | 'error'; text: string }
+export interface ImportResult {
+  kind: ImportKind;
+  pcbComponents?: number;
+  skipped?: number;
+  schematicSheets?: number;
+  linkedSymbols?: number;
+  extractedSymbols?: number;
+  projectModels?: number;
+  notices: ImportNotice[];
+}
 
 /** KiCad 水平对齐 → SVG textAnchor */
 const JUST = { L: 'start', C: 'middle', R: 'end' } as const;
@@ -32,6 +48,7 @@ export const importPcbText = (text: string): { comps: number; skipped: number; p
 };
 
 /** KiCad 5 旧版 .sch：无内嵌符号定义，仅提取实例/连线/标签用于原样视图 */
+
 /** KiCad 水平对齐 → SVG textAnchor */
 
 export const applyLegacySch = (text: string, libText?: string): { symbols: number; linked: number } => {
@@ -97,7 +114,9 @@ export const applySchText = (text: string, fileName = 'schematic.kicad_sch', col
 };
 
 /** 统一入口：按文件类型分派到 zip / pcb / sch / legacy / JSON */
-export const importProjectFile = async (f: File): Promise<void> => {
+export const importProjectFile = async (f: File): Promise<ImportResult> => {
+  const notices: ImportNotice[] = [];
+  let result: ImportResult | undefined;
   try {
     if (/\.zip$/i.test(f.name)) {
       // KiCad 工程压缩包：解压 → PCB 上画布 + 原理图符号逐器件挂载
@@ -157,25 +176,32 @@ export const importProjectFile = async (f: File): Promise<void> => {
           applyLegacySch(best.txt, libName ? strFromU8(entries[libName]) : undefined);
         }
       }
-      dialogs.toast(`${tr('工程导入完成')}：PCB ${r.comps} ${tr('个器件')}${r.skipped ? `（${r.skipped} ${tr('个跳过')}）` : ''}${projModels ? ` · ${projModels} ${tr('个工程自带 3D 模型已关联')}` : ''}${schNames.length ? ` · ${tr('原理图')} ${schNames.length} ${tr('张')}，${symTotal} ${tr('个符号')}，${linkTotal} ${tr('个器件已挂真符号')}` : ` · ${tr('包内无原理图，符号用名字解析')}`}`, 'success');
+        notices.push({ level: 'success', text: `${tr('工程导入完成')}：PCB ${r.comps} ${tr('个器件')}${r.skipped ? `（${r.skipped} ${tr('个跳过')}）` : ''}${projModels ? ` · ${projModels} ${tr('个工程自带 3D 模型已关联')}` : ''}${symTotal ? ` · ${tr('原理图')} ${symTotal} ${tr('个符号')}，${linkTotal} ${tr('个已挂载')}` : ''}` });
+        result = { kind: 'zip', pcbComponents: r.comps, skipped: r.skipped, schematicSheets: Object.keys(sheets).length, linkedSymbols: linkTotal, extractedSymbols: symTotal, projectModels: projModels, notices };
     } else if (/\.kicad_pcb$/i.test(f.name)) {
       const r = importPcbText(await f.text());
-      if (r.skipped) dialogs.toast(`${tr('已导入')} ${r.comps} ${tr('个器件')}；${r.skipped} ${tr('个封装缺少位置信息被跳过')}`, 'warning');
+      if (r.skipped) notices.push({ level: 'warning', text: `${tr('已导入')} ${r.comps} ${tr('个器件')}；${r.skipped} ${tr('个封装缺少位置信息被跳过')}` });
+      result = { kind: 'pcb', pcbComponents: r.comps, skipped: r.skipped, notices };
     } else if (/\.sch$/i.test(f.name) && !/\.kicad_sch$/i.test(f.name)) {
       const txt = await f.text();
       if (!isLegacySch(txt)) throw new Error(tr('无法识别的原理图格式'));
       applyLegacySch(txt);
-      dialogs.toast(tr('已载入 KiCad 5 旧版原理图（原样视图）'), 'success');
+        notices.push({ level: 'success', text: tr('已载入 KiCad 5 旧版原理图（原样视图）') });
+        result = { kind: 'legacy-schematic', notices };
     } else if (/\.kicad_sch$/i.test(f.name)) {
       // 单独补挂原理图（画布已有对应位号的器件时）
       const rr = applySchText(await f.text());
-      dialogs.toast(`${tr('原理图符号提取完成')}：${rr.symbols} ${tr('个符号')}，${rr.linked} ${tr('个器件已挂载')}`, 'success');
+        notices.push({ level: 'success', text: `${tr('原理图符号提取完成')}：${rr.symbols} ${tr('个符号')}，${rr.linked} ${tr('个器件已挂载')}` });
+        result = { kind: 'schematic', extractedSymbols: rr.symbols, linkedSymbols: rr.linked, notices };
     } else {
       useDesignStore.getState().loadDocument(await importDocumentFromFile(f));
+      result = { kind: 'json', notices };
     }
   } catch (err) {
     // ZIP 安全限额的报错文案已面向用户，直接展示；其余带上原始信息便于排查
     const msg = err instanceof ZipSafetyError ? err.message : (err as Error).message;
-    dialogs.toast(tr('导入失败：') + msg, 'error');
+    notices.push({ level: 'error', text: tr('导入失败：') + msg });
+    return { kind: result?.kind ?? 'json', notices };
   }
+  return result ?? { kind: 'json', notices };
 };

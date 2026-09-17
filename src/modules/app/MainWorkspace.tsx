@@ -213,7 +213,7 @@ export function MainWorkspace({ mainTab, setMainTab, fullscreen, setFullscreen, 
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-start', width: '100%', overflowX: 'auto', borderTop: (mainTab === 'pcb' || mainTab === 'enclosure') ? '1px solid #f1f5f9' : 'none' }}>
           {MAIN_TABS.map((tb) => (
-            <button key={tb.id} onClick={() => setMainTab(mainTab === tb.id && tb.id !== 'pcb' ? 'pcb' : tb.id)} title={mainTab === tb.id && tb.id !== 'pcb' ? t('再次点击返回 PCB 布局') : t(tb.label)}
+            <button key={tb.id} data-testid={`tab-${tb.id}`} onClick={() => setMainTab(mainTab === tb.id && tb.id !== 'pcb' ? 'pcb' : tb.id)} title={mainTab === tb.id && tb.id !== 'pcb' ? t('再次点击返回 PCB 布局') : t(tb.label)}
               style={{ padding: '8px 14px', border: 'none', whiteSpace: 'nowrap', background: mainTab === tb.id ? COLORS.greenBg : '#fff', color: mainTab === tb.id ? COLORS.green : '#2C3E50', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', borderTop: mainTab === tb.id ? `2px solid ${COLORS.green}` : '2px solid transparent' }}>
               {tb.icon} {t(tb.label)}
             </button>

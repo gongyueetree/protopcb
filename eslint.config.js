@@ -62,6 +62,16 @@ export default tseslint.config(
     },
   },
   {
+    // Application 层不得反向依赖 UI：它只返回结构化结果，由 UI 决定怎么提示
+    files: ['src/application/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [
+        { regex: '(^|/)modules(/|$)', message: 'application 不得依赖 modules（UI）；返回结构化结果交由 UI 处理' },
+        { regex: '(^|/)providers/mock(/|$)', message: '生产源码不得 import providers/mock' },
+      ] }],
+    },
+  },
+  {
     // UI 不直接碰基础设施实现：只能走 application facade / providers/types / factory
     files: ['src/modules/**/*.{ts,tsx}', 'src/App.tsx'],
     ignores: ['**/*.test.{ts,tsx}'],

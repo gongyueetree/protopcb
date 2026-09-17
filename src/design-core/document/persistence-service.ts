@@ -13,7 +13,7 @@
  */
 import { parseDocument } from './schema';
 import type { CircuitCanvasDocument } from './types';
-import { UNTITLED_DOC_NAME } from './factory';
+import { UNTITLED_DOC_NAME, deserializeDocument } from './factory';
 import { KEYS } from '../../shared/storage';
 
 const KEY = KEYS.docAutosave;
@@ -149,3 +149,20 @@ export const ProjectPersistenceService = {
     lsDel(KEY);
   },
 };
+
+/**
+ * 从用户选择的文件读入设计 JSON。
+ * 放在 Domain：application 层的导入服务需要它，不该为此依赖 modules/report。
+ * FileReader 是浏览器能力而非 UI 依赖，Domain 使用它不破坏边界。
+ */
+export function importDocumentFromFile(file: File): Promise<CircuitCanvasDocument> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try { resolve(deserializeDocument(String(reader.result))); }
+      catch (e) { reject(e); }
+    };
+    reader.onerror = () => reject(new Error('读取文件失败'));
+    reader.readAsText(file);
+  });
+}

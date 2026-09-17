@@ -28,16 +28,40 @@ const PCB = `(kicad_pcb (version 20240108) (generator pcbnew)
     (model "\${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0402_1005Metric.step"
       (offset (xyz 0 0 0)) (scale (xyz 1 1 1)) (rotate (xyz 0 0 0)))))`;
 
-describe('解析 (model) 变换', () => {
+describe('解析 (model) 变换（按实例）', () => {
   const r = parseKicadPcb(PCB);
-  it('带旋转/偏移的封装被记录', () => {
-    expect(r.modelTransforms['USB_C_Receptacle_HRO_TYPE-C-31-M-12']).toEqual({
-      offset: [0, 3.5, 1.5], rotate: [180, 0, 0], scale: [1, 1, 1],
-    });
-    expect(r.modelTransforms['SW_SPST_EVQP7C'].rotate).toEqual([-90, 0, 0]);
+  const byRef = (ref: string) => r.comps.find((c) => c.reference === ref)!;
+  it('带旋转/偏移的实例被记录', () => {
+    expect(byRef('J3').modelTransform).toEqual({ offset: [0, 3.5, 1.5], rotate: [180, 0, 0], scale: [1, 1, 1] });
+    expect(byRef('SW1').modelTransform!.rotate).toEqual([-90, 0, 0]);
   });
   it('全是单位变换的不记录（省得每个器件都挂一份无用数据）', () => {
-    expect(r.modelTransforms['R_0402_1005Metric']).toBeUndefined();
+    expect(byRef('R1').modelTransform).toBeUndefined();
+  });
+
+  it('同一封装的两个实例各带不同变换时互不覆盖（此前按 footprintName 存会丢一个）', () => {
+    const two = parseKicadPcb(`(kicad_pcb (version 20240108) (generator pcbnew)
+      (general (thickness 1.6))
+      (layers (0 "F.Cu" signal) (31 "B.Cu" signal) (44 "Edge.Cuts" user))
+      (net 0 "")
+      (footprint "Connector:Conn_01x02" (layer "F.Cu") (at 10 10)
+        (property "Reference" "J1" (at 0 0 0)) (property "Value" "CONN" (at 0 2 0))
+        (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu"))
+        (model "\${KIPRJMOD}/3D/conn.step" (offset (xyz 0 0 0)) (scale (xyz 1 1 1)) (rotate (xyz 0 0 0))))
+      (footprint "Connector:Conn_01x02" (layer "F.Cu") (at 30 10)
+        (property "Reference" "J2" (at 0 0 0)) (property "Value" "CONN" (at 0 2 0))
+        (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu"))
+        (model "\${KIPRJMOD}/3D/conn.step" (offset (xyz 1 2 3)) (scale (xyz 1 1 1)) (rotate (xyz 0 0 180)))))`);
+    const j1 = two.comps.find((c) => c.reference === 'J1')!;
+    const j2 = two.comps.find((c) => c.reference === 'J2')!;
+    expect(j1.modelTransform).toBeUndefined();                 // 全单位
+    expect(j2.modelTransform!.rotate).toEqual([0, 0, 180]);     // 只有 J2 带旋转
+    expect(j2.modelTransform!.offset).toEqual([1, 2, 3]);
+  });
+
+  it('实例还带各自的工程模型路径', () => {
+    expect(byRef('J3').projectModelPath).toMatch(/USB Type C Port/);
+    expect(byRef('R1').projectModelPath).toBeUndefined();       // 官方库模型不算工程自带
   });
 });
 

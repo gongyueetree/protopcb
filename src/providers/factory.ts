@@ -11,15 +11,14 @@
 import type { ProviderRegistry } from './types';
 import { appConfig } from '../config';
 import {
-  MockComponentDataProvider, MockReferenceDesignProvider, MockIdentityProvider,
+  MockComponentDataProvider, MockReferenceDesignProvider,
   LocalStorageProjectProvider, MockAiModelProvider,
 } from './mock';
 import { HttpClient } from './http/client';
 import { AiAccessError } from './ai-client';
 import { GeminiAiProvider } from './gemini';
 import {
-  EzplmComponentDataProvider, EzplmReferenceDesignProvider,
-  EzplmIdentityProvider, EzplmProjectProvider,
+  EzplmComponentDataProvider, EzplmReferenceDesignProvider, EzplmProjectProvider,
 } from './ezplm';
 
 import { geminiAvailable } from './gemini';
@@ -94,7 +93,6 @@ export function getProviders(): ProviderRegistry {
   if (appConfig.mode === 'integrated') {
     const http = makeHttp();
     registry = {
-      identity: new EzplmIdentityProvider(http),
       components: new EzplmComponentDataProvider(http),
       referenceDesigns: new EzplmReferenceDesignProvider(http),
       project: new EzplmProjectProvider(http),
@@ -103,7 +101,6 @@ export function getProviders(): ProviderRegistry {
   } else if (appConfig.mode === 'standalone') {
     const http = makeHttp(); // 指向本地后端骨架 (server/)
     registry = {
-      identity: new EzplmIdentityProvider(http),
       components: new EzplmComponentDataProvider(http),
       referenceDesigns: new EzplmReferenceDesignProvider(http),
       project: new LocalStorageProjectProvider(),
@@ -111,7 +108,6 @@ export function getProviders(): ProviderRegistry {
     };
   } else {
     registry = {
-      identity: new MockIdentityProvider(),
       components: new MockComponentDataProvider(),
       referenceDesigns: new MockReferenceDesignProvider(),
       project: new LocalStorageProjectProvider(),

@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  ANONYMOUS, CREDIT_COST, WELCOME_CREDITS, checkCapability, applyCost,
+  ANONYMOUS, CREDIT_COST, WELCOME_CREDITS, checkCapability,
   isAiCapability, loginUrl, buyCreditsUrl, type Entitlements,
 } from '../../src/design-core/entitlements';
 
@@ -27,9 +27,6 @@ describe('匿名用户', () => {
     expect(checkCapability(ANONYMOUS, 'scheme.generate').message).toMatch(/完整体验/);
   });
 
-  it('扣费对匿名用户无效（不会出现负余额）', () => {
-    expect(applyCost(ANONYMOUS, 'scheme.generate').credits).toBe(0);
-  });
 });
 
 describe('注册用户与 Credit', () => {
@@ -63,10 +60,6 @@ describe('注册用户与 Credit', () => {
     expect(r.reason).toBe('credits-unknown');
   });
 
-  it('扣费后余额下降，且不会低于 0', () => {
-    expect(applyCost(registered(10), 'scheme.generate').credits).toBe(5);
-    expect(applyCost(registered(1), 'scheme.generate').credits).toBe(0);
-  });
 });
 
 describe('价目表与入口', () => {

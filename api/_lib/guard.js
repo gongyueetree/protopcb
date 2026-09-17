@@ -69,14 +69,46 @@ export function callerKey(req, auth = null) {
 }
 
 /**
- * GlobalRateLimiter 抽象 —— 单实例内存实现，仅为 fallback。
- * Serverless 横向扩展时每个实例配额独立（总配额被放大 N 倍）；
- * 真正的全局限额需替换为 Upstash Redis / Vercel KV 实现（接口保持不变）。
+ * RateLimiter 接口。
+ *
+ * ⚠ 当前实现是**单实例内存**（memory-fallback）：serverless 横向扩展时每个实例各算各的，
+ *   总配额被放大约 N 倍 —— 它能挡住单机刷接口，但**不是全局严格限额**。
+ *   大流量公开上线前替换为 Upstash Redis / Vercel KV 实现即可，调用方无需改动。
+ *
+ * 接口：acquire(key, { windowMs, perWindow, concurrent }) → { ok, release } | { ok:false, retryAfter }
+ * 这里是真正的调用路径，不是占位注释：下面的 acquire() 委托到 activeLimiter。
  */
-export const globalRateLimiter = {
+export const MemoryRateLimiter = {
   kind: 'memory-fallback',
-  /** 预留：未来 Redis 实现 async acquire(key, limits) → { ok, retryAfter } */
+  globallyStrict: false,
+  acquire(key, { windowMs, perWindow, concurrent }) {
+    const now = Date.now();
+    sweep(now);
+    const b = buckets.get(key) ?? { hits: [], concurrent: 0 };
+    buckets.set(key, b);
+    b.hits = b.hits.filter((t) => now - t < windowMs);
+    if (b.hits.length >= perWindow) {
+      const retryAfter = Math.ceil((windowMs - (now - b.hits[0])) / 1000);
+      return { ok: false, status: 429, error: `请求过于频繁，请 ${retryAfter}s 后再试`, retryAfter };
+    }
+    if (b.concurrent >= concurrent) {
+      return { ok: false, status: 429, error: '并发请求过多，请稍后再试', retryAfter: 2 };
+    }
+    b.hits.push(now);
+    b.concurrent += 1;
+    let released = false;
+    return { ok: true, release: () => { if (!released) { released = true; b.concurrent = Math.max(0, b.concurrent - 1); } } };
+  },
 };
+
+/** 当前生效的限流器。换 Redis 实现时只改这一行。 */
+let activeLimiter = MemoryRateLimiter;
+/** 供测试/未来接入替换实现 */
+export function setRateLimiter(impl) { activeLimiter = impl ?? MemoryRateLimiter; }
+export function rateLimiterKind() { return activeLimiter.kind; }
+
+/** @deprecated 名称保留给既有引用；请用 MemoryRateLimiter / setRateLimiter */
+export const globalRateLimiter = MemoryRateLimiter;
 
 function sweep(now) {
   if (now - LAST_SWEEP.at < 60_000) return;
@@ -91,31 +123,12 @@ function sweep(now) {
  * @returns {{ ok: true, release: () => void } | { ok: false, status: number, error: string, retryAfter?: number }}
  */
 export function acquire(req, scope = 'default', overrides = undefined) {
-  const now = Date.now();
-  sweep(now);
-  const key = `${scope}|${callerKey(req)}`;
-  const b = buckets.get(key) ?? { hits: [], concurrent: 0 };
-  buckets.set(key, b);
-
-  const win = overrides?.windowMs ?? LIMITS.windowMs;
-  const perWindow = overrides?.perWindow ?? LIMITS.perWindow;
-  b.hits = b.hits.filter((t) => now - t < win);
-
-  if (b.hits.length >= perWindow) {
-    const retryAfter = Math.ceil((win - (now - b.hits[0])) / 1000);
-    return { ok: false, status: 429, error: '请求过于频繁，请稍后再试', retryAfter };
-  }
-  if (b.concurrent >= LIMITS.concurrent) {
-    return { ok: false, status: 429, error: '并发请求过多，请稍后再试', retryAfter: 2 };
-  }
-
-  b.hits.push(now);
-  b.concurrent++;
-  let released = false;
-  return {
-    ok: true,
-    release: () => { if (!released) { released = true; b.concurrent = Math.max(0, b.concurrent - 1); } },
-  };
+  // 真正委托给限流器实现（换 Redis 时这里不用改）
+  return activeLimiter.acquire(`${scope}|${callerKey(req)}`, {
+    windowMs: overrides?.windowMs ?? LIMITS.windowMs,
+    perWindow: overrides?.perWindow ?? LIMITS.perWindow,
+    concurrent: overrides?.concurrent ?? LIMITS.concurrent,
+  });
 }
 
 /** 请求体体积检查（Content-Length + 实际字符串长度双保险） */

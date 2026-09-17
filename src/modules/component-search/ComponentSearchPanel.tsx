@@ -23,7 +23,7 @@ import { useDesignStore } from '../../state/designStore';
 const SHOW_EMPTY_HINT: boolean = false;
 
 const providers = getProviders();
-// 身份来自 providers.identity（demo 模式自然是 demo-user，集成模式是真实身份）
+// 身份唯一来源是 /api/session（entitlementStore → useAccessContext）；匿名时为 null
 
 export function ComponentSearchPanel() {
   const ctx = useAccessContext() ?? anonymousContext();

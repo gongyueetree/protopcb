@@ -33,6 +33,20 @@ describe('design-core 是纯 Domain', () => {
   }
 });
 
+describe('Application 层不依赖 UI', () => {
+  it('src/application/** 不 import src/modules/**', () => {
+    const offenders = files.filter((f) => f.rel.startsWith('application/'))
+      .filter((f) => imports(f.text).some((i) => /(^|\/)modules(\/|$)/.test(i)))
+      .map((f) => f.rel);
+    expect(offenders).toEqual([]);
+  });
+  it('导入服务返回结构化结果，不自己弹提示', () => {
+    const src = files.find((f) => f.rel === 'application/project-import.ts')!.text;
+    expect(src).toMatch(/export interface ImportResult/);
+    expect(src).not.toMatch(/dialogs\.toast\(/);
+  });
+});
+
 describe('生产代码不依赖 Mock', () => {
   it('providers/mock 只允许被 providers/factory 装配（demo 模式）', () => {
     const offenders = files

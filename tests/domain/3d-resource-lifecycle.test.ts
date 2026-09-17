@@ -47,7 +47,7 @@ describe('工程自带 STEP 的 blob 生命周期', () => {
   });
 
   it('同一封装重复登记会先撤销旧 URL；revokeAll 撤销全部', async () => {
-    const reg = await import('../../src/modules/board-editor/model-blob-registry');
+    const reg = await import('../../src/infrastructure/model-assets');
     const u1 = reg.registerModelBlob('SW_SPST_EVQP7C', new Uint8Array([1]));
     const u2 = reg.registerModelBlob('SW_SPST_EVQP7C', new Uint8Array([2]));   // 重新导入同名
     expect(revoked).toContain(u1);
@@ -60,7 +60,7 @@ describe('工程自带 STEP 的 blob 生命周期', () => {
   });
 
   it('撤销时把 STEP 缓存里对应的模型一并驱逐（不再残留死 URL 的模型）', async () => {
-    const reg = await import('../../src/modules/board-editor/model-blob-registry');
+    const reg = await import('../../src/infrastructure/model-assets');
     const loader = await import('../../src/modules/board-editor/step-loader');
     const evict = vi.spyOn(loader, 'evictStepModel');
     const u = reg.registerModelBlob('X', new Uint8Array([1]));

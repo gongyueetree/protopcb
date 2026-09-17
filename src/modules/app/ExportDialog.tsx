@@ -21,11 +21,11 @@ export function ExportDialog({ doc, open, setOpen, t }: { doc: CircuitCanvasDocu
           {/* 其余产物：一键下载，不再散落在顶栏 */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 8, marginBottom: 12 }}>
             {([
-              ['📦 ' + t('设计文件 (JSON)'), t('完整设计，可再次导入本工具'), () => exportDocument(useDesignStore.getState().doc)],
-              ['📄 ' + t('方案报告 (MD)'), t('需求、器件清单、审查结论'), () => exportMarkdownReport(doc)],
-              ['🧾 ' + t('BOM (CSV)'), t('位号、型号、封装、数量、单价'), () => exportBomCsv(doc)],
-            ] as const).map(([label, hint, fn]) => (
-              <button key={label} onClick={() => fn()} title={hint}
+              ['export-json', '📦 ' + t('设计文件 (JSON)'), t('完整设计，可再次导入本工具'), () => exportDocument(useDesignStore.getState().doc)],
+              ['export-report', '📄 ' + t('方案报告 (MD)'), t('需求、器件清单、审查结论'), () => exportMarkdownReport(doc)],
+              ['export-bom', '🧾 ' + t('BOM (CSV)'), t('位号、型号、封装、数量、单价'), () => exportBomCsv(doc)],
+            ] as const).map(([tid, label, hint, fn]) => (
+              <button key={label} data-testid={tid} onClick={() => fn()} title={hint}
                 style={{ padding: '9px 10px', borderRadius: 8, border: '1px solid #E8F3EE', background: '#fff', textAlign: 'left', cursor: 'pointer' }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.green }}>{label}</div>
                 <div style={{ fontSize: 9.5, color: '#94a3b8', marginTop: 2 }}>{hint}</div>
@@ -65,7 +65,7 @@ export function ExportDialog({ doc, open, setOpen, t }: { doc: CircuitCanvasDocu
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{tr('KiCad（.kicad_pcb）· 兼容嘉立创EDA专业版')}</div>
                 <div style={{ fontSize: 11, color: '#64748b' }}>{tr('KiCad 7+ 直接打开；嘉立创EDA专业版「文件 → 导入 → KiCad」同一文件即可。')}<b>{tr('导出为可继续编辑的初始工程，而非原工程的无损往返')}</b>{tr('：板框、器件位置、真实焊盘、网络表与导入工程的铜箔走线/过孔会保留；丝印、敷铜与规则设置不导出。画布上新建的设计没有走线，需在 KiCad 中布线。')}</div>
               </div>
-              <button onClick={() => { downloadKicadPcb(doc); setOpen(false); }} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: COLORS.green, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{tr('⬇ 下载')}</button>
+              <button data-testid="export-kicad-pcb" onClick={() => { downloadKicadPcb(doc); setOpen(false); }} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: COLORS.green, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{tr('⬇ 下载')}</button>
             </div>
           </div>
     

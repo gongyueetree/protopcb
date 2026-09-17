@@ -33,7 +33,6 @@ describe('config ↔ ProviderRegistry 一致', () => {
       const r = getProviders();
       expect(r.components.constructor.name).toBe(expectedClass[cfg.providers.component].component);
       expect(r.referenceDesigns.constructor.name).toBe(expectedClass[cfg.providers.reference].reference);
-      expect(r.identity.constructor.name).toBe(cfg.providers.identity === 'demo' ? 'MockIdentityProvider' : 'EzplmIdentityProvider');
       expect(r.project.constructor.name).toBe(cfg.providers.project === 'local' ? 'LocalStorageProjectProvider' : 'EzplmProjectProvider');
     });
   }

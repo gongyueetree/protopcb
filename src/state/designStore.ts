@@ -544,7 +544,7 @@ export const useDesignStore = create<DesignState>()(
     clearAll: () => {
       // 工程自带 STEP 的 blob 随项目清空一起撤销（它们只属于这次导入；不撤销就持续泄漏）。
       // 动态 import：state 层不静态依赖 board-editor 模块。
-      void import('../modules/board-editor/model-blob-registry').then((m) => m.revokeAllModelBlobs()).catch(() => undefined);
+      void import('../infrastructure/model-assets').then((m) => m.revokeAllModelBlobs()).catch(() => undefined);
       set((s) => {
         snapshot(s);
         s.doc.components = [];
@@ -625,9 +625,9 @@ export const useDesignStore = create<DesignState>()(
             stepUrl: mref ? `/api/kicadlib?path=step&lib=${encodeURIComponent(mref.lib3d)}&name=${encodeURIComponent(mref.name3d)}` : undefined,
           } as ComponentSearchResult, k.reference);
           if (k.padNets) placed.display = { ...(placed.display ?? {}), padNets: k.padNets };
-          // (model) 的 offset/rotate/scale：KiCad 用它把厂商 STEP 摆正，丢了模型就会翻转或立起来
-          const mx = data.modelTransforms?.[k.footprintName];
-          if (mx) placed.display = { ...(placed.display ?? {}), modelTransform: mx };
+          // (model) 的 offset/rotate/scale：KiCad 用它把厂商 STEP 摆正，丢了模型就会翻转或立起来。
+          // 按**实例**取：同一封装的 J1/J2 可能各带不同的 rotate。
+          if (k.modelTransform) placed.display = { ...(placed.display ?? {}), modelTransform: k.modelTransform };
           placed.placement = {
             ...placed.placement,
             xMm: k.xMm,

@@ -4,13 +4,13 @@
  * 异步签名与真实接口一致，便于将来无缝替换为 EzplmProvider。
  */
 import type {
-  ComponentDataProvider, ReferenceDesignProvider, ReferenceLoadResult, IdentityProvider, ProjectProvider, AiModelProvider,
+  ComponentDataProvider, ReferenceDesignProvider, ReferenceLoadResult, ProjectProvider, AiModelProvider,
   ComponentSearchQuery, AccessContext, Paginated, ComponentSearchResult, FootprintOption,
-  ComponentAlternative, OrganizationMaterialInfo, PeripheralCircuitRecommendation,
-  CurrentUser, AiSchemeRequest, AiSchemeResult,
+  ComponentAlternative, OrganizationMaterialInfo, PeripheralCircuitRecommendation, AiSchemeRequest, AiSchemeResult,
 } from '../types';
 import type { ComponentCategory } from '../../design-core/document/types';
 import { MOCK_COMPONENTS, LEGACY_PARTS, FOOTPRINT_LIBRARY, ALTERNATIVES, SUBCIRCUITS, geometryFor, supplierOffersFor } from './data';
+import { keyOf } from '../../shared/storage';
 
 /** id 查找并集：常用件 + 旧演示目录（AI演示方案/详情兼容） */
 const ALL_PARTS = [...MOCK_COMPONENTS, ...LEGACY_PARTS];
@@ -91,17 +91,10 @@ export class MockReferenceDesignProvider implements ReferenceDesignProvider {
   }
 }
 
-export class MockIdentityProvider implements IdentityProvider {
-  async getCurrentUser(): Promise<CurrentUser> {
-    return { userId: 'demo-user', displayName: '演示用户', organizationId: 'org-demo' };
-  }
-  async getAccessContext(): Promise<AccessContext> {
-    return { userId: 'demo-user', organizationId: 'org-demo' };
-  }
-}
 
 export class LocalStorageProjectProvider implements ProjectProvider {
-  private key(projectId: string) { return `cc:design:${projectId}`; }
+  // 键名唯一来源是 shared/storage；业务代码不再硬编码前缀（旧 cc:design:* 由迁移接管）
+  private key(projectId: string) { return keyOf.project(projectId); }
   async saveDesignDocument(projectId: string, docJson: string): Promise<{ ref: string }> {
     try { localStorage.setItem(this.key(projectId), docJson); } catch { /* ignore */ }
     return { ref: this.key(projectId) };

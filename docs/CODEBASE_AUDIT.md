@@ -1,91 +1,62 @@
-# Codebase Audit — protopcb（基线 f1bd19a，2026-09-16）
+# Codebase Audit — protopcb（当前状态，2026-09-17）
 
-审计口径：只记录**实际测出**的数据与**实际读到**的代码事实。未测的项标 `未测`。
+整理前的历史快照见 `CODEBASE_AUDIT_BEFORE_CONSOLIDATION.md`。本文只写**实测**数据。
 
-## D. 当前指标
+## 指标
 
-| 指标 | 值 |
+| 指标 | 整理前 | 当前 |
+|---|---|---|
+| 生产代码 LOC（src + api） | 24 168 | 25 299 |
+| 测试文件 / 测试数 | — / 522 | 82 / 639 |
+| `App.tsx` 行数 | 1 492 | **335** |
+| bundle（dist/assets/*.js） | 1 395 KB | 1 417 KB |
+| 循环依赖（madge） | 3 | **0**（已进 verify 与 CI） |
+| UI 直连 `fetch('/api/*')` | 19 | **0** |
+| `@deprecated` 导出 | 5 | **0** |
+| design-core 反向依赖违规 | 3 个文件 | **0**（ESLint + 架构测试双重门禁） |
+| application → modules 依赖 | — | **0**（本轮新增门禁） |
+
+LOC 上升是预期的：删掉了 `server/` 与死代码，但新增了 application 层、语义模块、DialogService、E2E 与大量测试。目标从来不是更少的代码，而是每个概念只有一个归属。
+
+## 架构边界（由 ESLint + `tests/architecture/` 强制）
+
+- `design-core` 不 import `providers/` `modules/` `state/` `react` `zustand`
+- `src/application/**` 不 import `src/modules/**`
+- 生产源码不 import `providers/mock`（`factory.ts` 是唯一装配点）
+- UI 不 `fetch('/api/…')`，不 import 具体供应商/库适配器
+- 生产源码不 POST `/api/gemini`；客户端不持有 AI prompt
+
+## 单一来源清单
+
+| 概念 | 唯一归属 |
 |---|---|
-| 生产代码 LOC（src + api + server，TS/TSX/JS） | 24 168 |
-| 测试 LOC | 5 797 |
-| 测试数 | 522 |
-| bundle（dist/assets/*.js） | 1 395 KB |
-| 循环依赖（madge） | 3，全部在 design-core 内部（见下） |
-| UI 直接 fetch `/api/*` 的调用点 | 19（kicadlib 14、ds2kicad 3、digikey 1、suppliers 1） |
-| `@deprecated` 导出 | 5 |
-| design-core 反向依赖违规文件 | 3（services.ts、fragment/extract.ts、custom-lib.ts） |
+| 文档模型 | `design-core/document/schema.ts`（Zod canonical，types 由 `z.infer` 推导） |
+| 枚举 | `design-core/document/enums.ts` |
+| AI 操作与单价 | `contracts/ai-operations.json` + `api/_lib/ai-operations.js` |
+| 身份 | `/api/session` → `entitlementStore` → `useAccessContext`（IdentityProvider 已删除） |
+| localStorage 键 | `shared/storage.ts`（`KEYS` / `keyOf`） |
+| 器件语义 / 网络语义 | `design-core/semantics/{part,net}.ts` |
+| 可信度 / 金额 / 定位孔 | `design-core/{trust,money,board}` |
+| 3D 资源 | `modules/board-editor/step-loader`（共享缓存）+ `infrastructure/model-assets`（blob 生命周期） |
 
-最大文件：`App.tsx` 1 492 行、`i18n.ts` 1 098、`designStore.ts` 742、`BomPanel.tsx` 558、`SchematicPanel.tsx` 522、`api/kicadlib.js` 499。
+## E2E
 
-## A. 文件分类
+9 个场景（`e2e/`），全部外部依赖用 `page.route()` 打桩。**本轮修正**：
+- E2E-02 不再断言"匿名零 supplier 调用"（产品规则已改为匿名可用 + 服务端限频，429 由 API handler 测试覆盖）
+- E2E-03 完整走真实导出 gate（先过项目命名对话框再下载）
+- 标签页与导出项改用 `data-testid`（`tab-*` / `export-*`），不依赖 emoji 与 i18n 文案
+- 全部移除 `waitForTimeout`；持久化改由 pagehide flush 保证，不用 sleep 掩盖缺陷
+- 无 `test.skip` / `test.only`
 
-### DELETE
-- `api/_lib/credit-cost.js` — 价目表第二份来源；唯一真值应是 `AI_OPERATIONS[op].cost`
-- `api/gemini.js` 里 POST 分支之后的整套旧实现 — 已 410，但不可达代码仍在
-- `src/providers/gemini/index.ts` 的 `AiAccessError` re-export — 兼容垫片
-- `src/modules/report/persistence.ts` 的 `autosave()` / `loadAutosave()` — 已被 ProjectPersistenceService 取代
-- `src/state/entitlementStore.ts` 的 `noteConsumed()` — 空操作占位
-- `api/suppliers.js` 的 B1B 分支 — 猜测的第三方 URL，无真实 contract
+**状态：脚本已通过 tsc 类型检查；执行结果以 GitHub Actions 为准**（本地编写环境无法下载 Chromium）。
 
-`_legacy_App.jsx`：**基线里已不存在**，无需处理。
+## 已知技术债
 
-### MERGE
-- `providers/ezplm` + `providers/ezplm-live` — 同一后端两套客户端
-- `providers/digikey` + `providers/suppliers` + `supplier-search` — 应收敛为 SupplierProvider
-- `document/services.ts refPrefixFor` + `bom/part-class.ts classifyByRefDes` + `part-matching.ts classFromReference` + `kicad-passive-defaults.classifyPassive` + `sub-circuit` 里的无源判定 — **5 套位号/类别正则**
-- `fragment/extract.ts` 与 `block-diagram/from-netlist.ts` 各自的 POWER 网络判定（且**互相矛盾**：前者不把 VIN/VOUT 当电源，后者把它们当电源）
-- `entitlementStore` + `useAccessContext` + `providers.identity` + `localStorage cc:token` — 4 处身份来源
+- `providers/ezplm/index.ts` 的 `getFootprintOptions` 等四项返回空并标 NOT_CONNECTED（上游端点不存在），不是真实能力
+- 限流是 `MemoryRateLimiter`（`globallyStrict: false`）：serverless 每实例独立计数，不是全局严格限额
+- Credit consume 为 NON_TRANSACTIONAL（模型超时不退费）
+- `_legacy_App.jsx` 在当前基线中不存在（Git 历史保留）
 
-### REFACTOR / SPLIT
-- `App.tsx`（1 492 行）→ AppShell / TopNavigation / LeftWorkspace / MainWorkspace / RightInspector + 控制器 hooks；CompDetail 与 KiCad 导入流程（zip/pcb/sch/legacy/STEP 绑定）应独立
-- `design-core/document/types.ts` 与 `schema.ts` 手写两套几乎相同的 Document 结构 → 以 Zod 为准 `z.infer`
-- `CircuitCanvasDocument` 根节点持续增加 optional 字段（schematicSheet / schematicSheets / rootSheetFile / enclosure …）
-- `BoardView3D`：components / board / hideAllRefDes 任一变化都整板重建
+## NOT_CONNECTED
 
-### MIGRATE
-- `schematicSheet`（当前页对象）**复制**了 `schematicSheets[activeFile]` — 当前页应是 UI 状态，文档只持久化 sheets + rootSheetFile
-- localStorage `cc:*` 键 → `protopcb:*`（需一次性迁移，不能丢用户存档与自建器件）
-
-### NOT_CONNECTED（代码与文档必须一致）
-- ezPLM OAuth/SSO Session Bridge
-- Credit reserve/commit/release（当前 consume 为 NON_TRANSACTIONAL）
-- Cloud Project API、Cloud Custom Part API
-- Application Projects 用户级端点（`api/ezplm.js` 已 501，但文件头注释仍写"透传 application-projects"——**注释过期**）
-
-### KEEP（本轮不动，且不得回归）
-Trust / Money / MountingHoles 领域服务、part-match-policy、AI_OPERATIONS + `/api/ai`、`aiRequest()`、分销商服务端门禁、租户私有缓存、Hybrid 材质隔离与增量重建、CSP blob 放行。
-
-## B. 依赖方向（现状）
-
-```
-UI (modules/*, App.tsx)
-  ├─ 直接 fetch /api/kicadlib, /api/ds2kicad, /api/digikey, /api/suppliers   ← 违规
-  ├─ 直接 import providers/ezplm-live, providers/gemini                      ← 违规
-  └─ state/*
-Domain (design-core/*)
-  ├─ import providers/types (ComponentSearchResult)                           ← 违规
-  ├─ import providers/mock/data (geometryFor)                                 ← 违规（Mock 泄入 Domain）
-  └─ import providers/reference-design/schema (fragment 类型)                 ← 违规
-Infrastructure (providers/*) → design-core（正确方向）
-API (api/*) — 独立 JS，与前端共享 contracts/（仅 custom-part-enums.json）
-server/ — Express 骨架，README 标为"本地开发专用"，与 api/ 并行演进
-```
-
-design-core 内部循环：`custom-lib ↔ custom-symbol`、`footprint-pads ↔ kicad-name-parser`、`lib-file-registry ↔ footprint-pads`。
-
-## C. 已确认的逻辑矛盾
-1. `fragment/extract.ts`：support 器件被纳入后，其**全部** padNets 进入 touched → AD9837 fragment 出现 USB_DP（golden test 目前把它当"正确"断言）
-2. `from-netlist.ts` 的 `POWER_NAME` 含 VIN/VOUT；`fragment/extract.ts` 不含 → 同一网络两种判定
-3. `config/index.ts` 写 standalone AI=`claude`、integrated AI=`gateway`，factory 实际全部装配 Gemini
-4. Scheme proposal 里 `qty=4` 把同一对象 push 4 次（展示层已归并，但数据层仍重复）
-5. `services.ts` 按 componentId 前缀（`ez_`/`sup_`/`ai_`…）推断 source/trust
-
-## 本轮执行顺序（按风险从低到高）
-1. 本审计（commit）
-2. 死代码与重复价目表（Phase 1/2）
-3. Domain 反向依赖修复（Phase 4）
-4. Fragment 遍历修复 + golden 纠正（Phase 12）
-5. 过期注释与猜测集成清理（Phase 16/17）
-6. 架构门禁（Phase 24）
-
-Phase 5（App 拆分）、6（身份统一）、8/9（schema 收敛）、13（qty）、14（语义合并）、18（3D 生命周期）、20（品牌迁移）、21（ARCHITECTURE）本轮**未做**，见最终报告。
+ezPLM OAuth/SSO Session Bridge、Credit reserve/commit/release、Cloud Project API、Cloud Custom Part API、Application Projects 用户级端点、组织物料端点、百芯 B1B。

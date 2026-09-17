@@ -69,3 +69,28 @@ describe('/api/gemini 的关卡在上游调用之前', () => {
     expect(fetchCalls.filter((u) => u.includes('generativelanguage'))).toHaveLength(0);
   });
 });
+
+describe('RateLimiter 是真接口，不是占位注释', () => {
+  it('acquire 委托给可替换的实现', async () => {
+    const { acquire, setRateLimiter, rateLimiterKind } = await import('../_lib/guard.js');
+    const calls = [];
+    setRateLimiter({
+      kind: 'test-stub', globallyStrict: true,
+      acquire: (key, limits) => { calls.push({ key, limits }); return { ok: true, release: () => {} }; },
+    });
+    const r = acquire({ headers: {}, socket: { remoteAddress: '203.0.113.9' } }, 'unit-test', { perWindow: 7, windowMs: 1000 });
+    expect(r.ok).toBe(true);
+    expect(rateLimiterKind()).toBe('test-stub');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].key).toMatch(/^unit-test\|/);
+    expect(calls[0].limits).toMatchObject({ perWindow: 7, windowMs: 1000 });
+    setRateLimiter(null);
+    expect(rateLimiterKind()).toBe('memory-fallback');
+  });
+
+  it('默认实现明确标注不是全局严格限额（serverless 每实例独立）', async () => {
+    const { MemoryRateLimiter } = await import('../_lib/guard.js');
+    expect(MemoryRateLimiter.kind).toBe('memory-fallback');
+    expect(MemoryRateLimiter.globallyStrict).toBe(false);
+  });
+});

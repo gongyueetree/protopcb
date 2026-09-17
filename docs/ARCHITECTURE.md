@@ -136,6 +136,22 @@ Browser  aiRequest(operation, input)  [src/providers/ai-client]
 - Playwright E2E 九个场景已写，**尚未在任何环境实际执行过**（编写环境无法下载浏览器；首次执行在 CI，见 e2e/README.md）
 - Credit consume 为 NON_TRANSACTIONAL（模型超时不退费）
 
+## 品牌与兼容标识
+
+| 类别 | 取值 | 处理 |
+|---|---|---|
+| DISPLAY BRAND | `protopcb` / 硬件原型工坊 | 仓库名、包名、README、UI、导出文件的 title 全部用它 |
+| LEGACY_COMPAT_IDENTIFIER | KiCad 导出的 `(generator circuit_canvas)` | **保留**：KiCad 用它识别产出方，改名会给既有工程的差异对比引入噪声 |
+| LEGACY_COMPAT_IDENTIFIER | DS2KiCad JWT 的 `sub` / `tenantId` = `circuit-canvas` | **保留**：对端登记的租户标识，改了认不出来 |
+
+所以「旧名只存在于 Git 历史」是不准确的说法——它作为协议标识仍在运行时出现，只是不再作为显示品牌。
+
+## E2E
+
+9 个场景在 `e2e/`，由 GitHub Actions 的 `e2e` job 在 `verify` 之后执行。
+首次执行（run #12）失败，本轮已按失败原因修正断言与选择器（见 `docs/CODEBASE_AUDIT.md` 的 E2E 一节）。
+编写环境无法下载 Chromium，因此**本地只做到 tsc 类型检查，通过与否以 Actions 为准**。
+
 ## NOT_CONNECTED（外部后端尚未提供）
 
 - ezPLM OAuth / SSO Session Bridge（`proto_session` 由本站签发）— 未实现；当前只校验 ezPLM/EEHub 签发的会话

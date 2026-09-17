@@ -11,7 +11,8 @@ test('json export/import/export is stable', async ({ page }) => {
   // 通过导入入口重新载入同一 JSON
   const input = page.locator('input[type=file]');
   await input.setInputFiles({ name: 'a.json', mimeType: 'application/json', buffer: Buffer.from(a, 'utf8') });
-  await page.waitForTimeout(500);
+  // 等导入完成的信号（toast），不用 sleep
+  await expect(page.getByRole('status').first()).toBeVisible({ timeout: 10_000 });
   const b = await page.evaluate(() => (window as unknown as { __protopcb_test__: { getDocJson: () => string } }).__protopcb_test__.getDocJson());
   const strip = (s: string) => { const o = JSON.parse(s); delete o.metadata?.updatedAt; delete o.metadata?.exportedAt; delete o.metadata?.build; return JSON.stringify(o); };
   expect(strip(b)).toBe(strip(a));

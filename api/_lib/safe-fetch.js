@@ -98,7 +98,7 @@ export async function safeFetch(rawUrl, {
       const res = await fetch(target.toString(), {
         redirect: 'manual',          // 自己跟随，才能逐跳校验
         signal: ctl.signal,
-        headers: { 'User-Agent': 'circuit-canvas/1.0', ...headers },
+        headers: { 'User-Agent': 'protopcb/1.0', ...headers },
       });
 
       if ([301, 302, 303, 307, 308].includes(res.status)) {

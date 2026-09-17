@@ -21,7 +21,7 @@ import { useEntitlementStore } from '../../state/entitlementStore';
 import { loginUrl } from '../../design-core/entitlements';
 
 const providers = getProviders();
-// 身份来自 providers.identity（demo 模式自然是 demo-user，集成模式是真实身份）
+// 身份唯一来源是 /api/session（entitlementStore → useAccessContext）；匿名时为 null
 
 const LEVEL: Record<ReviewLevel, { bg: string; color: string; label: string }> = {
   high: { bg: '#fef2f2', color: '#dc2626', label: tr('高') },

@@ -7,14 +7,14 @@
  */
 import { EzplmReferenceDesignProvider as RefDesignImpl } from '../reference-design/ezplm-provider';
 import type {
-  ComponentDataProvider, ReferenceDesignProvider, IdentityProvider, ProjectProvider,
+  ComponentDataProvider, ReferenceDesignProvider, ProjectProvider,
   ComponentSearchQuery, AccessContext, Paginated, ComponentSearchResult, FootprintOption,
-  ComponentAlternative, OrganizationMaterialInfo, PeripheralCircuitRecommendation, CurrentUser,
+  ComponentAlternative, OrganizationMaterialInfo, PeripheralCircuitRecommendation,
 } from '../types';
 import type { ComponentCategory } from '../../design-core/document/types';
 import { HttpClient } from '../http/client';
 import { searchEzplmParts, isEzplmPart } from './live';
-import type { EzplmMeDto, EzplmPeripheralCircuitDto } from './contracts';
+import type { EzplmPeripheralCircuitDto } from './contracts';
 import { mapPeripheralCircuit, fallbackFootprint } from './mappers';
 
 export class EzplmComponentDataProvider implements ComponentDataProvider {
@@ -97,17 +97,6 @@ export class EzplmReferenceDesignProvider implements ReferenceDesignProvider {
   }
 }
 
-export class EzplmIdentityProvider implements IdentityProvider {
-  constructor(private http: HttpClient) {}
-  async getCurrentUser(): Promise<CurrentUser> {
-    const dto = await this.http.get<EzplmMeDto>('/v1/me');
-    return { userId: dto.user_id, displayName: dto.display_name, organizationId: dto.organization_id };
-  }
-  async getAccessContext(): Promise<AccessContext> {
-    const u = await this.getCurrentUser();
-    return { userId: u.userId, organizationId: u.organizationId };
-  }
-}
 
 /** 云端设计存储尚未接通时抛出的错误：UI 据此显示"未接通"，不做假成功 */
 export class CloudProjectNotConnectedError extends Error {

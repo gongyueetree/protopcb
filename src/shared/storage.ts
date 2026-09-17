@@ -24,6 +24,8 @@ export const keyOf = {
   manualPrice: (mpn: string) => `${NS}:manual_price:${mpn}`,
   ksym: (name: string) => `${NS}:ksym:${name}`,
   ksymMpn: (mpn: string) => `${NS}:ksym_mpn:${mpn}`,
+  /** 本地保存的设计（LocalStorageProjectProvider） */
+  project: (projectId: string) => `${NS}:design:${projectId}`,
 };
 
 /** 旧键 → 新键（固定键） */
@@ -38,6 +40,7 @@ const LEGACY_FIXED: Record<string, string> = {
 };
 /** 旧前缀 → 新前缀（带参数的键） */
 const LEGACY_PREFIX: [string, (rest: string) => string][] = [
+  ['cc:design:', (r) => keyOf.project(r)],
   ['cc_manual_price_', (r) => keyOf.manualPrice(r)],
   ['cc_ksym_mpn_', (r) => keyOf.ksymMpn(r)],
   ['cc_ksym_', (r) => keyOf.ksym(r)],

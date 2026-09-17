@@ -14,6 +14,7 @@ test('rename via dialog persists across reload', async ({ page }) => {
   await input.press('Enter');
   await expect(dlg).toHaveCount(0);
   await expect(page.getByTestId('project-name')).toContainText('E2E 温控板');
+  // 不用 sleep：pagehide flush 保证最后一笔已落盘（见 useProjectPersistence）
   await page.reload();
   await expect(page.getByTestId('project-name')).toContainText('E2E 温控板');
 });

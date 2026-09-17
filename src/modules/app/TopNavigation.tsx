@@ -8,6 +8,12 @@ import { AccountBar } from '../../modules/account/AccountBar';
 import { COLORS } from '../../shared/theme';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
 import type React from 'react';
+import { dialogs } from '../ui/dialogStore';
+/** 导入服务只返回"发生了什么"，提示留在 UI 层（application 不依赖 modules/ui） */
+function showImportNotices(r: { notices: { level: 'success' | 'warning' | 'error'; text: string }[] }) {
+  for (const n of r.notices) dialogs.toast(n.text, n.level);
+}
+
 export function TopNavigation({ buildStamp, doc, savedAt, lang, toggleLang, t, fileRef, ensureProjectName, renameProject, setPcbExportOpen }: { buildStamp: string, doc: CircuitCanvasDocument, savedAt: string | null, lang: string, toggleLang: () => void, t: (s: string) => string, fileRef: React.RefObject<HTMLInputElement>, ensureProjectName: () => Promise<boolean>, renameProject: () => Promise<void>, setPcbExportOpen: (v: boolean) => void }) {
   return (
     <header style={{ height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', background: '#fff', borderBottom: `2px solid ${COLORS.green}` }}>
@@ -27,10 +33,10 @@ export function TopNavigation({ buildStamp, doc, savedAt, lang, toggleLang, t, f
         <button data-testid="toggle-lang" onClick={toggleLang} title={lang === 'zh' ? 'Switch to English' : tr('切换为中文')}
           style={{ ...hbtn, fontWeight: 800 }}>{lang === 'zh' ? tr('中 | EN') : tr('EN | 中')}</button>
         {/* 「导出PCB」与「导出设计」合并为一个导出中心：PCB 工程 / 设计文件 / BOM / 报告 一处给全 */}
-        <button onClick={() => { void ensureProjectName().then((ok) => { if (ok) setPcbExportOpen(true); }); }} style={hbtn}>⬇ {t('导出设计')}</button>
+        <button data-testid="open-export" onClick={() => { void ensureProjectName().then((ok) => { if (ok) setPcbExportOpen(true); }); }} style={hbtn}>⬇ {t('导出设计')}</button>
         <AccountBar />
         <button onClick={() => fileRef.current?.click()} style={hbtn}>⬆ {t('导入设计')}</button>
-        <input ref={fileRef} type="file" accept=".json,.kicad_pcb,.kicad_sch,.sch,.zip" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) void importProjectFile(f); e.target.value = ''; }} />
+        <input ref={fileRef} type="file" accept=".json,.kicad_pcb,.kicad_sch,.sch,.zip" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) void importProjectFile(f).then(showImportNotices); e.target.value = ''; }} />
       </div>
     </header>
   );
