@@ -46,17 +46,19 @@ describe('工程自带 STEP 的 blob 生命周期', () => {
     vi.stubGlobal('Blob', class { constructor(public parts: unknown[]) {} });
   });
 
-  it('同一封装重复登记会先撤销旧 URL；revokeAll 撤销全部', async () => {
+  it('同一资产键复用同一个 blob（多个实例共享，不重复创建）', async () => {
     const reg = await import('../../src/infrastructure/model-assets');
-    const u1 = reg.registerModelBlob('SW_SPST_EVQP7C', new Uint8Array([1]));
-    const u2 = reg.registerModelBlob('SW_SPST_EVQP7C', new Uint8Array([2]));   // 重新导入同名
-    expect(revoked).toContain(u1);
-    expect(reg.isModelBlob(u2)).toBe(true);
-    reg.registerModelBlob('PinHeader_1x3', new Uint8Array([3]));
+    const u1 = reg.registerModelBlob('altium:MODEL-A', new Uint8Array([1]));
+    const u2 = reg.registerModelBlob('altium:MODEL-A', new Uint8Array([1]));   // 第二个实例用同一模型
+    expect(u2).toBe(u1);
+    expect(created.length).toBe(1);
+    // 不同资产各自一个
+    reg.registerModelBlob('altium:MODEL-B', new Uint8Array([2]));
+    expect(reg.__modelBlobCount()).toBe(2);
     const n = reg.revokeAllModelBlobs();
     expect(n).toBe(2);
     expect(reg.__modelBlobCount()).toBe(0);
-    expect(revoked.length).toBe(3);
+    expect(revoked.length).toBe(2);
   });
 
   it('撤销时把 STEP 缓存里对应的模型一并驱逐（不再残留死 URL 的模型）', async () => {

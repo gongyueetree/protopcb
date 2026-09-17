@@ -90,6 +90,8 @@ interface DesignState {
   setSchematicSheets: (sheets: Record<string, SchematicSheetData>, rootFile: string) => void;
   /** 给全部同封装且尚无 3D 的器件挂 stepUrl（无源器件自动关联 KiCad 官方库用） */
   setStepUrlByFootprint: (footprintName: string, stepUrl: string) => void;
+  /** 按位号设置 3D 模型地址：同封装不同模型的场景（Altium 内嵌模型）必须按实例 */
+  setStepUrlByReference: (reference: string, stepUrl: string) => void;
   /** 仅关联 PCB 封装（借用库中器件的封装，型号/符号不变） */
   linkFootprintFrom: (instanceId: string, src: { footprintName: string; footprintFileUrl?: string; stepUrl?: string; pins?: number }) => void;
   select: (id: string | null) => void;
@@ -464,6 +466,14 @@ export const useDesignStore = create<DesignState>()(
         snapshot(s);
         c.display = { ...(c.display ?? {}), symbolFileUrl: src.symbolFileUrl, symbolFromMpn: src.mpn };
         c.customSymbolSvg = undefined; // 库符号优先于此前上传的 SVG
+        s.doc = touchDocument(s.doc);
+      }),
+
+    setStepUrlByReference: (reference, stepUrl) =>
+      set((s) => {
+        const c = s.doc.components.find((x) => x.reference === reference);
+        if (!c || c.display?.stepUrl) return;
+        c.display = { ...(c.display ?? {}), stepUrl };
         s.doc = touchDocument(s.doc);
       }),
 

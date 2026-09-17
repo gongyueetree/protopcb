@@ -43,6 +43,8 @@ export interface KicadImportedComp {
   modelTransform?: ModelTransform;
   /** 本实例引用的工程自带模型路径（${KIPRJMOD}/…） */
   projectModelPath?: string;
+  /** Altium 导入：本实例使用的内嵌模型键（对应 KicadImportResult.altiumModels） */
+  altiumModelKey?: string;
 }
 
 /** .kicad_pcb 的 (model) 变换：offset(mm) / rotate(deg) / scale */
@@ -83,6 +85,8 @@ export interface KicadImportResult {
   projectModelPaths: Record<string, string>;
   /** 同名封装几何冲突（保留首次出现的定义，其余实例记录在此） */
   footprintConflicts: { footprintName: string; references: string[]; kept: 'first' }[];
+  /** Altium 导入带出的内嵌 STEP（KiCad 路径为空） */
+  altiumModels?: { key: string; fileName: string; step: Uint8Array }[];
 }
 
 /** 读取 footprint 的文本属性：v7+ (property "Reference" "U1") / v6 (fp_text reference U1 …) */

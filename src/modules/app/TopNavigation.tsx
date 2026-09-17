@@ -36,7 +36,7 @@ export function TopNavigation({ buildStamp, doc, savedAt, lang, toggleLang, t, f
         <button data-testid="open-export" onClick={() => { void ensureProjectName().then((ok) => { if (ok) setPcbExportOpen(true); }); }} style={hbtn}>⬇ {t('导出设计')}</button>
         <AccountBar />
         <button onClick={() => fileRef.current?.click()} style={hbtn}>⬆ {t('导入设计')}</button>
-        <input ref={fileRef} type="file" accept=".json,.kicad_pcb,.kicad_sch,.sch,.zip" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) void importProjectFile(f).then(showImportNotices); e.target.value = ''; }} />
+        <input ref={fileRef} type="file" accept=".json,.kicad_pcb,.kicad_sch,.sch,.zip,.PcbDoc,.SchDoc,.PrjPcb" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) void importProjectFile(f).then(showImportNotices); e.target.value = ''; }} />
       </div>
     </header>
   );

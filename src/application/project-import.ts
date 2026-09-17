@@ -12,12 +12,14 @@ import { parseLegacySch, isLegacySch } from '../design-core/geometry/kicad-sch-l
 import { parseLegacyLib, legacyToParsedSymbol } from '../design-core/geometry/kicad-lib-legacy';
 import { safeUnzipOffThread } from '../design-core/geometry/safe-unzip-worker';
 
-import { registerSymbolOverride, parseKicadSym } from '../design-core/geometry/lib-file-registry';
+import { registerSymbolOverride, parseKicadSym, registerFootprintOverride } from '../design-core/geometry/lib-file-registry';
 import { ZipSafetyError } from '../design-core/geometry/safe-unzip';
 import { keyOf } from '../shared/storage';
 import { importDocumentFromFile } from '../design-core/document/persistence-service';
 import { registerModelBlob, revokeAllModelBlobs } from '../infrastructure/model-assets';
 import type { SchematicSheetData } from '../design-core/document/types';
+import { parseAltiumPcb, isAltiumPcbFile, isAltiumSchFile, isAltiumProjectFile } from '../design-core/geometry/altium-pcb-import';
+import { parseAltiumSch } from '../design-core/geometry/altium-sch-import';
 
 /**
  * 导入结果。application 层只**返回**发生了什么，由 UI 决定怎么提示 ——
@@ -121,6 +123,37 @@ export const applySchText = (text: string, fileName = 'schematic.kicad_sch', col
 };
 
 /** 统一入口：按文件类型分派到 zip / pcb / sch / legacy / JSON */
+
+/**
+ * 应用 Altium 原理图：符号几何注册进符号注册表，页面数据进文档。
+ * 与 KiCad 路径的区别只在符号几何的来源 —— 渲染、切页、导出都共用同一套。
+ */
+function applyAltiumSch(bytes: Uint8Array, fileName: string, warn: (m: string) => void): { symbols: number; linked: number } {
+  const sch = parseAltiumSch(bytes, { onWarning: warn });
+  for (const [ref, sym] of Object.entries(sch.symbolsByRef)) {
+    registerSymbolOverride(`PRJSYM:${ref}`, sym);
+  }
+  // 位号 → 符号键，画布上的器件据此挂载原理图符号
+  const linked = useDesignStore.getState().assignSymbolsByReference(
+    Object.fromEntries(Object.keys(sch.symbolsByRef).map((ref) => [ref, `PRJSYM:${ref}`])),
+  );
+  useDesignStore.getState().setSchematicSheets({
+    [fileName]: {
+      instances: sch.instances,
+      wires: sch.wires,
+      junctions: sch.junctions,
+      labels: sch.labels,
+      noConnects: sch.noConnects,
+      libSymbols: sch.libSymbols,
+      buses: sch.buses,
+      busEntries: sch.busEntries,
+      sheets: sch.sheets,
+      file: fileName,
+    },
+  }, fileName);
+  return { symbols: Object.keys(sch.symbolsByRef).length, linked };
+}
+
 export const importProjectFile = async (f: File): Promise<ImportResult> => {
   const notices: ImportNotice[] = [];
   pendingWarnings.length = 0;
@@ -149,7 +182,8 @@ export const importProjectFile = async (f: File): Promise<ImportResult> => {
         for (const [fpName, mpath] of Object.entries(r.projectModelPaths)) {
           const hit = stepFiles.find((n) => base(n) === base(mpath));
           if (!hit) continue;
-          const url = registerModelBlob(fpName, entries[hit]);
+          // 键用包内文件路径：同一 STEP 被多个封装引用时复用同一个 blob
+          const url = registerModelBlob(`project:${hit}`, entries[hit]);
           useDesignStore.getState().setStepUrlByFootprint(fpName, url);
           projModels++;
         }
@@ -186,6 +220,36 @@ export const importProjectFile = async (f: File): Promise<ImportResult> => {
       }
         notices.push({ level: 'success', text: `${tr('工程导入完成')}：PCB ${r.comps} ${tr('个器件')}${r.skipped ? `（${r.skipped} ${tr('个跳过')}）` : ''}${projModels ? ` · ${projModels} ${tr('个工程自带 3D 模型已关联')}` : ''}${symTotal ? ` · ${tr('原理图')} ${symTotal} ${tr('个符号')}，${linkTotal} ${tr('个已挂载')}` : ''}` });
         result = { kind: 'zip', pcbComponents: r.comps, skipped: r.skipped, schematicSheets: Object.keys(sheets).length, linkedSymbols: linkTotal, extractedSymbols: symTotal, projectModels: projModels, notices };
+    } else if (isAltiumPcbFile(f.name)) {
+      // Altium .PcbDoc：解析成与 KiCad 导入同构的结果，后续链路完全复用
+      const data = parseAltiumPcb(new Uint8Array(await f.arrayBuffer()), { onWarning: (m) => pendingWarnings.push(m) });
+      for (const [name, def] of Object.entries(data.footprintDefs)) registerFootprintOverride(name, def);
+      useDesignStore.getState().importKicad(data);
+      // 内嵌 3D 模型：按模型键注册 blob（同模型多实例共享），再按位号绑到各自的器件
+      let modelCount = 0;
+      if (data.altiumModels?.length) {
+        revokeAllModelBlobs();
+        const urlByKey = new Map<string, string>();
+        for (const m of data.altiumModels) {
+          urlByKey.set(m.key, registerModelBlob(`altium:${m.key}`, m.step));
+        }
+        for (const c of data.comps) {
+          const url = c.altiumModelKey ? urlByKey.get(c.altiumModelKey) : undefined;
+          if (url) { useDesignStore.getState().setStepUrlByReference(c.reference, url); modelCount++; }
+        }
+      }
+      for (const c of data.footprintConflicts) {
+        pendingWarnings.push(`${tr('封装几何冲突')}：${c.footprintName}（${c.references.join('、')} ${tr('的焊盘与首个实例不同，已按首个实例渲染')}）`);
+      }
+      notices.push({ level: 'success', text: `${tr('已导入 Altium PCB')}：${data.comps.length} ${tr('个器件')}、${Object.keys(data.nets).length} ${tr('个网络')}${modelCount ? ` · ${modelCount} ${tr('个内嵌 3D 模型')}` : ''}` });
+      result = { kind: 'pcb', pcbComponents: data.comps.length, skipped: data.skipped.length, projectModels: modelCount, notices };
+    } else if (isAltiumSchFile(f.name)) {
+      const rr = applyAltiumSch(new Uint8Array(await f.arrayBuffer()), f.name, (m) => pendingWarnings.push(m));
+      notices.push({ level: 'success', text: `${tr('已导入 Altium 原理图')}：${rr.symbols} ${tr('个符号')}，${rr.linked} ${tr('个器件已挂载')}` });
+      result = { kind: 'schematic', extractedSymbols: rr.symbols, linkedSymbols: rr.linked, notices };
+    } else if (isAltiumProjectFile(f.name)) {
+      notices.push({ level: 'warning', text: tr('请直接导入 .PcbDoc / .SchDoc，或把整个工程打包成 zip 导入') });
+      result = { kind: 'pcb', notices };
     } else if (/\.kicad_pcb$/i.test(f.name)) {
       const r = importPcbText(await f.text());
       if (r.skipped) notices.push({ level: 'warning', text: `${tr('已导入')} ${r.comps} ${tr('个器件')}；${r.skipped} ${tr('个封装缺少位置信息被跳过')}` });

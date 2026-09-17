@@ -108,7 +108,20 @@ Browser  aiRequest(operation, input)  [src/providers/ai-client]
 - 导入：`.kicad_pcb`（`geometry/kicad-pcb-import.ts`）、`.kicad_sch`（多页层级，`kicad-sch-import.ts`）、KiCad 5 `.sch/.lib`（legacy 解析器）、zip（`safeUnzip`，中央目录预检）
 - 工程自带 3D：`.kicad_pcb` 里 `${KIPRJMOD}/…` 引用按文件名匹配 zip 内 STEP，经 `model-blob-registry` 登记为 blob URL（会话内有效；重新导入 / 清空时撤销）
 - 导出：`pcbExport.ts`（`.kicad_pcb`，定位孔来自 `effectiveMountingHoles`）、JSON、Markdown 报告、BOM CSV、外壳 STL / CadQuery 脚本
-- 导入唯一入口：`application/project-import.ts`（`importProjectFile`：zip / pcb / sch / legacy / JSON 分派）
+- 导入唯一入口：`application/project-import.ts`（`importProjectFile`：zip / pcb / sch / legacy / JSON / **Altium .PcbDoc** 分派）
+- **Altium 导入**：`geometry/altium-records.ts`（CFB 流 + 记录拆分）+ `geometry/altium-pcb-import.ts`（映射到 `KicadImportResult`）。
+  焊盘按 owner 重组成 per-footprint 定义，与 KiCad 内嵌封装同构，因此 2D/3D/BOM/导出全链路复用。
+  已支持：板框、器件位置与旋转、顶/底层、焊盘、走线、过孔、网络与焊盘网络映射。
+  3D：`geometry/altium-models.ts` 读 `Models/*`（zlib 压缩的 STEP）与 `ComponentBodies6`，
+  按**实例**产出与 KiCad `(model)` 同构的 `modelTransform`，交给同一个 `applyModelTransform` 摆正；
+  同一模型被多实例共用时只解压一次，blob 按资产键复用。
+  定位基准异常（偏移 >100mm，AD 允许模型原点画在封装原点之外）的实例宁可跳过也不画错位置。
+  原理图：`geometry/altium-sch-import.ts` 读 `FileHeader` 流（整份原理图在一个流里，
+  首条是图纸头、不参与 OWNERINDEX 编号），按 OWNERINDEX 把管脚与图形归到器件，
+  产出 `ParsedSymbol` + `SchInstance`，与 KiCad 原理图同构。
+  按 OWNERPARTID（多单元）与 OWNERPARTDISPLAYMODE（多套画法）过滤，否则一个 2 脚电阻会画成 6 脚。
+  未支持：层级图纸（多页 .SchDoc）、总线、圆弧走线（Arcs6）、覆铜。
+  导出仍是 KiCad 格式。
 
 ## 8. 3D 资源生命周期
 
