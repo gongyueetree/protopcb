@@ -157,6 +157,31 @@ export function parseKicadFootprintName(name: string): PadFootprint | null {
   const N = name.toUpperCase();
   const { bodyW, bodyH, pitch, pins } = extract(name);
 
+  /**
+   * 测试点 / 定位孔 / 安装件：单焊盘或无焊盘，绝不是"默认两脚"。
+   * TestPoint_Pad_D1.0mm = 一个 φ1.0 圆形 SMD 焊盘；TestPoint_THTPad_D1.5mm_Drill0.7mm = 单个插装盘。
+   * 此前落到默认分支，画成两脚方块，和 KiCad 工程对不上。
+   */
+  const tpSmd = N.match(/^TESTPOINT_PAD_D(\d+(?:\.\d+)?)MM/);
+  if (tpSmd) {
+    const d = parseFloat(tpSmd[1]);
+    return { bodyW: d, bodyH: d, pads: [{ num: '1', x: 0, y: 0, w: d, h: d, round: true }] };
+  }
+  const tpTht = N.match(/^TESTPOINT_THTPAD_D(\d+(?:\.\d+)?)MM/);
+  if (tpTht) {
+    const d = parseFloat(tpTht[1]);
+    return { bodyW: d, bodyH: d, pads: [{ num: '1', x: 0, y: 0, w: d, h: d, round: true }] };
+  }
+  // 环形/方形测试点、探针垫：同样单盘
+  if (/^TESTPOINT/.test(N)) {
+    return { bodyW: 1.5, bodyH: 1.5, pads: [{ num: '1', x: 0, y: 0, w: 1.5, h: 1.5, round: true }] };
+  }
+  // 定位孔：没有电气焊盘（MountingHole_3.2mm_M3 这类）
+  if (/^MOUNTINGHOLE/.test(N)) {
+    const d = parseFloat(N.match(/MOUNTINGHOLE_(\d+(?:\.\d+)?)MM/)?.[1] ?? '3.2');
+    return { bodyW: d, bodyH: d, pads: [] };
+  }
+
   // 片式阻容感/二极管：R_0402_1005Metric / C_0603 / L_0805 / D_1206
   const chip = N.match(/^(?:[RCLD]|LED|FB)_(\d{4})(?:_|$)/);
   if (chip) return chipPads(chip[1]);

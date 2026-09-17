@@ -147,6 +147,33 @@ function makeHeader(cols: number, rows: number): THREE.Group {
 
 
 /**
+ * 应用 .kicad_pcb 里 (model) 的 offset/rotate/scale。
+ *
+ * KiCad 用这三个字段把厂商 STEP 摆正 —— 忽略它们的后果是实打实的：
+ * USB-C 的 (rotate 180 0 0) 丢掉就整个翻过来；轻触开关的 (rotate -90 0 0) 丢掉就立着。
+ *
+ * 坐标系换算：KiCad 3D 的 X 向右、Y 向**前**（板面内）、Z 向上；
+ * 我们的场景是 X 向右、Y 向上、Z 向下（板面内）。故 (x,y,z)_kicad → (x, z, -y)_scene，
+ * 旋转角同理换轴，且 KiCad 的 rotate 是顺时针为正（与 three.js 相反），需取负。
+ */
+export function applyModelTransform(
+  group: THREE.Group,
+  t?: { offset?: [number, number, number]; rotate?: [number, number, number]; scale?: [number, number, number] },
+): THREE.Group {
+  if (!t) return group;
+  const wrap = new THREE.Group();
+  if (t.scale) group.scale.set(t.scale[0], t.scale[2], t.scale[1]);
+  if (t.rotate) {
+    const [rx, ry, rz] = t.rotate.map((d) => (-d * Math.PI) / 180);
+    // KiCad 绕 X/Y/Z → 场景绕 X/Z/Y（Y 与 Z 互换），顺序 ZYX 与 KiCad 一致
+    group.rotation.set(rx, rz, ry, 'ZYX');
+  }
+  if (t.offset) group.position.set(t.offset[0], t.offset[2], -t.offset[1]);
+  wrap.add(group);
+  return wrap;
+}
+
+/**
  * 按真实焊盘建排针/排母：塑料基座覆盖焊盘外接框（含卧式封装的本体偏移），
  * 每个焊盘位置竖一根针。这样 3D 与 2D 焊盘永远对齐，不依赖封装名的命名习惯。
  */
@@ -251,7 +278,7 @@ export function buildComponent3D(comp: PlacedComponent): THREE.Group {
   const stepUrl = comp.display?.stepUrl;
   if (stepUrl) {
     const real = stepModelFor(stepUrl);
-    if (real) return real;
+    if (real) return applyModelTransform(real, comp.display?.modelTransform);
     ensureStepModel(stepUrl, comp.footprint.name);
   }
   const fp = comp.footprint.name;

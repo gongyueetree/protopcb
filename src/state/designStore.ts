@@ -625,6 +625,9 @@ export const useDesignStore = create<DesignState>()(
             stepUrl: mref ? `/api/kicadlib?path=step&lib=${encodeURIComponent(mref.lib3d)}&name=${encodeURIComponent(mref.name3d)}` : undefined,
           } as ComponentSearchResult, k.reference);
           if (k.padNets) placed.display = { ...(placed.display ?? {}), padNets: k.padNets };
+          // (model) 的 offset/rotate/scale：KiCad 用它把厂商 STEP 摆正，丢了模型就会翻转或立起来
+          const mx = data.modelTransforms?.[k.footprintName];
+          if (mx) placed.display = { ...(placed.display ?? {}), modelTransform: mx };
           placed.placement = {
             ...placed.placement,
             xMm: k.xMm,

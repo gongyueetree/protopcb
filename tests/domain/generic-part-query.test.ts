@@ -35,3 +35,25 @@ describe('识别通用件查询', () => {
     expect(parseGenericPartQuery('')).toBeNull();
   });
 });
+
+describe('测试点 / 定位孔的封装（此前落到"默认两脚"）', () => {
+  it('TestPoint_Pad_D1.0mm = 单个 φ1.0 圆形焊盘', async () => {
+    const { parseKicadFootprintName } = await import('../../src/design-core/geometry/kicad-name-parser');
+    const fp = parseKicadFootprintName('TestPoint_Pad_D1.0mm');
+    expect(fp).not.toBeNull();
+    expect(fp!.pads).toHaveLength(1);
+    expect(fp!.pads[0]).toMatchObject({ num: '1', x: 0, y: 0, w: 1, h: 1, round: true });
+  });
+  it('THT 测试点也是单盘', async () => {
+    const { parseKicadFootprintName } = await import('../../src/design-core/geometry/kicad-name-parser');
+    const fp = parseKicadFootprintName('TestPoint_THTPad_D1.5mm_Drill0.7mm');
+    expect(fp!.pads).toHaveLength(1);
+    expect(fp!.pads[0].w).toBe(1.5);
+  });
+  it('定位孔没有电气焊盘', async () => {
+    const { parseKicadFootprintName } = await import('../../src/design-core/geometry/kicad-name-parser');
+    const fp = parseKicadFootprintName('MountingHole_3.2mm_M3');
+    expect(fp!.pads).toHaveLength(0);
+    expect(fp!.bodyW).toBeCloseTo(3.2, 5);
+  });
+});

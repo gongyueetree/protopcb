@@ -70,6 +70,12 @@ export const placedComponentSchema = z.object({
       anchorRef: z.string().optional(),
       padNets: z.record(z.number()).optional(),
       zOffsetMm: z.number().optional(),
+      /** 3D 模型的摆正变换（来自 .kicad_pcb 的 (model) 节点：offset mm / rotate deg / scale） */
+      modelTransform: z.object({
+        offset: z.tuple([z.number(), z.number(), z.number()]).optional(),
+        rotate: z.tuple([z.number(), z.number(), z.number()]).optional(),
+        scale: z.tuple([z.number(), z.number(), z.number()]).optional(),
+      }).optional(),
       officialUrl: z.string().optional(),
       footprintFileUrl: z.string().optional(),
       symbolFileUrl: z.string().optional(),

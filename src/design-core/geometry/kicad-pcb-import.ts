@@ -32,6 +32,13 @@ export interface KicadImportedComp {
   layer: 'top' | 'bottom';
 }
 
+/** .kicad_pcb 的 (model) 变换：offset(mm) / rotate(deg) / scale */
+export interface ModelTransform {
+  offset?: [number, number, number];
+  rotate?: [number, number, number];
+  scale?: [number, number, number];
+}
+
 export interface KicadImportResult {
   /** 网络表：网络号 → 网络名（导出时原样写回，保留电气连接） */
   nets: Record<number, string>;
@@ -61,6 +68,8 @@ export interface KicadImportResult {
   modelRefs: Record<string, { lib3d: string; name3d: string }>;
   /** 封装名 → 工程自带 3D 模型的原始路径（如 ${KIPRJMOD}/3D/evqp7-ja-01p.step） */
   projectModelPaths: Record<string, string>;
+  /** 封装名 → 3D 模型的摆正变换（来自 .kicad_pcb 的 (model) 节点） */
+  modelTransforms: Record<string, ModelTransform>;
 }
 
 /** 读取 footprint 的文本属性：v7+ (property "Reference" "U1") / v6 (fp_text reference U1 …) */
@@ -113,6 +122,8 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const modelRefs: Record<string, { lib3d: string; name3d: string }> = {};
   /** 封装名 → .kicad_pcb 里写的原始 model 路径（可能含 ${KIPRJMOD} 变量） */
   const projectModelPaths: Record<string, string> = {};
+  /** 封装名 → (model) 里的 offset/rotate/scale（KiCad 用它把厂商 STEP 摆正） */
+  const modelTransforms: Record<string, ModelTransform> = {};
   /**
    * 网络表。两种格式都要支持：
    *   KiCad ≤9：文件顶层有 (net 3 "+5V") 编号表，pad 里写 (net 3 "+5V")
@@ -183,6 +194,28 @@ export function parseKicadPcb(text: string): KicadImportResult {
       if (mm) modelRefs[fpName] = { lib3d: mm[1], name3d: mm[2] };
       // 工程自带模型（${KIPRJMOD}/3D/xxx.step 这类）：记下原始路径，zip 导入时按文件名在包内匹配
       if (mpath && /\.(step|stp)$/i.test(mpath) && !/\.3dshapes[/\\]/i.test(mpath)) projectModelPaths[fpName] = mpath;
+      /**
+       * (model) 自带的 offset/scale/rotate 必须带出来 —— KiCad 用它把厂商 STEP 摆正。
+       * 忽略它的后果是实打实的：USB-C 的 (rotate 180 0 0) 丢掉就整个翻过来，
+       * 轻触开关的 (rotate -90 0 0) 丢掉就立着而不是躺平。
+       * 单位：offset 为 mm；rotate 为角度，KiCad 的 3D 坐标系 Y 向上、绕轴右手定则。
+       */
+      if (mdl) {
+        const xyzOf = (tag: string): [number, number, number] | undefined => {
+          const node = find(mdl, tag);
+          const v = node ? find(node, 'xyz') : undefined;
+          if (!v) return undefined;
+          const n = [num(v, 1), num(v, 2), num(v, 3)];
+          return n.every((x) => Number.isFinite(x)) ? [n[0], n[1], n[2]] : undefined;
+        };
+        const offset = xyzOf('offset');
+        const rotate = xyzOf('rotate');
+        const scale = xyzOf('scale');
+        const nonTrivial = (v: [number, number, number] | undefined, unit: number) => v && v.some((x) => Math.abs(x - unit) > 1e-9);
+        if (nonTrivial(offset, 0) || nonTrivial(rotate, 0) || nonTrivial(scale, 1)) {
+          modelTransforms[fpName] = { offset, rotate, scale };
+        }
+      }
     }
     const at = find(fp, 'at');
     const layerRaw = String(find(fp, 'layer')?.[1] ?? 'F.Cu');
@@ -274,5 +307,5 @@ export function parseKicadPcb(text: string): KicadImportResult {
   const widthMm = hasOutline ? Math.max(1, rawW) : Math.max(20, rawW);
   const heightMm = hasOutline ? Math.max(1, rawH) : Math.max(20, rawH);
 
-  return { nets, copperLayers, tracks, vias: viasArr, mountingHoles, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs, projectModelPaths };
+  return { nets, copperLayers, tracks, vias: viasArr, mountingHoles, widthMm, heightMm, originXMm: hasOutline ? minX : 0, originYMm: hasOutline ? minY : 0, comps, hasMountingHoles, skipped, footprintDefs, modelRefs, projectModelPaths, modelTransforms };
 }
