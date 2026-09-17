@@ -144,3 +144,52 @@ describe('多套画法只画当前那一套（AD 的 DISPLAYMODE）', () => {
     expect(inside).toEqual([]);
   });
 });
+
+describe('符号与导线对齐（坐标约定的硬判据）', () => {
+  const r = parse();
+  const PXMM_IRRELEVANT = 1;
+
+  /**
+   * 复刻 ImportedSchematicView.makeXform：它假定几何是 KiCad 库坐标（Y 向上、未旋转），
+   * 会自己做一次 Y 翻转与旋转。AD 的图元坐标是绝对的、已含旋转与 Y 方向，
+   * 所以解析层必须按这个约定回写（Y 取反）并把 rot 置 0，否则会被变换两遍。
+   */
+  const toAbs = (inst: { x: number; y: number; rot: number }, px: number, py: number) => {
+    const rad = (-inst.rot * Math.PI) / 180;
+    const c = Math.cos(rad), s = Math.sin(rad);
+    const sx = px * PXMM_IRRELEVANT, sy = -py;
+    return { x: inst.x + (sx * c - sy * s), y: inst.y + (sx * s + sy * c) };
+  };
+
+  it('实例 rot 一律为 0（旋转已烘焙进图元坐标）', () => {
+    expect(r.instances.every((i) => i.rot === 0)).toBe(true);
+  });
+
+  it('绝大多数管脚精确落在导线端点上', () => {
+    const ends = new Set<string>();
+    for (const w of r.wires) for (const [x, y] of w) ends.add(`${x.toFixed(2)},${y.toFixed(2)}`);
+
+    let hit = 0, total = 0;
+    for (const inst of r.instances) {
+      for (const p of r.legacySymbols[inst.libId].pins) {
+        const abs = toAbs(inst, p.x, p.y);
+        total++;
+        if (ends.has(`${abs.x.toFixed(2)},${abs.y.toFixed(2)}`)) hit++;
+      }
+    }
+    // 剩下的是电路里本来就悬空的脚（USB-C 的 SBU、MOSFET 衬底等）
+    expect(total).toBe(201);
+    expect(hit).toBeGreaterThanOrEqual(185);
+  });
+
+  it('一个具体例子：U1 的管脚与它周围的导线端点重合', () => {
+    const u1 = r.instances.find((i) => i.ref === 'U1')!;
+    const ends = new Set<string>();
+    for (const w of r.wires) for (const [x, y] of w) ends.add(`${x.toFixed(2)},${y.toFixed(2)}`);
+    const connected = r.legacySymbols[u1.libId].pins.filter((p) => {
+      const abs = toAbs(u1, p.x, p.y);
+      return ends.has(`${abs.x.toFixed(2)},${abs.y.toFixed(2)}`);
+    });
+    expect(connected.length).toBeGreaterThanOrEqual(30);   // 32 脚里至少 30 脚接线
+  });
+});

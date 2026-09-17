@@ -230,19 +230,31 @@ export function parseAltiumSch(bytes: Uint8Array, opts: AltiumSchOptions = {}): 
 
     symbolsByRef[d.ref] = sym;
     /**
+     * ⚠ 渲染器（ImportedSchematicView.makeXform）假定几何是 KiCad 库坐标：Y 向上、未旋转，
+     * 它会自己做一次 Y 翻转 + 按 inst.rot 旋转。
+     * 而 AD 的图元坐标是**绝对**的 —— 旋转与 Y 方向都已经烘焙在里面。
+     * 直接交出去会被翻转/旋转两遍：符号相对导线端点整体偏移、上下颠倒。
+     * 因此这里把几何按渲染器的约定回写（Y 取反），并让实例 rot=0：
+     * 旋转已经体现在坐标里，不能再转一次。
+     */
+    const toLib = (y: number) => -y;
+    /**
      * 每个实例一份几何，键用位号 —— AD 的同型号器件可以各自改画法/单元，
      * 按 libRef 共享会把它们串在一起。
      */
     const libId = `ALTIUM:${d.ref}`;
     refToLibId[d.ref] = libId;
     legacySymbols[libId] = {
-      rects: sym.rects.map((r) => ({ x1: r.x, y1: r.y, x2: r.x + r.w, y2: r.y + r.h })),
-      polys: d.polyPoints.map((pts) => pts.map(([x, y]) => ({ x: x - d.x, y: y - d.y }))),
-      circles: sym.circles.map((c) => ({ cx: c.x, cy: c.y, r: c.r })),
+      rects: sym.rects.map((r) => ({ x1: r.x, y1: toLib(r.y), x2: r.x + r.w, y2: toLib(r.y + r.h) })),
+      polys: d.polyPoints.map((pts) => pts.map(([x, y]) => ({ x: x - d.x, y: toLib(y - d.y) }))),
+      circles: sym.circles.map((c) => ({ cx: c.x, cy: toLib(c.y), r: c.r })),
       arcs: [],
-      pins: sym.pins.map((p) => ({ x: p.tipX, y: p.tipY, ex: p.endX, ey: p.endY, number: p.number, name: p.name })),
+      pins: sym.pins.map((p) => ({
+        x: p.tipX, y: toLib(p.tipY), ex: p.endX, ey: toLib(p.endY), number: p.number, name: p.name,
+      })),
     };
-    instances.push({ ref: d.ref, libId, value: d.value, x: d.x, y: d.y, rot: d.rot, unit: d.unit });
+    // rot=0：AD 的图元坐标已含旋转，渲染器不得再转
+    instances.push({ ref: d.ref, libId, value: d.value, x: d.x, y: d.y, rot: 0, unit: d.unit });
   }
 
   return {
