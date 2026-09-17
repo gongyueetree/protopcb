@@ -15,10 +15,15 @@ export function useProjectPersistence(
   /** 最近一次的文档：pagehide 时用它落盘（闭包里拿不到最新 props） */
   const latestDoc = useRef<CircuitCanvasDocument | null>(null);
 
-  // 启动恢复：仅当当前画布为空时恢复存档（服务内部已做 schema 校验 + 迁移 + 损坏备份）
+  // 启动恢复：仅当当前画布为空时恢复存档（服务内部已做 schema 校验 + 迁移 + 损坏备份）。
+  // URL 带 ?fresh=1 时跳过恢复并清掉存档 —— 反复导入工程做对比时不用每次手动清空画布。
   useEffect(() => {
     if (restored.current) return;
     restored.current = true;
+    if (typeof location !== 'undefined' && /(?:\?|&)fresh=1(?:&|$)/.test(location.search)) {
+      ProjectPersistenceService.clearByUser();
+      return;
+    }
     const saved = ProjectPersistenceService.load();
     // 恢复条件用同一个 docHasContent：存档有内容、当前画布还没内容
     if (saved && docHasContent(saved.doc) && !docHasContent(doc)) {

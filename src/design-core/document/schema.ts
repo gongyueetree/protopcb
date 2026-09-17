@@ -223,6 +223,23 @@ export const documentSchema = z.object({
     lidMm: z.number().finite().positive().max(20),
   }).optional(),
   /** KiCad 工程导入的原理图原样视图：全部页面按文件名索引；当前页是 UI 状态，不在文档里 */
+  /**
+   * 导入工程内嵌的真实焊盘表（封装名 → 焊盘定义）。
+   * 必须随文档持久化：它是 2D 绘制、3D 建模、KiCad 回写的共同依据。
+   * 此前只注册在内存里，刷新后恢复的存档会回落到"按名字猜"的几何 —— 器件 2D/3D 全不对。
+   * 体积可控：真实工程约 20 个唯一封装、16–19KB。
+   */
+  importedFootprints: z.record(z.string(), z.object({
+    bodyW: z.number(), bodyH: z.number(),
+    bodyCx: z.number().optional(), bodyCy: z.number().optional(),
+    heightMm: z.number().optional(),
+    approximate: z.boolean().optional(),
+    pin1: z.object({ x: z.number(), y: z.number() }).optional(),
+    pads: z.array(z.object({
+      x: z.number(), y: z.number(), w: z.number(), h: z.number(),
+      num: z.union([z.string(), z.number()]), round: z.boolean().optional(),
+    })),
+  })).optional(),
   schematicSheets: z.record(z.string(), SchematicSheetSchema).optional(),
   rootSheetFile: z.string().optional(),
   board: boardSchema,

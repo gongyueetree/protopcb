@@ -15,6 +15,7 @@ import { solvePlacementDetailed, DEFAULT_PLACEMENT_RULES, autoPlaceAllDetailed, 
 import { DEFAULT_ENCLOSURE } from '../design-core/enclosure';
 import { kicadPassiveDefaults } from '../design-core/geometry/kicad-passive-defaults';
 import { materializeMountingHoles } from '../design-core/board/mounting-holes';
+import { registerFootprintOverride } from '../design-core/geometry/lib-file-registry';
 import { clampComponentToBoard, findOverlaps, resolveDropPosition, BOARD_MARGIN_MM } from '../design-core/collision';
 import { appConfig } from '../config';
 
@@ -601,6 +602,12 @@ export const useDesignStore = create<DesignState>()(
 
     importKicad: (data) =>
       set((s) => {
+        // 内嵌焊盘表：既注册到内存（本次会话的 2D/3D/导出都用它），也写进文档（刷新后能恢复）。
+        // 注册放在 store 而不是导入服务里，保证"导入"与"恢复存档"两条路径行为一致。
+        if (data.footprintDefs && Object.keys(data.footprintDefs).length) {
+          s.doc.importedFootprints = { ...(s.doc.importedFootprints ?? {}), ...data.footprintDefs };
+          for (const [name, def] of Object.entries(data.footprintDefs)) registerFootprintOverride(name, def);
+        }
         snapshot(s);
         s.doc.components = data.comps.map((k) => {
           const cat: ComponentCategory = /^U/.test(k.reference) ? 'ic' : /^(R|C|L|D|Y|FB)/.test(k.reference) ? 'passive' : /^(J|P|X|CN)/.test(k.reference) ? 'connector' : /^(VR|PS)/.test(k.reference) ? 'power' : 'ic';
@@ -659,6 +666,11 @@ export const useDesignStore = create<DesignState>()(
     loadDocument: (doc) =>
       set((s) => {
         snapshot(s);
+        // 恢复存档/导入 JSON 时把内嵌焊盘表注册回注册表 —— 否则 2D/3D 会回落到按名字猜的几何。
+        // 这是"刷新后器件显示不对"的根因：文档恢复了，但几何依据没跟着回来。
+        for (const [name, def] of Object.entries(doc.importedFootprints ?? {})) {
+          registerFootprintOverride(name, def as Parameters<typeof registerFootprintOverride>[1]);
+        }
         s.doc = refreshDerived(doc);
         s.selectedId = null;
         s.multiSel = [];

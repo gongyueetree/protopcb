@@ -52,3 +52,14 @@ describe('useProjectPersistence 注册了离开页面的 flush', () => {
     expect(src.includes("addEventListener('beforeunload'")).toBe(false);   // 不用会弹框的那个
   });
 });
+
+describe('?fresh=1 空白启动', () => {
+  it('恢复逻辑识别该参数并清掉存档', async () => {
+    const src = await import('node:fs').then((fs) => fs.readFileSync(
+      new URL('../../src/modules/report/useProjectPersistence.ts', import.meta.url), 'utf8'));
+    expect(src).toMatch(/fresh=1/);
+    expect(src).toMatch(/clearByUser\(\)/);
+    // 只在显式带参数时跳过：默认仍然恢复，不静默丢用户的设计
+    expect(src).toMatch(/const saved = ProjectPersistenceService\.load\(\);/);
+  });
+});

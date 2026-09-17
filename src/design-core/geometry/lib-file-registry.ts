@@ -38,6 +38,12 @@ export function registerSymbolOverride(mpn: string, ps: ParsedSymbol) {
   symbolOverrides.set(mpn, ps);
   bumpLibRegistry();
 }
+/** 仅供测试：清空内存中的封装覆盖（模拟刷新后注册表为空的状态） */
+export function clearFootprintOverrides(): void {
+  footprintOverrides.clear();
+  bumpLibRegistry();
+}
+
 export function registerFootprintOverride(name: string, fp: PadFootprint) {
   footprintOverrides.set(name, fp);
   bumpLibRegistry();
