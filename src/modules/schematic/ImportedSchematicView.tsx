@@ -5,7 +5,7 @@
  * 坐标约定：sch 文件 Y 向下；符号库内部几何 Y 向上。
  * 实例变换：先 Y 翻转进 sch 局部系 → 镜像 → 旋转（KiCad 逆时针角度）→ 平移到 (at x y)。
  */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { tr } from '../../shared/i18n';
 import type { CircuitCanvasDocument } from '../../design-core/document/types';
 import { rawSymbolGeom } from '../../design-core/geometry/kicad-sch-import';
@@ -80,6 +80,40 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
   const sheet = currentFile ? doc.schematicSheets?.[currentFile] : undefined;
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 20, y: 20 });
+  const wrapRef = useRef<HTMLDivElement>(null);
+  /** 已自适应过的页面：换页时重新适配，同一页不反复重置用户的平移 */
+  const fittedRef = useRef<string | null>(null);
+
+  /**
+   * 首次显示某页时把内容缩放平移到可见区。
+   * 固定 pan(20,20)+zoom 1 只对 KiCad 成立 —— 它的图纸坐标从左上角开始且为正；
+   * Altium 的 Y 轴向上，翻转后坐标全为负，内容整个落在视野上方，页面就是一片空白。
+   */
+  useEffect(() => {
+    if (!sheet || !currentFile || fittedRef.current === currentFile) return;
+    const xs: number[] = [];
+    const ys: number[] = [];
+    const add = (x: number, y: number) => { xs.push(x); ys.push(y); };
+    for (const i of sheet.instances) add(i.x, i.y);
+    for (const w of sheet.wires) for (const [x, y] of w) add(x, y);
+    for (const [x, y] of sheet.junctions) add(x, y);
+    for (const l of sheet.labels) add(l.x, l.y);
+    if (!xs.length) return;
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const box = wrapRef.current?.getBoundingClientRect();
+    const vw = box?.width || 1000, vh = box?.height || 700;
+    const contentW = (maxX - minX) * PXMM || 1;
+    const contentH = (maxY - minY) * PXMM || 1;
+    // 留 8% 边距，最多放大到 1（不为小图强行拉伸）
+    const z = Math.min(1, Math.min((vw * 0.92) / contentW, (vh * 0.92) / contentH));
+    setZoom(z);
+    setPan({
+      x: (vw - contentW * z) / 2 - minX * PXMM * z,
+      y: (vh - contentH * z) / 2 - minY * PXMM * z,
+    });
+    fittedRef.current = currentFile;
+  }, [sheet, currentFile]);
   const drag = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
 
   const content = useMemo(() => {
@@ -325,7 +359,7 @@ export function ImportedSchematicView({ doc }: { doc: CircuitCanvasDocument }) {
 
   if (!sheet) return null;
   return (
-    <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#fafaf6', cursor: 'grab' }}
+    <div ref={wrapRef} style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#fafaf6', cursor: 'grab' }}
       onWheel={(e) => { e.preventDefault(); setZoom((z) => Math.min(4, Math.max(0.15, z * (e.deltaY < 0 ? 1.12 : 0.9)))); }}
       onMouseDown={(e) => { drag.current = { sx: e.clientX, sy: e.clientY, px: pan.x, py: pan.y }; }}
       onMouseMove={(e) => { if (drag.current) setPan({ x: drag.current.px + e.clientX - drag.current.sx, y: drag.current.py + e.clientY - drag.current.sy }); }}
